@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
+	"github.com/trueforge-org/dexa-fix/pkg/importer"
+	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 	"github.com/trueforge-org/dexa-fix/pkg/web"
 )
@@ -45,7 +47,7 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 		}
 		defer st.Close()
 
-		srv, err := web.New(st)
+		srv, err := web.New(st, importer.NewRegistry(withings.Importer{}))
 		if err != nil {
 			return err
 		}

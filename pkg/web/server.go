@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -24,19 +25,20 @@ var assets embed.FS
 
 // Server wires the store to HTTP handlers.
 type Server struct {
-	store store.Store
-	tmpl  map[string]*template.Template
+	store     store.Store
+	importers *importer.Registry
+	tmpl      map[string]*template.Template
 }
 
 var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html"}
 
-// New builds a Server and parses the embedded templates.
-func New(st store.Store) (*Server, error) {
+// New builds a Server and parses the embedded templates. importers may be nil.
+func New(st store.Store, importers *importer.Registry) (*Server, error) {
 	funcs := template.FuncMap{
 		"day": func(t time.Time) string { return t.Format("2006-01-02") },
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
 	}
-	s := &Server{store: st, tmpl: map[string]*template.Template{}}
+	s := &Server{store: st, importers: importers, tmpl: map[string]*template.Template{}}
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
 		if err != nil {
@@ -67,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
 
 	s.apiRoutes(mux)
+	s.integrationRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return logRequests(mux)
 }

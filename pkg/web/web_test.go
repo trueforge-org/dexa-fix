@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trueforge-org/dexa-fix/pkg/importer"
+	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -18,7 +20,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv, err := New(st)
+	srv, err := New(st, importer.NewRegistry(withings.Importer{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +196,26 @@ func TestAPI(t *testing.T) {
 	}
 	if code, _ := do("GET", "/api/v1/users/9/estimates", ""); code != 404 {
 		t.Fatalf("unknown user: %d", code)
+	}
+	if code, b := do("POST", "/api/v1/users/1/import/withings", ""); code != 501 || !strings.Contains(b, "not implemented") {
+		t.Fatalf("withings import: %d %s", code, b)
+	}
+	if code, _ := do("POST", "/api/v1/users/1/import/nope", ""); code != 404 {
+		t.Fatalf("unknown provider: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users/1/import/withings?since=yesterday", ""); code != 400 {
+		t.Fatalf("bad since: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users/9/import/withings", ""); code != 404 {
+		t.Fatalf("unknown user import: %d", code)
+	}
+	for _, p := range []string{"/u/1/integrations/withings/connect", "/u/1/integrations/withings/callback"} {
+		if code, _ := do("GET", p, ""); code != 501 {
+			t.Fatalf("%s: %d", p, code)
+		}
+	}
+	if code, _ := do("GET", "/u/1/integrations/nope/connect", ""); code != 404 {
+		t.Fatalf("unknown provider connect: %d", code)
 	}
 	if code, _ := do("GET", "/healthz", ""); code != 200 {
 		t.Fatalf("healthz: %d", code)

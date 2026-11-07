@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -33,7 +34,7 @@ func apiError(w http.ResponseWriter, err error) {
 		status, msg = http.StatusConflict, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, errNotImplemented):
+	case errors.Is(err, importer.ErrNotImplemented):
 		status, msg = http.StatusNotImplemented, err.Error()
 	default:
 		log.Error().Err(err).Msg("api request failed")
@@ -78,8 +79,6 @@ func (s *Server) apiUser(h func(http.ResponseWriter, *http.Request, models.User)
 		h(w, r, u)
 	}
 }
-
-var errNotImplemented = errors.New("not implemented")
 
 func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users", func(w http.ResponseWriter, r *http.Request) {
