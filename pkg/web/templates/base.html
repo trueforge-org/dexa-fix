@@ -1,0 +1,46 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">dexa-fix</a>
+  {{if .User}}
+  <span class="who">{{.User.Name}}</span>
+  <nav>
+    <a href="/u/{{.User.ID}}/estimates" {{if eq .Tab "estimates"}}class="active"{{end}}>Estimates</a>
+    <a href="/u/{{.User.ID}}/dexa" {{if eq .Tab "dexa"}}class="active"{{end}}>DEXA scans</a>
+    <a href="/u/{{.User.ID}}/scale" {{if eq .Tab "scale"}}class="active"{{end}}>Scale</a>
+  </nav>
+  {{end}}
+</header>
+<main id="content">
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}
+
+{{define "table"}}
+{{if .Rows}}
+<div class="scroll"><table>
+  <thead><tr><th>Date</th>{{range .Fields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}<th>Notes</th><th></th></tr></thead>
+  <tbody>
+  {{range $r := .Rows}}<tr>
+    <td>{{$r.When}}{{if $r.Source}} <small>{{$r.Source}}</small>{{end}}</td>
+    {{range $r.Cells}}<td class="num">{{.}}</td>{{end}}
+    <td>{{$r.Notes}}</td>
+    <td><form method="post" action="{{$.User.ID | printf "/u/%d"}}/{{$.Tab}}/{{$r.ID}}/delete"
+          hx-post="{{$.User.ID | printf "/u/%d"}}/{{$.Tab}}/{{$r.ID}}/delete" hx-confirm="Delete this entry?"
+          hx-target="#content" hx-select="#content" hx-swap="outerHTML"><button class="link" type="submit">delete</button></form></td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{else}}<p>Nothing submitted yet.</p>{{end}}
+{{end}}

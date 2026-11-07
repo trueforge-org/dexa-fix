@@ -1,0 +1,15 @@
+{{define "content"}}
+<h1>DEXA scans</h1>
+<form method="post" action="/u/{{.User.ID}}/dexa" class="measure"
+      hx-post="/u/{{.User.ID}}/dexa" hx-target="#content" hx-select="#content" hx-swap="outerHTML">
+  <label>Date <input type="date" name="measured_at" value="{{.Today}}" required></label>
+  <div class="grid">
+    {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}
+      <input type="number" step="any" inputmode="decimal" name="{{.Key}}"></label>{{end}}
+  </div>
+  <label>Notes <input type="text" name="notes" maxlength="500"></label>
+  <button type="submit">Add DEXA scan</button>
+</form>
+<h2>Submitted scans</h2>
+{{template "table" .}}
+{{end}}
