@@ -120,3 +120,82 @@ func TestUnknownUser(t *testing.T) {
 		t.Errorf("static: %d", code)
 	}
 }
+
+func TestEstimatesPage(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/users", url.Values{"name": {"bob"}})
+	if code, b := body(t, c, ts.URL+"/u/1/estimates"); code != 200 || !strings.Contains(b, "No data yet") {
+		t.Fatalf("empty: %d", code)
+	}
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}})
+	post(t, c, ts.URL+"/u/1/dexa", url.Values{"measured_at": {"2026-03-01"}, "weight_kg": {"80"}})
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-02T07:30"}, "weight_kg": {"82.5"}})
+	_, b := body(t, c, ts.URL+"/u/1/estimates")
+	// DEXA day shows 80, the following scale day is corrected by -2: 80.50
+	for _, want := range []string{"80.00", "80.50", "2026-03-02", "Weight -2.00 kg"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("estimates page missing %q", want)
+		}
+	}
+	if code, _ := body(t, c, ts.URL+"/u/1"); code != 303 {
+		t.Errorf("home redirect: %d", code)
+	}
+}
+
+func TestAPI(t *testing.T) {
+	ts, c := newTestServer(t)
+	do := func(method, path, payload string) (int, string) {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(payload))
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var sb strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			sb.Write(buf[:n])
+			if err != nil {
+				break
+			}
+		}
+		return resp.StatusCode, sb.String()
+	}
+	if code, b := do("GET", "/api/v1/users", ""); code != 200 || strings.TrimSpace(b) != "[]" {
+		t.Fatalf("empty users: %d %s", code, b)
+	}
+	if code, _ := do("POST", "/api/v1/users", `{"name":"carol"}`); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users", `{"name":"carol"}`); code != 409 {
+		t.Fatalf("duplicate: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users", `{"nope":1}`); code != 400 {
+		t.Fatalf("unknown field: %d", code)
+	}
+	batch := `[{"measured_at":"2026-03-01T07:30:00Z","weight_kg":81,"source":"withings","external_id":"g1"}]`
+	for i := 0; i < 2; i++ { // idempotent
+		if code, b := do("POST", "/api/v1/users/1/scale-readings", batch); code != 200 || !strings.Contains(b, `"upserted":1`) {
+			t.Fatalf("batch: %d %s", code, b)
+		}
+	}
+	if _, b := do("GET", "/api/v1/users/1/scale-readings", ""); strings.Count(b, `"external_id":"g1"`) != 1 {
+		t.Fatalf("expected one row: %s", b)
+	}
+	if code, _ := do("POST", "/api/v1/users/1/dexa-scans", `{"weight_kg":80}`); code != 400 {
+		t.Fatalf("dexa without date: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users/1/dexa-scans", `{"measured_at":"2026-03-01T00:00:00Z","weight_kg":80}`); code != 201 {
+		t.Fatalf("dexa create: %d", code)
+	}
+	if code, b := do("GET", "/api/v1/users/1/estimates", ""); code != 200 || !strings.Contains(b, `"origin":"dexa"`) {
+		t.Fatalf("estimates: %d %s", code, b)
+	}
+	if code, _ := do("GET", "/api/v1/users/9/estimates", ""); code != 404 {
+		t.Fatalf("unknown user: %d", code)
+	}
+	if code, _ := do("GET", "/healthz", ""); code != 200 {
+		t.Fatalf("healthz: %d", code)
+	}
+}

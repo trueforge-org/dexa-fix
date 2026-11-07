@@ -14,6 +14,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -27,7 +28,7 @@ type Server struct {
 	tmpl  map[string]*template.Template
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html"}
 
 // New builds a Server and parses the embedded templates.
 func New(st store.Store) (*Server, error) {
@@ -63,6 +64,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /u/{id}/scale", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) { s.scalePage(w, r, u, "", http.StatusOK) }))
 	mux.HandleFunc("POST /u/{id}/scale", s.user(s.scaleCreate))
 	mux.HandleFunc("POST /u/{id}/scale/{item}/delete", s.user(s.scaleDelete))
+	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
+
+	s.apiRoutes(mux)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return logRequests(mux)
 }
 
@@ -77,6 +82,10 @@ type pageData struct {
 	Rows   []row
 	Today  string
 	Now    string
+
+	EstFields []estimate.Field
+	EstRows   []estRow
+	Cals      []calRow
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, status int, data pageData) {
@@ -184,5 +193,5 @@ func userPath(id int64, tab string) string {
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request, u models.User) {
-	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
+	http.Redirect(w, r, userPath(u.ID, "estimates"), http.StatusSeeOther)
 }
