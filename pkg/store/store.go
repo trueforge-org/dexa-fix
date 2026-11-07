@@ -18,7 +18,7 @@ var (
 	ErrInvalid = errors.New("invalid input")
 )
 
-// Store persists users, DEXA scans and scale readings.
+// Store persists users, DEXA scans, scale readings and per-user integration data.
 type Store interface {
 	CreateUser(ctx context.Context, name string) (models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
@@ -33,6 +33,12 @@ type Store interface {
 	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
 	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
 	DeleteScaleReading(ctx context.Context, userID, id int64) error
+
+	// GetIntegration returns the provider data (e.g. OAuth tokens) stored for a user, or ErrNotFound.
+	GetIntegration(ctx context.Context, userID int64, provider string) ([]byte, error)
+	PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error
+	// DeleteIntegration removes the provider data; it is not an error if there is none.
+	DeleteIntegration(ctx context.Context, userID int64, provider string) error
 
 	Close() error
 }

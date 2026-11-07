@@ -10,8 +10,33 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
-// ErrNotImplemented is returned by importers that are registered but not functional yet.
-var ErrNotImplemented = errors.New("not implemented")
+var (
+	// ErrNotImplemented is returned by importers that are registered but not functional yet.
+	ErrNotImplemented = errors.New("not implemented")
+	// ErrNotConfigured is returned when the provider has no credentials configured on the server.
+	ErrNotConfigured = errors.New("not configured")
+	// ErrNotConnected is returned when the user has not linked their account with the provider.
+	ErrNotConnected = errors.New("not connected")
+)
+
+// Options selects what an import fetches.
+type Options struct {
+	// Since limits a bulk import to measurements taken at or after this time (zero: everything).
+	Since time.Time
+	// Day, when non-zero, re-imports exactly this UTC day. It replaces the provider's readings for
+	// that day and also imports on days where manually entered readings exist.
+	Day time.Time
+}
+
+// Result reports what an import did.
+type Result struct {
+	Imported    int      `json:"imported"`               // new readings stored
+	Updated     int      `json:"updated"`                // existing readings whose values changed
+	Unchanged   int      `json:"unchanged"`              // readings already stored with identical values
+	Removed     int      `json:"removed"`                // stored readings the provider no longer returns (day re-import only)
+	Skipped     int      `json:"skipped"`                // days left alone because they hold manual readings
+	SkippedDays []string `json:"skipped_days,omitempty"` // those days as YYYY-MM-DD
+}
 
 // Importer imports measurements for a single user from an external provider.
 // Implementations write through store.Store.UpsertScaleReadings with a stable Source and
@@ -19,8 +44,22 @@ var ErrNotImplemented = errors.New("not implemented")
 type Importer interface {
 	// Name is the provider name used in URLs and as the readings' Source, e.g. "withings".
 	Name() string
-	// Import fetches measurements taken at or after since and returns how many were stored.
-	Import(ctx context.Context, st store.Store, userID int64, since time.Time) (int, error)
+	// Import fetches measurements for the user according to o and stores them.
+	Import(ctx context.Context, st store.Store, userID int64, o Options) (Result, error)
+}
+
+// OAuthProvider is implemented by importers that need the user to authorise access first.
+type OAuthProvider interface {
+	// Configured reports whether the server has the credentials to talk to the provider.
+	Configured() bool
+	// Connected reports whether the user has linked their account.
+	Connected(ctx context.Context, st store.Store, userID int64) bool
+	// AuthURL is where the user is sent to grant access; state is echoed back on the callback.
+	AuthURL(state string) string
+	// Connect exchanges the authorisation code from the callback and stores the user's tokens.
+	Connect(ctx context.Context, st store.Store, userID int64, code string) error
+	// Disconnect forgets the user's tokens.
+	Disconnect(ctx context.Context, st store.Store, userID int64) error
 }
 
 // Registry holds the known importers by name.

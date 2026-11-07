@@ -74,6 +74,9 @@ func (s *Server) Handler() http.Handler {
 	return logRequests(mux)
 }
 
+// integrationView is the state of an OAuth integration for the current user.
+type integrationView struct{ Connected bool }
+
 // pageData is the data passed to every template.
 type pageData struct {
 	Title  string
@@ -85,6 +88,10 @@ type pageData struct {
 	Rows   []row
 	Today  string
 	Now    string
+
+	Msg      string // flash message shown at the top of the estimates page
+	Withings *integrationView
+	Resync   bool // show the per-day re-import button
 
 	EstFields []estimate.Field
 	EstRows   []estRow

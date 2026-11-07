@@ -34,8 +34,10 @@ func apiError(w http.ResponseWriter, err error) {
 		status, msg = http.StatusConflict, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, importer.ErrNotImplemented):
+	case errors.Is(err, importer.ErrNotImplemented), errors.Is(err, importer.ErrNotConfigured):
 		status, msg = http.StatusNotImplemented, err.Error()
+	case errors.Is(err, importer.ErrNotConnected):
+		status, msg = http.StatusConflict, err.Error()
 	default:
 		log.Error().Err(err).Msg("api request failed")
 	}

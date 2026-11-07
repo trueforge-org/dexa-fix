@@ -324,3 +324,29 @@ func (s *Store) deleteOwned(ctx context.Context, table string, userID, id int64)
 	}
 	return nil
 }
+
+// ---- integrations ----
+
+func (s *Store) GetIntegration(ctx context.Context, userID int64, provider string) ([]byte, error) {
+	var data string
+	err := s.db.QueryRowContext(ctx, s.q(`SELECT data FROM user_integrations WHERE user_id = ? AND provider = ?`), userID, provider).Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, store.ErrNotFound
+	}
+	return []byte(data), err
+}
+
+func (s *Store) PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error {
+	_, err := s.db.ExecContext(ctx, s.q(`INSERT INTO user_integrations (user_id, provider, data, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (user_id, provider) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
+		userID, provider, string(data), now())
+	if isFK(err) {
+		return store.ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) DeleteIntegration(ctx context.Context, userID int64, provider string) error {
+	_, err := s.db.ExecContext(ctx, s.q(`DELETE FROM user_integrations WHERE user_id = ? AND provider = ?`), userID, provider)
+	return err
+}

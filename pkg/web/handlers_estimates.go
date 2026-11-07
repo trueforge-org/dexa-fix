@@ -8,6 +8,9 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
+// providerWithings is the importer name of the Withings integration.
+const providerWithings = "withings"
+
 type estCell struct {
 	Text  string
 	Class string // "", "dexa" or "corrected"
@@ -78,8 +81,17 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 		}
 		cals = append(cals, cr)
 	}
-	s.render(w, "estimates.html", http.StatusOK, pageData{
+	msg := r.URL.Query().Get("msg")
+	if len(msg) > maxFlashLen {
+		msg = msg[:maxFlashLen]
+	}
+	data := pageData{
 		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
-		EstFields: estimate.Fields, EstRows: rows, Cals: cals,
-	})
+		EstFields: estimate.Fields, EstRows: rows, Cals: cals, Msg: msg,
+	}
+	if p, ok := s.oauthProvider(providerWithings); ok {
+		data.Withings = &integrationView{Connected: p.Connected(r.Context(), s.store, u.ID)}
+		data.Resync = data.Withings.Connected
+	}
+	s.render(w, "estimates.html", http.StatusOK, data)
 }

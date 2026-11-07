@@ -5,14 +5,13 @@ import (
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 )
 
 func TestRegistry(t *testing.T) {
-	r := importer.NewRegistry(withings.Importer{})
+	r := importer.NewRegistry(withings.New(withings.Config{}, nil))
 	if _, ok := r.Get("nope"); ok {
 		t.Fatal("unexpected importer")
 	}
@@ -23,8 +22,8 @@ func TestRegistry(t *testing.T) {
 	if !reflect.DeepEqual(r.Names(), []string{"withings"}) {
 		t.Fatalf("names: %v", r.Names())
 	}
-	if _, err := imp.Import(context.Background(), nil, 1, time.Time{}); !errors.Is(err, importer.ErrNotImplemented) {
-		t.Fatalf("want ErrNotImplemented, got %v", err)
+	if _, err := imp.Import(context.Background(), nil, 1, importer.Options{}); !errors.Is(err, importer.ErrNotConfigured) {
+		t.Fatalf("want ErrNotConfigured, got %v", err)
 	}
 	var nilReg *importer.Registry
 	if _, ok := nilReg.Get("withings"); ok || nilReg.Names() != nil {

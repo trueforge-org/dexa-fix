@@ -117,3 +117,35 @@ func TestRebind(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestIntegrations(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	u, err := s.CreateUser(ctx, "ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetIntegration(ctx, u.ID, "withings"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+	for _, data := range []string{`{"a":1}`, `{"a":2}`} { // second put overwrites
+		if err := s.PutIntegration(ctx, u.ID, "withings", []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.GetIntegration(ctx, u.ID, "withings")
+	if err != nil || string(got) != `{"a":2}` {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if err := s.PutIntegration(ctx, 999, "withings", []byte("{}")); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown user: %v", err)
+	}
+	for i := 0; i < 2; i++ { // deleting twice is fine
+		if err := s.DeleteIntegration(ctx, u.ID, "withings"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.GetIntegration(ctx, u.ID, "withings"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("after delete: %v", err)
+	}
+}

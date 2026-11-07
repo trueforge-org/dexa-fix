@@ -27,3 +27,7 @@ small{color:var(--muted)}
 .badge{display:inline-block;font-size:.7rem;border-radius:.6rem;padding:0 .4rem;background:var(--chip);color:var(--muted)}
 .badge.dexa{background:var(--accent);color:#fff}
 .badge.corrected{border:1px solid var(--accent);color:var(--accent);background:none}
+.integration{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0 1rem}.integration form{margin:0}
+.notice{border:1px solid var(--accent);border-radius:.4rem;padding:.5rem .75rem}
+button.secondary{background:var(--chip);color:inherit}
+td button.link{color:var(--accent)}

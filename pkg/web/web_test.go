@@ -2,9 +2,11 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,12 +17,17 @@ import (
 
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
+	return newServerWith(t, withings.New(withings.Config{}, nil))
+}
+
+func newServerWith(t *testing.T, wi *withings.Importer) (*httptest.Server, *http.Client) {
+	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv, err := New(st, importer.NewRegistry(withings.Importer{}))
+	srv, err := New(st, importer.NewRegistry(wi))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +204,7 @@ func TestAPI(t *testing.T) {
 	if code, _ := do("GET", "/api/v1/users/9/estimates", ""); code != 404 {
 		t.Fatalf("unknown user: %d", code)
 	}
-	if code, b := do("POST", "/api/v1/users/1/import/withings", ""); code != 501 || !strings.Contains(b, "not implemented") {
+	if code, b := do("POST", "/api/v1/users/1/import/withings", ""); code != 501 || !strings.Contains(b, "not configured") {
 		t.Fatalf("withings import: %d %s", code, b)
 	}
 	if code, _ := do("POST", "/api/v1/users/1/import/nope", ""); code != 404 {
@@ -206,11 +213,14 @@ func TestAPI(t *testing.T) {
 	if code, _ := do("POST", "/api/v1/users/1/import/withings?since=yesterday", ""); code != 400 {
 		t.Fatalf("bad since: %d", code)
 	}
+	if code, _ := do("POST", "/api/v1/users/1/import/withings?day=tomorrow", ""); code != 400 {
+		t.Fatalf("bad day: %d", code)
+	}
 	if code, _ := do("POST", "/api/v1/users/9/import/withings", ""); code != 404 {
 		t.Fatalf("unknown user import: %d", code)
 	}
-	for _, p := range []string{"/u/1/integrations/withings/connect", "/u/1/integrations/withings/callback"} {
-		if code, _ := do("GET", p, ""); code != 501 {
+	for _, p := range []string{"/u/1/integrations/withings/connect", "/integrations/withings/callback"} {
+		if code, _ := do("GET", p, ""); code != 404 { // unconfigured: no OAuth flow
 			t.Fatalf("%s: %d", p, code)
 		}
 	}
@@ -219,5 +229,145 @@ func TestAPI(t *testing.T) {
 	}
 	if code, _ := do("GET", "/healthz", ""); code != 200 {
 		t.Fatalf("healthz: %d", code)
+	}
+}
+
+// fakeWithingsAPI answers the token and getmeas endpoints with two weigh-ins.
+func fakeWithingsAPI(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/oauth2":
+			w.Write([]byte(`{"status":0,"body":{"userid":1,"access_token":"at","refresh_token":"rt","expires_in":10800}}`))
+		case "/measure":
+			r.ParseForm()
+			start, _ := strconv.ParseInt(r.PostForm.Get("startdate"), 10, 64)
+			end, err := strconv.ParseInt(r.PostForm.Get("enddate"), 10, 64)
+			if err != nil {
+				end = 1 << 40
+			}
+			// 2026-03-01 and 2026-03-02 at 07:00 UTC
+			var out []string
+			for i, date := range []int64{1772348400, 1772434800} {
+				if date >= start && date <= end {
+					out = append(out, fmt.Sprintf(`{"grpid":%d,"category":1,"date":%d,"measures":[{"value":%d,"type":1,"unit":-3}]}`, i+1, date, 80500-int64(i)*500))
+				}
+			}
+			fmt.Fprintf(w, `{"status":0,"body":{"more":0,"offset":0,"measuregrps":[%s]}}`, strings.Join(out, ","))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestWithingsFlow(t *testing.T) {
+	api := fakeWithingsAPI(t)
+	ts, c := newServerWith(t, withings.New(withings.Config{ClientID: "id", ClientSecret: "s", RedirectURL: "http://app/integrations/withings/callback", APIBase: api.URL}, nil))
+	post(t, c, ts.URL+"/users", url.Values{"name": {"dora"}})
+
+	flash := func(resp *http.Response) string {
+		t.Helper()
+		if resp.StatusCode != 303 {
+			t.Fatalf("want redirect, got %d", resp.StatusCode)
+		}
+		loc, err := url.Parse(resp.Header.Get("Location"))
+		if err != nil || loc.Path != "/u/1/estimates" {
+			t.Fatalf("bad location %q", resp.Header.Get("Location"))
+		}
+		return loc.Query().Get("msg")
+	}
+
+	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Connect Withings") || strings.Contains(b, "Import from Withings") {
+		t.Fatalf("expected connect link:\n%s", b)
+	}
+	// not connected yet
+	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", nil)); !strings.Contains(msg, "not connected") {
+		t.Fatalf("msg %q", msg)
+	}
+	if code, _ := func() (int, string) {
+		resp := post(t, c, ts.URL+"/api/v1/users/1/import/withings", nil)
+		return resp.StatusCode, ""
+	}(); code != 409 {
+		t.Fatalf("api not connected: %d", code)
+	}
+
+	// connect: redirect to Withings with a state that is also kept in a cookie
+	resp, err := c.Get(ts.URL + "/u/1/integrations/withings/connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	auth, _ := url.Parse(resp.Header.Get("Location"))
+	state := auth.Query().Get("state")
+	if resp.StatusCode != 303 || auth.Host != "account.withings.com" || len(state) < 16 || auth.Query().Get("client_id") != "id" {
+		t.Fatalf("connect: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	cookies := resp.Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "oauth_state_withings" || cookies[0].Value != "1."+state || !cookies[0].HttpOnly {
+		t.Fatalf("state cookie: %+v", cookies)
+	}
+
+	callback := func(query string, cs ...*http.Cookie) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("GET", ts.URL+"/integrations/withings/callback?"+query, nil)
+		for _, ck := range cs {
+			req.AddCookie(ck)
+		}
+		r, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		return r
+	}
+	if r := callback("code=x&state=" + state); r.StatusCode != 400 {
+		t.Fatalf("no cookie: %d", r.StatusCode)
+	}
+	if r := callback("code=x&state=wrong", cookies[0]); r.StatusCode != 400 {
+		t.Fatalf("wrong state: %d", r.StatusCode)
+	}
+	if msg := flash(callback("error=access_denied&state="+state, cookies[0])); !strings.Contains(msg, "not authorised") {
+		t.Fatalf("denied: %q", msg)
+	}
+	if msg := flash(callback("code=abc&state="+state, cookies[0])); !strings.Contains(msg, "connected") {
+		t.Fatalf("connected: %q", msg)
+	}
+
+	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Import from Withings") || strings.Contains(b, "Connect Withings") {
+		t.Fatalf("expected import button:\n%s", b)
+	}
+	// a manual reading on the first day must be protected from the bulk import
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T09:00"}, "weight_kg": {"81"}})
+	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", nil)); !strings.Contains(msg, "1 imported") || !strings.Contains(msg, "1 day(s) skipped") || !strings.Contains(msg, "2026-03-01") {
+		t.Fatalf("bulk msg %q", msg)
+	}
+	_, b := body(t, c, ts.URL+"/u/1/estimates")
+	for _, want := range []string{`name="day" value="2026-03-01"`, `name="day" value="2026-03-02"`, "Re-import this day from Withings", "80.00"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("estimates page missing %q", want)
+		}
+	}
+
+	// the per-day button re-imports the protected day on request
+	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", url.Values{"day": {"2026-03-01"}})); !strings.Contains(msg, "for 2026-03-01") || !strings.Contains(msg, "1 imported") {
+		t.Fatalf("day msg %q", msg)
+	}
+	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", url.Values{"day": {"2026-03-02"}})); !strings.Contains(msg, "1 unchanged") {
+		t.Fatalf("unchanged msg %q", msg)
+	}
+	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", url.Values{"day": {"nope"}})); !strings.Contains(msg, "day must be") {
+		t.Fatalf("bad day msg %q", msg)
+	}
+	if code, b := body(t, c, ts.URL+"/u/1/estimates?msg=hello+there"); code != 200 || !strings.Contains(b, "hello there") {
+		t.Fatalf("flash not shown: %d", code)
+	}
+
+	if msg := flash(post(t, c, ts.URL+"/u/1/integrations/withings/disconnect", nil)); !strings.Contains(msg, "disconnected") {
+		t.Fatalf("disconnect: %q", msg)
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/estimates"); strings.Contains(b, "Re-import this day") || !strings.Contains(b, "Connect Withings") {
+		t.Fatalf("buttons must be gone after disconnect")
 	}
 }
