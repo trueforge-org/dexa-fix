@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -147,5 +148,60 @@ func TestIntegrations(t *testing.T) {
 	}
 	if _, err := s.GetIntegration(ctx, u.ID, "withings"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("after delete: %v", err)
+	}
+}
+
+func TestUserSettings(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	u, _ := s.CreateUser(ctx, "a")
+	got, err := s.GetUser(ctx, u.ID)
+	if err != nil || got.AthleteDefault || !reflect.DeepEqual(got.MethodRanking, models.DefaultRanking()) {
+		t.Fatalf("defaults: %+v %v", got, err)
+	}
+	if err := s.UpdateUserSettings(ctx, u.ID, true, []string{"scale", "bogus", "caliper", "scale"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetUser(ctx, u.ID)
+	want := []string{"scale", "caliper", "hydrostatic", "bodpod", "tape", "visual-ai"}
+	if !got.AthleteDefault || !reflect.DeepEqual(got.MethodRanking, want) {
+		t.Fatalf("saved: %+v", got)
+	}
+	if us, _ := s.ListUsers(ctx); len(us) != 1 || !us[0].AthleteDefault {
+		t.Fatalf("list: %+v", us)
+	}
+	if err := s.UpdateUserSettings(ctx, 999, true, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown user: %v", err)
+	}
+}
+
+func TestScaleMethodAndAthleteModeAreKeptOnUpsert(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	u, _ := s.CreateUser(ctx, "a")
+	ext := "grp-1"
+	at := time.Date(2026, 3, 2, 7, 30, 0, 0, time.UTC)
+	r := models.ScaleReading{MeasuredAt: at, WeightKg: f(81), Source: "withings", ExternalID: &ext, Method: models.MethodTape, AthleteMode: true}
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{r}); err != nil {
+		t.Fatal(err)
+	}
+	// a re-import carries the importer's defaults; the stored flags must survive
+	r.WeightKg, r.Method, r.AthleteMode = f(82), models.MethodScale, false
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{r}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.ListScaleReadings(ctx, u.ID)
+	if len(got) != 1 || *got[0].WeightKg != 82 || got[0].Method != models.MethodTape || !got[0].AthleteMode {
+		t.Fatalf("unexpected: %+v", got)
+	}
+	// an empty method means a smart scale; an unknown one is rejected
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{{MeasuredAt: at, WeightKg: f(80)}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListScaleReadings(ctx, u.ID); got[0].Method != models.MethodScale || got[0].AthleteMode {
+		t.Fatalf("defaults: %+v", got[0])
+	}
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{{MeasuredAt: at, Method: "nope"}}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("unknown method: %v", err)
 	}
 }

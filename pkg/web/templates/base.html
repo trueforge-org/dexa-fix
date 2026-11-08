@@ -17,6 +17,7 @@
     <a href="/u/{{.User.ID}}/estimates" {{if eq .Tab "estimates"}}class="active"{{end}}>Estimates</a>
     <a href="/u/{{.User.ID}}/dexa" {{if eq .Tab "dexa"}}class="active"{{end}}>DEXA scans</a>
     <a href="/u/{{.User.ID}}/scale" {{if eq .Tab "scale"}}class="active"{{end}}>Scale</a>
+    <a href="/u/{{.User.ID}}/settings" {{if eq .Tab "settings"}}class="active"{{end}}>Settings</a>
   </nav>
   {{end}}
 </header>
@@ -33,7 +34,7 @@
   <thead><tr><th>Date</th>{{range .Fields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}<th>Notes</th><th></th></tr></thead>
   <tbody>
   {{range $r := .Rows}}<tr>
-    <td>{{$r.When}}{{if $r.Source}} <small>{{$r.Source}}</small>{{end}}</td>
+    <td>{{$r.When}}{{if $r.Source}} <small>{{$r.Source}}</small>{{end}}{{if $r.Method}} <small>{{$r.Method}}{{if $r.Athlete}}, athlete{{end}}</small>{{end}}</td>
     {{range $r.Cells}}<td class="num">{{.}}</td>{{end}}
     <td>{{$r.Notes}}</td>
     <td><form method="post" action="{{$.User.ID | printf "/u/%d"}}/{{$.Tab}}/{{$r.ID}}/delete"

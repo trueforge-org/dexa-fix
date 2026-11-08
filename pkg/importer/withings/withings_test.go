@@ -124,7 +124,7 @@ func TestConnectAndBulkImport(t *testing.T) {
 		t.Fatalf("getmeas request: %v %v", f.bearers, f.meas[0])
 	}
 	rs, _ := st.ListScaleReadings(ctx, 1)
-	if len(rs) != 3 || *rs[2].WeightKg != 80.5 || rs[2].Source != Name {
+	if len(rs) != 3 || *rs[2].WeightKg != 80.5 || rs[2].Source != Name || rs[2].Method != models.MethodScale || rs[2].AthleteMode {
 		t.Fatalf("stored: %+v", rs)
 	}
 
@@ -259,5 +259,24 @@ func TestAuthURL(t *testing.T) {
 	q := u.Query()
 	if u.Host != "account.withings.com" || q.Get("client_id") != "id" || q.Get("state") != "st" || q.Get("redirect_uri") != "http://app/cb" || q.Get("scope") != "user.metrics" || q.Get("response_type") != "code" {
 		t.Fatalf("auth url: %s", u)
+	}
+}
+
+func TestImportFollowsAthleteDefault(t *testing.T) {
+	ctx := context.Background()
+	imp, f, st := setup(t)
+	f.groups = []measureGroup{grp(1, "2026-03-01T07:00", 80500)}
+	if err := st.UpdateUserSettings(ctx, 1, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := imp.Connect(ctx, st, 1, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := imp.Import(ctx, st, 1, importer.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := st.ListScaleReadings(ctx, 1)
+	if len(rs) != 1 || rs[0].Method != models.MethodScale || !rs[0].AthleteMode {
+		t.Fatalf("stored: %+v", rs)
 	}
 }

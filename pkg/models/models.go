@@ -6,11 +6,79 @@ import "time"
 // SourceManual is the source of readings entered by hand.
 const SourceManual = "manual"
 
+// Measurement methods: how a scale/body-composition reading was obtained.
+const (
+	MethodScale       = "scale"       // bioimpedance smart scale (Withings, manual entry from a scale)
+	MethodHydrostatic = "hydrostatic" // underwater weighing
+	MethodBodPod      = "bodpod"      // air displacement plethysmography
+	MethodCaliper     = "caliper"     // skinfold calipers
+	MethodTape        = "tape"        // tape measure / Navy formula
+	MethodVisualAI    = "visual-ai"   // AI estimate from photos
+)
+
+// MethodInfo describes a measurement method for forms.
+type MethodInfo struct {
+	Key   string
+	Label string
+}
+
+// Methods lists all methods in the default accuracy order (most accurate first).
+var Methods = []MethodInfo{
+	{MethodHydrostatic, "Hydrostatic weighing"},
+	{MethodBodPod, "BodPod"},
+	{MethodCaliper, "Skinfold caliper"},
+	{MethodScale, "Smart scale (Withings, manual)"},
+	{MethodTape, "Tape / Navy formula"},
+	{MethodVisualAI, "Visual AI"},
+}
+
+// DefaultRanking returns the method keys in the default accuracy order.
+func DefaultRanking() []string {
+	out := make([]string, len(Methods))
+	for i, m := range Methods {
+		out[i] = m.Key
+	}
+	return out
+}
+
+// ValidMethod reports whether key is a known method.
+func ValidMethod(key string) bool {
+	for _, m := range Methods {
+		if m.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeRanking drops unknown and duplicate keys and appends missing methods in default order,
+// so the result always contains every method exactly once.
+func NormalizeRanking(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range in {
+		if ValidMethod(k) && !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	for _, m := range Methods {
+		if !seen[m.Key] {
+			out = append(out, m.Key)
+		}
+	}
+	return out
+}
+
 // User is a person whose measurements are tracked. There is no authentication.
 type User struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+	// AthleteDefault presets athlete mode for new readings and imports.
+	AthleteDefault bool `json:"athlete_default"`
+	// MethodRanking lists methods most accurate first. Always contains every method.
+	MethodRanking []string `json:"method_ranking"`
 }
 
 // ScaleReading is a single smart-scale measurement. Fields are aligned with Withings measure types.
@@ -28,6 +96,8 @@ type ScaleReading struct {
 	BoneMassKg       *float64  `json:"bone_mass_kg,omitempty"`
 	VisceralFatIndex *float64  `json:"visceral_fat_index,omitempty"`
 	Source           string    `json:"source"`
+	Method           string    `json:"method"`
+	AthleteMode      bool      `json:"athlete_mode"`
 	ExternalID       *string   `json:"external_id,omitempty"`
 	Notes            string    `json:"notes,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`

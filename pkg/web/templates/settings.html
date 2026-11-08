@@ -1,0 +1,15 @@
+{{define "content"}}
+<h1>Settings</h1>
+{{if .Saved}}<p class="notice" role="status">{{.Saved}}</p>{{end}}
+<form method="post" action="/u/{{.User.ID}}/settings" class="measure">
+  <label class="check"><input type="checkbox" name="athlete_default" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode by default</label>
+  <p><small>Presets the athlete-mode checkbox for new readings and is used for Withings imports. Each reading keeps its own flag, and DEXA calibration is kept separately for normal and athlete readings.</small></p>
+  <h2>Method accuracy</h2>
+  <p><small>When several methods have a reading for the same day, the lowest rank (most accurate) wins for each measurement. Methods that did not record a measurement are skipped for it.</small></p>
+  <div class="grid">
+    {{range .Ranking}}<label>{{.Label}} (rank)
+      <input type="number" min="1" max="100" step="1" name="rank_{{.Key}}" value="{{.Rank}}"></label>{{end}}
+  </div>
+  <button type="submit">Save</button>
+</form>
+{{end}}

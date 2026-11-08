@@ -23,13 +23,16 @@ type Store interface {
 	CreateUser(ctx context.Context, name string) (models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
 	GetUser(ctx context.Context, id int64) (models.User, error)
+	// UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.
+	UpdateUserSettings(ctx context.Context, userID int64, athleteDefault bool, ranking []string) error
 
 	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
 	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
 	DeleteDexaScan(ctx context.Context, userID, id int64) error
 
 	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
-	// updated in place when (user, source, external_id) already exists.
+	// updated in place when (user, source, external_id) already exists. An update changes the
+	// measured values and notes only, so a reading keeps its method and athlete mode.
 	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
 	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
 	DeleteScaleReading(ctx context.Context, userID, id int64) error

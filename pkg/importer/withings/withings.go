@@ -133,6 +133,10 @@ func (i *Importer) Import(ctx context.Context, st store.Store, userID int64, o i
 	if err != nil {
 		return importer.Result{}, err
 	}
+	user, err := st.GetUser(ctx, userID)
+	if err != nil {
+		return importer.Result{}, err
+	}
 
 	dayMode := !o.Day.IsZero()
 	day := dayOf(o.Day)
@@ -148,6 +152,9 @@ func (i *Importer) Import(ctx context.Context, st store.Store, userID int64, o i
 		return importer.Result{}, err
 	}
 	fetched, seen := mapGroups(groups)
+	for k := range fetched {
+		fetched[k].AthleteMode = user.AthleteDefault // new readings follow the user's default
+	}
 
 	existing, err := st.ListScaleReadings(ctx, userID)
 	if err != nil {

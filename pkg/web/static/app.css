@@ -31,3 +31,7 @@ small{color:var(--muted)}
 .notice{border:1px solid var(--accent);border-radius:.4rem;padding:.5rem .75rem}
 button.secondary{background:var(--chip);color:inherit}
 td button.link{color:var(--accent)}
+td.filled{opacity:.6}
+label.check{display:flex;align-items:center;gap:.4rem}
+td.filled{opacity:.6}
+label.check{display:flex;align-items:center;gap:.4rem}

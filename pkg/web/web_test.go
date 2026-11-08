@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -138,10 +139,11 @@ func TestEstimatesPage(t *testing.T) {
 	}
 	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}})
 	post(t, c, ts.URL+"/u/1/dexa", url.Values{"measured_at": {"2026-03-01"}, "weight_kg": {"80"}})
-	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-02T07:30"}, "weight_kg": {"82.5"}})
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-02T07:30"}, "weight_kg": {"82"}})
 	_, b := body(t, c, ts.URL+"/u/1/estimates")
-	// DEXA day shows 80, the following scale day is corrected by -2: 80.50
-	for _, want := range []string{"80.00", "80.50", "2026-03-02", "Weight -2.00 kg"} {
+	// DEXA day shows 80; the series is a constant 82, so the offset is -2 and the following days
+	// (a measured one, then held up to today) are corrected to 80 as well.
+	for _, want := range []string{"80.00", "2026-03-02", "Weight -2.00 kg", "Smart scale", "held", "corr."} {
 		if !strings.Contains(b, want) {
 			t.Errorf("estimates page missing %q", want)
 		}
@@ -369,5 +371,71 @@ func TestWithingsFlow(t *testing.T) {
 	}
 	if _, b := body(t, c, ts.URL+"/u/1/estimates"); strings.Contains(b, "Re-import this day") || !strings.Contains(b, "Connect Withings") {
 		t.Fatalf("buttons must be gone after disconnect")
+	}
+}
+
+func TestMethodsAthleteModeAndSettings(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/users", url.Values{"name": {"carol"}})
+	api := func(method, path, payload string) (int, string) {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(payload))
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	// settings: defaults, then save
+	if code, b := api("GET", "/api/v1/users/1/settings", ""); code != 200 || !strings.Contains(b, `"athlete_default":false`) || !strings.Contains(b, `"method_ranking":["hydrostatic","bodpod","caliper","scale","tape","visual-ai"]`) {
+		t.Fatalf("default settings: %d %s", code, b)
+	}
+	if r := post(t, c, ts.URL+"/u/1/settings", url.Values{"athlete_default": {"1"}, "rank_visual-ai": {"1"}, "rank_hydrostatic": {"2"}}); r.StatusCode != 200 {
+		t.Fatalf("save settings: %d", r.StatusCode)
+	}
+	if code, b := api("GET", "/api/v1/users/1/settings", ""); code != 200 || !strings.Contains(b, `"athlete_default":true`) || !strings.Contains(b, `"method_ranking":["visual-ai","hydrostatic"`) {
+		t.Fatalf("saved settings: %d %s", code, b)
+	}
+	if code, b := body(t, c, ts.URL+"/u/1/settings"); code != 200 || !strings.Contains(b, "Athlete mode by default") || !strings.Contains(b, "checked") {
+		t.Fatalf("settings page: %d", code)
+	}
+	if r := post(t, c, ts.URL+"/u/1/settings", url.Values{"rank_scale": {"zero"}}); r.StatusCode != 422 {
+		t.Fatalf("bad rank: %d", r.StatusCode)
+	}
+	if code, _ := api("PUT", "/api/v1/users/1/settings", `{"athlete_default":false,"method_ranking":["nope"]}`); code != 400 {
+		t.Fatalf("unknown method: %d", code)
+	}
+	if code, b := api("PUT", "/api/v1/users/1/settings", `{"athlete_default":false,"method_ranking":["scale"]}`); code != 200 || !strings.Contains(b, `"method_ranking":["scale","hydrostatic"`) {
+		t.Fatalf("put settings: %d %s", code, b)
+	}
+	api("PUT", "/api/v1/users/1/settings", `{"athlete_default":true,"method_ranking":[]}`)
+
+	// scale form: dropdown, athlete checkbox preset from the user default
+	if _, b := body(t, c, ts.URL+"/u/1/scale"); !strings.Contains(b, `<option value="caliper">`) || !strings.Contains(b, `name="athlete_mode" value="1" checked`) {
+		t.Fatalf("scale form lacks method/athlete controls:\n%s", b)
+	}
+	if r := post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"81"}, "method": {"caliper"}, "athlete_mode": {"1"}}); r.StatusCode != 303 {
+		t.Fatalf("scale with method: %d", r.StatusCode)
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/scale"); !strings.Contains(b, "Skinfold caliper, athlete") {
+		t.Fatalf("scale list lacks method tag:\n%s", b)
+	}
+	if r := post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"81"}, "method": {"nope"}}); r.StatusCode != 422 {
+		t.Fatalf("bad method: %d", r.StatusCode)
+	}
+
+	// API: athlete_mode falls back to the user default unless given
+	batch := `[{"measured_at":"2026-03-05T07:00:00Z","weight_kg":80,"method":"tape"},{"measured_at":"2026-03-06T07:00:00Z","weight_kg":80,"athlete_mode":false}]`
+	if code, b := api("POST", "/api/v1/users/1/scale-readings", batch); code != 200 {
+		t.Fatalf("post readings: %d %s", code, b)
+	}
+	_, b := api("GET", "/api/v1/users/1/scale-readings", "")
+	if !strings.Contains(b, `"method":"tape","athlete_mode":true`) || !strings.Contains(b, `"method":"scale","athlete_mode":false`) {
+		t.Fatalf("readings: %s", b)
+	}
+	if code, _ := api("POST", "/api/v1/users/1/scale-readings", `[{"measured_at":"2026-03-07T07:00:00Z","weight_kg":80,"method":"nope"}]`); code != 400 {
+		t.Fatalf("unknown method via API: %d", code)
 	}
 }

@@ -28,7 +28,7 @@ func mapGroups(groups []measureGroup) (rs []models.ScaleReading, seen map[string
 		if g.Category != 1 || g.Attrib == attribUnsure || g.Date <= 0 {
 			continue
 		}
-		r := models.ScaleReading{Source: Name, ExternalID: &id, MeasuredAt: time.Unix(g.Date, 0).UTC()}
+		r := models.ScaleReading{Source: Name, Method: models.MethodScale, ExternalID: &id, MeasuredAt: time.Unix(g.Date, 0).UTC()}
 		mapped := 0
 		for _, m := range g.Measures {
 			v := math.Round(float64(m.Value)*math.Pow10(m.Unit)*1e6) / 1e6

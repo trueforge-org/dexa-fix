@@ -13,25 +13,29 @@ A smart scale is convenient but biased. A DEXA scan is accurate but rare. The
 app uses the difference between the two (the offset) to correct the scale
 between scans.
 
-- The offset is `DEXA - scale` at each DEXA scan, using the scale reading of
-  the nearest day within 3 days.
+- Stored readings are never changed. Everything below is calculated per request.
+- First the app builds its own per-day series: the most accurate reading of
+  each day, gaps filled in, and a centred 7-day rolling average.
+- The offset is `DEXA - series` on the day of each DEXA scan.
 - On a day with a DEXA value, that value is used.
-- On a scale-only day, the scale value is corrected by the nearby offset.
+- On every other day, the series is corrected by the nearby offset.
 
 Example: one DEXA scan on 2026-03-01 with weight 80.0 kg, while the scale says
-82.0 kg. The offset is -2.0 kg.
+82.0 kg every day. The series is 82.0 kg, so the offset is -2.0 kg.
 
-| Date       | Scale (kg) | Estimate (kg) | Origin            |
-| ---------- | ---------- | ------------- | ----------------- |
-| 2026-03-01 | 82.0       | 80.0          | `dexa`            |
-| 2026-03-02 | 82.5       | 80.5          | `scale-corrected` |
-| 2026-03-03 | 81.8       | 79.8          | `scale-corrected` |
+| Date       | Scale (kg) | Estimate (kg) | Origin     |
+| ---------- | ---------- | ------------- | ---------- |
+| 2026-03-01 | 82.0       | 80.0          | `dexa`     |
+| 2026-03-02 | 82.0       | 80.0          | `measured` |
+| 2026-03-05 | none       | 80.0          | `interpolated` or `held` |
 
 The full rules are in [Estimation details](#estimation-details).
 
 ## Features
 
 - Per-user DEXA scans and scale readings, entered in the browser or by JSON API.
+- Each reading records its measurement method (smart scale, caliper, BodPod,
+  hydrostatic, tape, visual AI) and whether athlete mode was on.
 - One estimate per day for weight, body fat, fat mass, fat-free mass, muscle
   mass, hydration, bone mass and visceral fat index.
 - Optional Withings import, so scale readings do not need typing in.
@@ -96,14 +100,18 @@ go run . serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
   calibrations in use, and the Withings buttons when Withings is set up.
 - `/u/{id}/dexa`: add and delete DEXA scans. A scan needs a date and at least
   one measurement.
-- `/u/{id}/scale`: add and delete scale readings. The time is UTC.
+- `/u/{id}/scale`: add and delete readings. The time is UTC. Choose the
+  measurement method in the drop-down and tick **Athlete mode** if it applies.
+- `/u/{id}/settings`: the athlete-mode default and the accuracy rank of each
+  method.
 
 Numbers may use a decimal comma. Notes are limited to 500 characters.
 
 On the estimates page, a `DEXA` badge marks a value from a DEXA scan, and a
-`corr.` badge marks a corrected scale value. Hovering a value shows its origin,
-and notes when the daily-change limit applied. The calibrations section lists
-each scan's offsets (DEXA minus scale). Days with only a DEXA scan appear too.
+`corr.` badge marks a corrected value. Faded values are interpolated or held.
+Hovering a value shows its origin, the method and mode it is based on, and the
+raw reading. The calibrations section lists each scan's offsets (DEXA minus
+series) per method and mode. Days with only a DEXA scan appear too.
 
 ## Withings import
 
@@ -163,27 +171,41 @@ one day. It replaces that day's Withings data:
 
 ## Estimation details
 
-Estimates are computed from the stored data on each request. Nothing is cached.
+Estimates are computed from the stored data on each request. Nothing is cached,
+and stored readings are never changed. Each field is handled on its own.
 
-1. **Daily average.** Readings are averaged per day for each field, ignoring
-   missing values.
-2. **Daily-change limit.** The daily value may change by at most a fixed amount
-   per day, and the allowance grows with the days between two measured days.
-   Per day: weight 1.0 kg, body fat 0.3 %, fat mass 0.2 kg, fat-free mass
-   0.5 kg, bone mass 0.005 kg, muscle mass 0.05 kg, hydration 1.0 kg, visceral
-   fat index 0.2.
-3. **Calibration.** Each DEXA scan is paired with the nearest scale day within
-   3 days. The offset (DEXA minus scale) is recorded for weight, body fat, fat
-   mass, fat-free mass and bone mass. Muscle mass, hydration and visceral fat
-   index are never corrected, because DEXA does not measure them here.
-4. **Estimate.** For each field and day:
+1. **Daily average.** Readings are averaged per day, for each field and each
+   group. A group is a measurement method plus athlete mode. Missing values are
+   ignored.
+2. **Most accurate reading.** Each day uses the group whose method ranks
+   highest for that field. The default order, most accurate first, is
+   hydrostatic, BodPod, caliper, smart scale, tape, visual AI. Change it on the
+   settings page. A method without a value for the field is skipped, so a
+   caliper reading with only body fat does not hide the scale weight. If the
+   normal and athlete group of one method both have a value, the one matching
+   the user's athlete-mode default wins.
+3. **Missing days.** From the first reading until today, gaps are filled by a
+   straight line between the known days (origin `interpolated`). After the last
+   reading the last value is repeated (origin `held`).
+4. **Smoothing.** The filled series is replaced by a centred 7-day rolling
+   average (3 days before, 3 after). The window is shorter at the ends of the
+   series. Peaks are not capped. This is the per-day series.
+5. **Calibration.** On each DEXA day inside the series, the offset (DEXA minus
+   series) is recorded for weight, body fat, fat mass, fat-free mass and bone
+   mass. It belongs to the group used around that day (the most common group
+   within 3 days, the more accurate one on a tie), so athlete and normal
+   readings of the same method get their own offsets. Muscle mass, hydration
+   and visceral fat index are never corrected, because DEXA does not measure
+   them here. A scan before the first reading cannot calibrate.
+6. **Estimate.** For each field and day:
    - A DEXA value is used as it is (origin `dexa`).
-   - Before the first calibration the scale value is used (origin `scale`).
-   - Between two calibrations the offset is blended with a smoothstep curve
-     (origin `scale-corrected`). The first half stays near the earlier scan,
-     and the second half moves towards the later one.
-   - After the last calibration the last offset is kept (origin
-     `scale-corrected`).
+   - Before the first calibration of the day's group the series is used as it
+     is.
+   - Between two calibrations of the group the offset is blended with a
+     smoothstep curve. The first half stays near the earlier scan, and the
+     second half moves towards the later one.
+   - After the last calibration the last offset is kept.
+   - Corrected values have `corrected: true`.
 
 ## JSON API
 
@@ -198,12 +220,20 @@ rejected. Errors have the form `{"error": "..."}`.
 | POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                    |
 | GET    | `/users/{id}/scale-readings`    | List scale readings.                                                 |
 | POST   | `/users/{id}/scale-readings`    | Add a batch: a JSON array of up to 5000 readings.                    |
+| GET    | `/users/{id}/settings`          | Athlete-mode default and method ranking.                             |
+| PUT    | `/users/{id}/settings`          | Replace them. Body: `{"athlete_default": true, "method_ranking": [...]}`. |
 | GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                    |
 | POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters. |
 
 Batch readings with an `external_id` are upserted on `source` and
 `external_id`, so repeated imports do not duplicate. Readings without a
 `source` get `manual`.
+
+Readings also take `method` (`scale` by default, or `hydrostatic`, `bodpod`,
+`caliper`, `tape`, `visual-ai`) and `athlete_mode`. When `athlete_mode` is left
+out, the user's default applies. A re-import never changes the method or athlete
+mode of a stored reading. In `method_ranking`, methods you leave out follow in
+the default order.
 
 ```bash
 curl -s -X POST localhost:8080/api/v1/users \

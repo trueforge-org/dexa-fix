@@ -69,20 +69,23 @@ func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User
 	rows := make([]row, 0, len(readings))
 	for i := range readings {
 		rd := &readings[i]
-		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Notes: rd.Notes})
+		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Method: methodLabel(rd.Method), Athlete: rd.AthleteMode, Notes: rd.Notes})
 	}
 	s.render(w, "scale.html", status, pageData{
 		Title: u.Name + " · scale readings", Tab: "scale", User: &u, Error: errMsg,
 		Fields: scaleFields, Rows: rows, Now: time.Now().UTC().Format(dateTimeLayout),
+		Methods: models.Methods, AthleteDefault: u.AthleteDefault,
 	})
 }
 
 func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
-	rd := models.ScaleReading{UserID: u.ID, Source: models.SourceManual}
+	rd := models.ScaleReading{UserID: u.ID, Source: models.SourceManual, AthleteMode: r.PostFormValue("athlete_mode") != ""}
 	var err error
 	if rd.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateTimeLayout); err == nil {
-		if err = parseMeasures(r, scaleFields, scaleTargets(&rd)); err == nil {
-			rd.Notes, err = parseNotes(r)
+		if rd.Method, err = parseMethod(r); err == nil {
+			if err = parseMeasures(r, scaleFields, scaleTargets(&rd)); err == nil {
+				rd.Notes, err = parseNotes(r)
+			}
 		}
 	}
 	if err != nil {

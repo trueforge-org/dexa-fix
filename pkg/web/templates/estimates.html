@@ -7,13 +7,13 @@
   <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect"><button type="submit" class="secondary">Disconnect Withings</button></form>
 {{else}}<a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a>{{end}}
 </div>{{end}}
-<p><small>One row per day. A DEXA value is used when there is one; otherwise the scale value, corrected by the offset to nearby DEXA scans (blended smoothly between two scans). Day-to-day scale changes are limited to plausible rates first.</small></p>
+<p><small>One row per day. Each day uses the most accurate reading (see <a href="/u/{{.User.ID}}/settings">Settings</a>); days without readings are interpolated, and after the last reading the last value is held. The series is a centred 7-day rolling average. A DEXA value is used when there is one; otherwise the series is corrected by the offset to DEXA scans for the same method and mode (blended smoothly between two scans). Stored readings are never changed. Faded values are interpolated or held.</small></p>
 {{if .EstRows}}
 <div class="scroll"><table>
   <thead><tr><th>Date</th>{{range .EstFields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}{{if .Resync}}<th></th>{{end}}</tr></thead>
   <tbody>
   {{range .EstRows}}<tr><td>{{.Date}}</td>
-    {{range .Cells}}<td class="num" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
+    {{range .Cells}}<td class="num {{.Class}}" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
     {{if $.Resync}}<td><form method="post" action="/u/{{$.User.ID}}/import/withings" onsubmit="return confirm('Re-import {{.Date}} from Withings? Withings readings for this day are replaced.')"><input type="hidden" name="day" value="{{.Date}}"><button class="link" type="submit" title="Re-import this day from Withings">↻</button></form></td>{{end}}
   </tr>{{end}}
   </tbody>
@@ -22,7 +22,7 @@
 
 <h2>Calibrations in use</h2>
 {{if .Cals}}
-<p><small>Offset = DEXA − scale at each scan (paired with the nearest scale day within 3 days).</small></p>
-<ul>{{range .Cals}}<li><strong>{{.Date}}</strong>: {{range $i, $it := .Items}}{{if $i}}; {{end}}{{$it}}{{end}}</li>{{end}}</ul>
-{{else}}<p>None: scale values are shown uncorrected. A calibration needs a DEXA scan with a scale reading within 3 days.</p>{{end}}
+<p><small>Offset = DEXA − the 7-day series on the scan day, kept separately for each method and mode.</small></p>
+<ul>{{range .Cals}}<li><strong>{{.Date}}</strong> ({{.Group}}): {{range $i, $it := .Items}}{{if $i}}; {{end}}{{$it}}{{end}}</li>{{end}}</ul>
+{{else}}<p>None: values are shown uncorrected. A calibration needs a DEXA scan on a day inside the series (from the first reading until today).</p>{{end}}
 {{end}}

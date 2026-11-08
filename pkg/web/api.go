@@ -18,6 +18,12 @@ const (
 	maxBatchItems = 5000
 )
 
+// userSettings are the per-user estimation settings.
+type userSettings struct {
+	AthleteDefault bool     `json:"athlete_default"`
+	MethodRanking  []string `json:"method_ranking"`
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -142,13 +148,25 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	// POST takes a batch. Readings with an external_id are upserted on (source, external_id),
 	// which makes repeated imports (e.g. from Withings) idempotent.
 	mux.HandleFunc("POST /api/v1/users/{id}/scale-readings", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		var batch []models.ScaleReading
-		if !decode(w, r, &batch) {
+		// athlete_mode is optional: when omitted the user's default applies.
+		var in []struct {
+			models.ScaleReading
+			AthleteMode *bool `json:"athlete_mode"`
+		}
+		if !decode(w, r, &in) {
 			return
 		}
-		if len(batch) > maxBatchItems {
+		if len(in) > maxBatchItems {
 			badRequest(w, "batch too large")
 			return
+		}
+		batch := make([]models.ScaleReading, len(in))
+		for i := range in {
+			batch[i] = in[i].ScaleReading
+			batch[i].AthleteMode = u.AthleteDefault
+			if in[i].AthleteMode != nil {
+				batch[i].AthleteMode = *in[i].AthleteMode
+			}
 		}
 		n, err := s.store.UpsertScaleReadings(r.Context(), u.ID, batch)
 		if err != nil {
@@ -156,6 +174,29 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]int{"upserted": n})
+	}))
+
+	mux.HandleFunc("GET /api/v1/users/{id}/settings", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		writeJSON(w, http.StatusOK, userSettings{AthleteDefault: u.AthleteDefault, MethodRanking: u.MethodRanking})
+	}))
+	// PUT replaces the settings; a ranking may list only some methods, the rest follow in default order.
+	mux.HandleFunc("PUT /api/v1/users/{id}/settings", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		var in userSettings
+		if !decode(w, r, &in) {
+			return
+		}
+		for _, k := range in.MethodRanking {
+			if !models.ValidMethod(k) {
+				badRequest(w, "unknown method: "+k)
+				return
+			}
+		}
+		in.MethodRanking = models.NormalizeRanking(in.MethodRanking)
+		if err := s.store.UpdateUserSettings(r.Context(), u.ID, in.AthleteDefault, in.MethodRanking); err != nil {
+			apiError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, in)
 	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/estimates", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {

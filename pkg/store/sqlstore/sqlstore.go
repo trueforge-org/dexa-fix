@@ -161,7 +161,7 @@ func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error
 	if name == "" || len(name) > 64 {
 		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
-	u := models.User{Name: name, CreatedAt: now()}
+	u := models.User{Name: name, CreatedAt: now(), MethodRanking: models.DefaultRanking()}
 	err := s.db.QueryRowContext(ctx, s.q(`INSERT INTO users (name, created_at) VALUES (?, ?) RETURNING id`), u.Name, u.CreatedAt).Scan(&u.ID)
 	if isUnique(err) {
 		return models.User{}, store.ErrExists
@@ -169,16 +169,45 @@ func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error
 	return u, err
 }
 
+const userCols = `id, name, created_at, athlete_default, method_ranking`
+
+func scanUser(sc interface{ Scan(...any) error }) (models.User, error) {
+	var u models.User
+	var ranking string
+	if err := sc.Scan(&u.ID, &u.Name, &u.CreatedAt, &u.AthleteDefault, &ranking); err != nil {
+		return u, err
+	}
+	var keys []string
+	if ranking != "" {
+		keys = strings.Split(ranking, ",")
+	}
+	u.MethodRanking = models.NormalizeRanking(keys)
+	return u, nil
+}
+
+// UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.
+func (s *Store) UpdateUserSettings(ctx context.Context, userID int64, athleteDefault bool, ranking []string) error {
+	res, err := s.db.ExecContext(ctx, s.q(`UPDATE users SET athlete_default = ?, method_ranking = ? WHERE id = ?`),
+		athleteDefault, strings.Join(models.NormalizeRanking(ranking), ","), userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at FROM users ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+userCols+` FROM users ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []models.User
 	for rows.Next() {
-		var u models.User
-		if err := rows.Scan(&u.ID, &u.Name, &u.CreatedAt); err != nil {
+		u, err := scanUser(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -187,8 +216,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 }
 
 func (s *Store) GetUser(ctx context.Context, id int64) (models.User, error) {
-	var u models.User
-	err := s.db.QueryRowContext(ctx, s.q(`SELECT id, name, created_at FROM users WHERE id = ?`), id).Scan(&u.ID, &u.Name, &u.CreatedAt)
+	u, err := scanUser(s.db.QueryRowContext(ctx, s.q(`SELECT `+userCols+` FROM users WHERE id = ?`), id))
 	if err == sql.ErrNoRows {
 		return u, store.ErrNotFound
 	}
@@ -264,7 +292,7 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 	for _, c := range scaleColList {
 		sets = append(sets, c+" = excluded."+c)
 	}
-	query := s.q(`INSERT INTO scale_readings (user_id, measured_at, ` + scaleCols + `, source, external_id, notes, created_at) VALUES (?, ?, ` + strings.Repeat("?, ", 8) + `?, ?, ?, ?)
+	query := s.q(`INSERT INTO scale_readings (user_id, measured_at, ` + scaleCols + `, source, method, athlete_mode, external_id, notes, created_at) VALUES (?, ?, ` + strings.Repeat("?, ", 8) + `?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id, source, external_id) DO UPDATE SET ` + strings.Join(sets, ", "))
 
 	for i := range rs {
@@ -279,7 +307,13 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 		for _, f := range scaleFields(r) {
 			args = append(args, *(f.(**float64)))
 		}
-		args = append(args, r.Source, r.ExternalID, r.Notes, now())
+		if r.Method == "" {
+			r.Method = models.MethodScale
+		}
+		if !models.ValidMethod(r.Method) {
+			return 0, fmt.Errorf("%w: unknown method %q", store.ErrInvalid, r.Method)
+		}
+		args = append(args, r.Source, r.Method, r.AthleteMode, r.ExternalID, r.Notes, now())
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			if isFK(err) {
 				return 0, store.ErrNotFound
@@ -291,7 +325,7 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 }
 
 func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error) {
-	rows, err := s.db.QueryContext(ctx, s.q(`SELECT id, user_id, measured_at, `+scaleCols+`, source, external_id, notes, created_at FROM scale_readings WHERE user_id = ? ORDER BY measured_at DESC, id DESC`), userID)
+	rows, err := s.db.QueryContext(ctx, s.q(`SELECT id, user_id, measured_at, `+scaleCols+`, source, method, athlete_mode, external_id, notes, created_at FROM scale_readings WHERE user_id = ? ORDER BY measured_at DESC, id DESC`), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +334,7 @@ func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.S
 	for rows.Next() {
 		var r models.ScaleReading
 		dest := append([]any{&r.ID, &r.UserID, &r.MeasuredAt}, scaleFields(&r)...)
-		dest = append(dest, &r.Source, &r.ExternalID, &r.Notes, &r.CreatedAt)
+		dest = append(dest, &r.Source, &r.Method, &r.AthleteMode, &r.ExternalID, &r.Notes, &r.CreatedAt)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}

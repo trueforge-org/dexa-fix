@@ -20,11 +20,23 @@ type field struct {
 
 // row is one table row of a measurement overview.
 type row struct {
-	ID     int64
-	When   string
-	Cells  []string
-	Source string
-	Notes  string
+	ID      int64
+	When    string
+	Cells   []string
+	Source  string
+	Method  string // label of the measurement method (scale readings)
+	Athlete bool
+	Notes   string
+}
+
+// methodLabel returns the display label for a method key.
+func methodLabel(key string) string {
+	for _, m := range models.Methods {
+		if m.Key == key {
+			return m.Label
+		}
+	}
+	return key
 }
 
 var scaleFields = []field{
@@ -94,6 +106,18 @@ func parseMeasures(r *http.Request, fields []field, targets []**float64) error {
 		return errNoValues
 	}
 	return nil
+}
+
+// parseMethod reads and validates the measurement method; empty means a smart scale.
+func parseMethod(r *http.Request) (string, error) {
+	m := strings.TrimSpace(r.PostFormValue("method"))
+	if m == "" {
+		return models.MethodScale, nil
+	}
+	if !models.ValidMethod(m) {
+		return "", errors.New("Choose a valid measurement method.")
+	}
+	return m, nil
 }
 
 func parseNotes(r *http.Request) (string, error) {

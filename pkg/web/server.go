@@ -30,7 +30,7 @@ type Server struct {
 	tmpl      map[string]*template.Template
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
@@ -67,6 +67,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/scale", s.user(s.scaleCreate))
 	mux.HandleFunc("POST /u/{id}/scale/{item}/delete", s.user(s.scaleDelete))
 	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
+	mux.HandleFunc("GET /u/{id}/settings", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		s.settingsPage(w, u, "", "", http.StatusOK)
+	}))
+	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
 
 	s.apiRoutes(mux)
 	s.integrationRoutes(mux)
@@ -88,6 +92,11 @@ type pageData struct {
 	Rows   []row
 	Today  string
 	Now    string
+
+	Methods        []models.MethodInfo // measurement methods for the scale form
+	AthleteDefault bool                // preset of the athlete-mode checkbox
+	Ranking        []rankRow           // settings page
+	Saved          string
 
 	Msg      string // flash message shown at the top of the estimates page
 	Withings *integrationView
