@@ -41,6 +41,7 @@ type adminView struct {
 type adminUser struct {
 	ID      int64
 	Name    string
+	Email   string
 	Admin   bool
 	Self    bool
 	Created string
@@ -141,7 +142,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 		if signIn == "" {
 			signIn = "None"
 		}
-		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn})
+		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn})
 	}
 	edit := r.URL.Query().Get("edit")
 	for _, p := range providers {
@@ -170,6 +171,11 @@ func (s *Server) targetUser(w http.ResponseWriter, r *http.Request) (models.User
 }
 
 func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
+	email, ok := parseEmail(r.PostFormValue("email"))
+	if !ok {
+		adminRedirect(w, r, "Please enter a valid e-mail address.")
+		return
+	}
 	password := r.PostFormValue("password")
 	if msg := validatePassword(password, password); msg != "" {
 		adminRedirect(w, r, msg)
@@ -180,10 +186,10 @@ func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.U
 		s.fail(w, err)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
-		adminRedirect(w, r, "That name is already taken.")
+		adminRedirect(w, r, "An account with that e-mail address already exists.")
 	case errors.Is(err, store.ErrInvalid):
 		adminRedirect(w, r, "Please enter a name of 1-64 characters.")
 	case err != nil:

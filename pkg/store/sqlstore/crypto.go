@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
@@ -24,7 +28,10 @@ const encPrefix = "enc:v1:"
 const KeySize = 32
 
 // Cipher encrypts sensitive columns with AES-256-GCM.
-type Cipher struct{ aead cipher.AEAD }
+type Cipher struct {
+	aead  cipher.AEAD
+	index []byte // separate key for the e-mail lookup values
+}
 
 // NewCipher returns a Cipher for a key of KeySize bytes.
 func NewCipher(key []byte) (*Cipher, error) {
@@ -39,7 +46,11 @@ func NewCipher(key []byte) (*Cipher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Cipher{aead: aead}, nil
+	index, err := hkdf.Key(sha256.New, key, nil, "dexa-fix e-mail lookup", KeySize)
+	if err != nil {
+		return nil, err
+	}
+	return &Cipher{aead: aead, index: index}, nil
 }
 
 // ParseKey decodes a key written as 64 hexadecimal characters or as base64.
@@ -83,6 +94,25 @@ func (c *Cipher) open(value, context string) (string, error) {
 		return "", fmt.Errorf("decrypt stored value (is the encryption key correct?): %w", err)
 	}
 	return string(plain), nil
+}
+
+// emailLookup returns a keyed hash of a normalized address. Encrypted addresses differ every time,
+// so this is what makes them searchable and unique without storing them readably.
+func (s *Store) emailLookup(email string) *string {
+	if email == "" {
+		return nil
+	}
+	var sum []byte
+	if s.cipher != nil {
+		m := hmac.New(sha256.New, s.cipher.index)
+		m.Write([]byte(email))
+		sum = m.Sum(nil)
+	} else {
+		h := sha256.Sum256([]byte(email))
+		sum = h[:]
+	}
+	v := hex.EncodeToString(sum)
+	return &v
 }
 
 func (s *Store) encrypt(value, context string) (string, error) {
@@ -175,22 +205,48 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			}
 		}
 
-		var users []userRow
-		if err := tx.NewSelect().Model(&users).Scan(ctx); err != nil {
+		return s.backfillEmails(ctx, tx)
+	})
+}
+
+// backfillEmails encrypts e-mail addresses and fills in their lookup values. Addresses were not
+// unique before they became the sign-in key, so a repeated one is kept only on the oldest account;
+// the others are asked for an address at their next sign-in.
+func (s *Store) backfillEmails(ctx context.Context, tx bun.Tx) error {
+	var users []userRow
+	if err := tx.NewSelect().Model(&users).OrderExpr("id").Scan(ctx); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, r := range users {
+		email, err := s.decrypt(r.Email, emailContext(r.ID))
+		if err != nil {
 			return err
 		}
-		for _, r := range users {
-			if !needs(r.Email) {
-				continue
-			}
-			enc, err := s.cipher.seal(r.Email, emailContext(r.ID))
-			if err != nil {
-				return err
-			}
-			if _, err := tx.NewUpdate().Model((*userRow)(nil)).Set("email = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+		email = models.NormalizeEmail(email)
+		if email == "" {
+			continue
+		}
+		lookup := s.emailLookup(email)
+		enc := r.Email
+		switch {
+		case seen[*lookup]:
+			log.Warn().Int64("user", r.ID).Msg("e-mail address already used by an older account: cleared")
+			enc, lookup = "", nil
+		case !strings.HasPrefix(r.Email, encPrefix):
+			if enc, err = s.cipher.seal(email, emailContext(r.ID)); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+		if lookup != nil {
+			seen[*lookup] = true
+			if r.EmailLookup != nil && *r.EmailLookup == *lookup && enc == r.Email {
+				continue
+			}
+		}
+		if _, err := tx.NewUpdate().Model((*userRow)(nil)).Set("email = ?", enc).Set("email_lookup = ?", lookup).Where("id = ?", r.ID).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

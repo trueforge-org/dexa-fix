@@ -22,9 +22,10 @@
 <section class="card flush" id="users">
   <div class="card-head"><h2>Users</h2></div>
   <div class="scroll"><table>
-    <thead><tr><th>Name</th><th>Role</th><th>Sign-in</th><th>Created</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{{range .Users}}<tr>
       <td>{{.Name}}{{if .Self}} <small>you</small>{{end}}</td>
+      <td>{{.Email}}</td>
       <td>{{if .Admin}}<span class="status on">Admin</span>{{else}}<span class="status">User</span>{{end}}</td>
       <td>{{.SignIn}}</td>
       <td>{{.Created}}</td>
@@ -38,6 +39,7 @@
   <form method="post" action="/admin/users" class="add-user">
     <div class="form-row">
       <label>New user's name <input type="text" name="name" maxlength="64" required autocomplete="off"></label>
+      <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="off"></label>
       <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
       <div><button type="submit">Add user</button></div>
     </div>

@@ -4,8 +4,8 @@
 <form method="post" action="/u/{{.User.ID}}/profile" class="card" id="profile">
   <h2>Profile</h2>
   <div class="form-row">
-    <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="username"></label>
-    <label>E-mail <input type="email" name="email" value="{{.User.Email}}" maxlength="254" autocomplete="email"></label>
+    <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="name"></label>
+    <label>E-mail <small>(you sign in with this)</small> <input type="email" name="email" value="{{.User.Email}}" maxlength="254" required autocomplete="username"></label>
     <label>Height (cm) <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
   </div>
   <div class="form-actions"><button type="submit">Save profile</button></div>
@@ -75,12 +75,21 @@
   </section>
   <section class="card">
     <h2>Method accuracy</h2>
-    <p class="help">When several methods have a reading for the same day, the lowest rank (most accurate) wins for each measurement. Methods that did not record a measurement are skipped for it.</p>
-    <div class="grid">
-      {{range .Ranking}}<label>{{.Label}} (rank)
-        <input type="number" min="1" max="100" step="1" name="rank_{{.Key}}" value="{{.Rank}}"></label>{{end}}
-    </div>
+    <p class="help">Put the most accurate method first. When several methods have a reading for the same day, the highest one in this list wins for each measurement. Methods that did not record a measurement are skipped for it.</p>
+    <ol class="rank-list" data-rank-list>
+      {{range .Ranking}}<li class="rank-item" data-rank-item data-label="{{.Label}}">
+        <span class="rank-handle" data-rank-handle title="Drag to reorder" aria-hidden="true"></span>
+        <span class="rank-pos" data-rank-pos aria-hidden="true">{{.Rank}}</span>
+        <label><span>{{.Label}}</span> <input type="number" min="1" max="100" step="1" name="rank_{{.Key}}" value="{{.Rank}}" aria-label="Rank of {{.Label}}"></label>
+        <span class="rank-move">
+          <button type="button" class="icon" data-rank-move="-1" aria-label="Move {{.Label}} up">↑</button>
+          <button type="button" class="icon" data-rank-move="1" aria-label="Move {{.Label}} down">↓</button>
+        </span>
+      </li>{{end}}
+    </ol>
+    <p class="sr-only" data-rank-status role="status"></p>
   </section>
   <div class="form-actions"><button type="submit">Save</button></div>
 </form>
+<script src="/static/rank.js" defer></script>
 {{end}}

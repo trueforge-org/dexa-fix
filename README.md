@@ -152,8 +152,12 @@ the same `DEXAFIX_ENCRYPTION_KEY` or key file. See [Encryption](#encryption).
 
 ## Using the app
 
-- `/`: the sign-in page. Sign in with a name and password, create an account,
-  or use a provider button. Names are unique and have 1 to 64 characters.
+Settings and Admin are in a menu under your name in the header, which also has
+**Sign out**.
+
+- `/`: the sign-in page. Sign in with an e-mail address and password, create an
+  account, or use a provider button. Names are display names. They need not be
+  unique and have 1 to 64 characters.
 - `/u/{id}`: redirects to the estimates page.
 - `/u/{id}/estimates`: one row per day with the estimated values, an overview
   with the latest values and a trend chart, the calibrations in use, and the
@@ -163,11 +167,13 @@ the same `DEXAFIX_ENCRYPTION_KEY` or key file. See [Encryption](#encryption).
 - `/u/{id}/scale`: add and delete readings. The time is UTC. Choose the
   measurement method in the drop-down and tick **Athlete mode** if it applies.
 - `/u/{id}/settings`: the athlete-mode default and the accuracy rank of each
-  method. A Withings section connects, imports from and disconnects the user's
-  Withings account. It says so when Withings credentials are missing, either
-  on the Admin page or in the environment. Also:
-  - **Profile**: name, e-mail and height in cm. The e-mail is contact
-    information only. It is never used to match sign-ins.
+  method. The ranking is a drag-to-reorder list, with up and down buttons for
+  keyboard use. Without JavaScript it has rank number inputs instead. A Withings
+  section connects, imports from and disconnects the user's Withings account. It
+  says so when Withings credentials are missing, either on the Admin page or in
+  the environment. Also:
+  - **Profile**: name, e-mail and height in cm. The e-mail is required, because
+    it is how you sign in.
   - **Access tokens**: create personal access tokens for the API.
   - **Linked accounts**: link or unlink sign-in providers.
   - **Password**: set or change the account's password.
@@ -195,6 +201,11 @@ Each user has an account and sees only their own data. The first account
 created becomes the administrator. Passwords are hashed with bcrypt. They must
 be 8 characters or more, and at most 72 bytes.
 
+Creating an account asks for a name, an e-mail address and a password. The
+e-mail address is the account's unique key, and it is what you sign in with. It
+is compared case-insensitively and stored in lowercase. Names are display names
+and need not be unique.
+
 Administrators can close new accounts on the Admin page. While closed, nobody
 can create their own account, with a password or on first sign-in through a
 provider, and an administrator adds people from the Users list on the Admin
@@ -204,10 +215,16 @@ server can always be created.
 ### Upgrading an existing database
 
 Upgrading makes the oldest user in the database the administrator. The sign-in
-page then offers to set that account's first password (**Claim**). The offer
-stays until an administrator can sign in, so do this straight after upgrading.
-Other existing users have no password until an administrator sets one on the
-Admin page.
+page then offers to set that account's first password (**Claim**). The claim
+also asks for an e-mail address. The offer stays until an administrator can
+sign in, so do this straight after upgrading. Other existing users have no
+password until an administrator sets one on the Admin page.
+
+Accounts from before e-mail sign-in have no address yet. Until they add one,
+they can enter their name instead of an address on the sign-in page. Right
+after signing in, they are sent to Settings to add an address. If two existing
+accounts share an address, the oldest keeps it. The other account has it
+cleared and adds a new one the same way.
 
 ### Sign-in providers
 
@@ -234,8 +251,11 @@ The callback URL is built from them.
 
 Users link a provider in Settings. With **Create accounts on first sign-in**
 turned on, a login from an unknown account creates a new account. Accounts are
-matched only by the provider's subject, never by name or e-mail. Removing a
-provider also removes its links.
+matched only by the provider's subject, never by e-mail. A new account takes
+the provider's e-mail address on first sign-in, unless the provider marks it
+unverified. If that address is already in use, sign-in is refused. The person
+must then sign in to the existing account and link the provider in Settings.
+Removing a provider also removes its links.
 
 ### Password sign-in
 
@@ -261,9 +281,11 @@ These values are encrypted with AES-256-GCM before they are stored:
 - e-mail addresses
 
 Each value is tied to its row, so copying it to another row makes it unreadable.
-Passwords and access tokens were already stored only as hashes. Measurements,
-height and names are not encrypted by the application. For those, use disk or
-database encryption.
+Each e-mail address also gets a keyed hash, derived from the encryption key. The
+hash makes addresses searchable and unique without decrypting them. Passwords
+and access tokens were already stored only as hashes. Names are not encrypted,
+but addresses are. Measurements and height are not encrypted by the application
+either. For those, and for names, use disk or database encryption.
 
 The key comes from one of these, in this order:
 
@@ -397,18 +419,18 @@ Every request must be authenticated, except `GET /healthz` and static files.
 Responses are 401 when the request is not authenticated, and 403 when the
 user's role is not enough. See [Authentication](#authentication).
 
-| Method | Path                            | Description                                                          |
-| ------ | ------------------------------- | -------------------------------------------------------------------- |
-| GET    | `/users`                        | List users. Administrators only.                                     |
-| POST   | `/users`                        | Create a user. Administrators only. Body: `{"name": "...", "password": "..."}`, where `password` is optional. |
-| GET    | `/users/{id}/dexa-scans`        | List DEXA scans.                                                     |
-| POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                    |
-| GET    | `/users/{id}/scale-readings`    | List scale readings.                                                 |
-| POST   | `/users/{id}/scale-readings`    | Add a batch: a JSON array of up to 5000 readings.                    |
-| GET    | `/users/{id}/settings`          | Athlete-mode default and method ranking.                             |
-| PUT    | `/users/{id}/settings`          | Replace them. Body: `{"athlete_default": true, "method_ranking": [...]}`. |
-| GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                    |
-| POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters. |
+| Method | Path                            | Description                                                                                                                                             |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users`                        | List users. Administrators only.                                                                                                                        |
+| POST   | `/users`                        | Create a user. Administrators only. Body: `{"name": "...", "email": "...", "password": "..."}`. `email` is required and unique. `password` is optional. |
+| GET    | `/users/{id}/dexa-scans`        | List DEXA scans.                                                                                                                                        |
+| POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                                                                                                       |
+| GET    | `/users/{id}/scale-readings`    | List scale readings.                                                                                                                                    |
+| POST   | `/users/{id}/scale-readings`    | Add a batch: a JSON array of up to 5000 readings.                                                                                                       |
+| GET    | `/users/{id}/settings`          | Athlete-mode default and method ranking.                                                                                                                |
+| PUT    | `/users/{id}/settings`          | Replace them. Body: `{"athlete_default": true, "method_ranking": [...]}`.                                                                               |
+| GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                                                                                                       |
+| POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters.                                                                                    |
 
 Batch readings with an `external_id` are upserted on `source` and
 `external_id`, so repeated imports do not duplicate. Readings without a
@@ -425,7 +447,8 @@ export DEXAFIX_TOKEN=dxf_...   # personal access token from Settings
 
 curl -s -X POST localhost:8080/api/v1/users \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  -H 'Content-Type: application/json' -d '{"name": "Alice"}'
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Alice", "email": "alice@example.com"}'
 
 curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
@@ -452,11 +475,11 @@ Send one of these with each request:
   Apple provider, for an account linked to that provider. The token must be a
   JWT signed by the provider and issued for this application's client ID.
   Opaque access tokens are not accepted.
-- HTTP Basic with the account name and password, while password sign-in is
+- HTTP Basic with the e-mail address and password, while password sign-in is
   on:
 
   ```bash
-  curl -s -u name:password localhost:8080/api/v1/users/1/estimates
+  curl -s -u you@example.com:password localhost:8080/api/v1/users/1/estimates
   ```
 
 - The browser session cookie, set when you sign in on the website.

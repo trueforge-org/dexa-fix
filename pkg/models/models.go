@@ -1,7 +1,10 @@
 // Package models holds the domain types shared by the store, estimator and web layers.
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // SourceManual is the source of readings entered by hand.
 const SourceManual = "manual"
@@ -135,7 +138,8 @@ type User struct {
 	Name      string    `json:"name"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
-	// Email is contact information only: it is never used to match sign-ins to accounts.
+	// Email signs the user in and identifies them, unique per user. Accounts from before e-mail
+	// sign-in may not have one yet. External providers never match accounts by it.
 	Email    string   `json:"email"`
 	HeightCm *float64 `json:"height_cm,omitempty"`
 	// AthleteDefault presets athlete mode for new readings and imports.
@@ -186,6 +190,9 @@ type DexaScan struct {
 	Notes             string    `json:"notes,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 }
+
+// NormalizeEmail returns the canonical form of an e-mail address, used to compare addresses.
+func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
 
 // IsAdmin reports whether the user has the administrator role.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }

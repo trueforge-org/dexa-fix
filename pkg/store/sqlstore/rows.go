@@ -19,6 +19,7 @@ type userRow struct {
 	Name           string    `bun:"name"`
 	Role           string    `bun:"role"`
 	Email          string    `bun:"email"`
+	EmailLookup    *string   `bun:"email_lookup"`
 	HeightCm       *float64  `bun:"height_cm"`
 	CreatedAt      time.Time `bun:"created_at"`
 	AthleteDefault bool      `bun:"athlete_default"`

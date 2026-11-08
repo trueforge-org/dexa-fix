@@ -121,17 +121,28 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name     string `json:"name"`
+			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
 		if !decode(w, r, &in) {
+			return
+		}
+		email, ok := parseEmail(in.Email)
+		if !ok {
+			badRequest(w, "a valid email is required")
 			return
 		}
 		var (
 			u   models.User
 			err error
 		)
-		if in.Password == "" { // such a user signs in through a linked provider, or after an admin sets a password
-			u, err = s.store.CreateUser(r.Context(), in.Name)
+		if in.Password == "" { // such a user signs in after an admin sets a password
+			if u, err = s.store.CreateUser(r.Context(), in.Name); err == nil {
+				if err = s.store.UpdateUserProfile(r.Context(), u.ID, u.Name, email, nil); err != nil {
+					_ = s.store.DeleteUser(r.Context(), u.ID) // do not leave an account behind without its address
+				}
+				u.Email = email
+			}
 		} else {
 			if msg := validatePassword(in.Password, in.Password); msg != "" {
 				badRequest(w, msg)
@@ -139,7 +150,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			}
 			var hash string
 			if hash, err = hashPassword(in.Password); err == nil {
-				u, err = s.store.CreateUserWithIdentity(r.Context(), in.Name, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+				u, err = s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 			}
 		}
 		if err != nil {

@@ -71,8 +71,8 @@ func TestUsers(t *testing.T) {
 	if err != nil || u.Name != "alice" || u.ID == 0 {
 		t.Fatalf("create: %+v %v", u, err)
 	}
-	if _, err := s.CreateUser(ctx, "alice"); !errors.Is(err, store.ErrExists) {
-		t.Fatalf("want ErrExists, got %v", err)
+	if _, err := s.CreateUser(ctx, "alice"); err != nil { // names need not be unique
+		t.Fatalf("same name: %v", err)
 	}
 	if _, err := s.CreateUser(ctx, " "); !errors.Is(err, store.ErrInvalid) {
 		t.Fatalf("want ErrInvalid, got %v", err)
@@ -81,7 +81,7 @@ func TestUsers(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 	us, _ := s.ListUsers(ctx)
-	if len(us) != 1 {
+	if len(us) != 2 {
 		t.Fatalf("list: %v", us)
 	}
 }

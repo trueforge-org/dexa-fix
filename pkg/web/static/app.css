@@ -105,18 +105,69 @@ header {
 .tabs a:hover { background: var(--surface-2); color: var(--fg); }
 .tabs a.active { background: var(--accent-soft); color: var(--accent); }
 
-.who {
+.user-menu { position: relative; margin-left: auto; font-size: .9rem; }
+.user-menu summary {
   display: inline-flex;
   align-items: center;
   gap: .5rem;
-  margin-left: auto;
+  padding: .2rem .6rem .2rem .2rem;
+  border-radius: 999px;
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none;
+}
+.user-menu summary::-webkit-details-marker { display: none; }
+.user-menu summary:hover, .user-menu[open] summary { background: var(--surface-2); }
+.user-name { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.caret { width: .4rem; height: .4rem; margin-top: -.15rem; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); }
+.user-menu[open] .caret { margin-top: .15rem; transform: rotate(225deg); }
+
+.menu {
+  position: absolute;
+  top: calc(100% + .4rem);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: .1rem;
+  min-width: 11rem;
+  padding: .35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.menu form { margin: 0; padding-top: .25rem; border-top: 1px solid var(--line); }
+.menu a, .menu button {
+  display: block;
+  width: 100%;
+  padding: .4rem .65rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   color: var(--fg);
   font-size: .9rem;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
 }
-.who form { margin: 0; }
+.menu a:hover, .menu button:hover { background: var(--surface-2); }
+.menu a.active { background: var(--accent-soft); color: var(--accent); }
 
-button.ghost { padding: .25rem .6rem; background: none; color: var(--muted); font-size: .825rem; font-weight: 500; }
-button.ghost:hover { background: var(--surface-2); color: var(--fg); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Method accuracy order. The drag parts appear only once rank.js has loaded. */
+.rank-list { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.rank-item { display: flex; align-items: center; gap: .6rem; padding: .35rem .6rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.rank-item label { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 1rem; color: var(--fg); font-size: .925rem; }
+.rank-item input { width: 5rem; }
+.rank-handle, .rank-pos, .rank-move { display: none; }
+.rank-enhanced .rank-handle { display: block; flex: none; width: .75rem; height: 1.25rem; background-image: radial-gradient(var(--muted) 1.5px, transparent 1.6px); background-size: 6px 6px; cursor: grab; touch-action: none; }
+.rank-enhanced .rank-pos { display: inline-grid; flex: none; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700; }
+.rank-enhanced .rank-move { display: inline-flex; flex: none; gap: .1rem; }
+.rank-enhanced input { display: none; }
+.rank-enhanced li:first-child [data-rank-move="-1"], .rank-enhanced li:last-child [data-rank-move="1"] { visibility: hidden; }
+.rank-item.dragging { border-color: var(--accent); box-shadow: var(--shadow); }
+.rank-item.dragging .rank-handle { cursor: grabbing; }
 
 .avatar {
   display: inline-grid;

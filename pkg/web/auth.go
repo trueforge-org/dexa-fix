@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,11 +98,11 @@ func (s *Server) authBearer(r *http.Request) (models.User, bool, error) {
 }
 
 func (s *Server) authBasic(r *http.Request) (models.User, bool, error) {
-	name, password, found := r.BasicAuth()
+	login, password, found := r.BasicAuth()
 	if !found || !strings.HasPrefix(r.URL.Path, "/api/") || !s.passwordEnabled(r.Context()) {
 		return models.User{}, false, nil
 	}
-	return s.verifyPassword(r.Context(), name, password)
+	return s.verifyPassword(r.Context(), login, password)
 }
 
 // authProviderToken verifies a JWT issued by a configured provider. The issuer picks the provider,
@@ -195,14 +196,24 @@ func validatePassword(password, confirm string) string {
 
 func localSubject(id int64) string { return strconv.FormatInt(id, 10) }
 
-// verifyPassword checks a name and password. Unknown names cost the same time as wrong passwords,
-// so response times do not reveal which accounts exist.
-func (s *Server) verifyPassword(ctx context.Context, name, password string) (models.User, bool, error) {
+// userForLogin finds an account by e-mail address. Accounts from before e-mail sign-in have none
+// yet and can use their name, once, to add one.
+func (s *Server) userForLogin(ctx context.Context, login string) (models.User, error) {
+	login = strings.TrimSpace(login)
+	if strings.Contains(login, "@") {
+		return s.store.GetUserByEmail(ctx, login)
+	}
+	return s.store.GetUserWithoutEmailByName(ctx, login)
+}
+
+// verifyPassword checks a login and password. Unknown logins cost the same time as wrong
+// passwords, so response times do not reveal which accounts exist.
+func (s *Server) verifyPassword(ctx context.Context, login, password string) (models.User, bool, error) {
 	fail := func() (models.User, bool, error) {
 		bcrypt.CompareHashAndPassword(dummyHash(), []byte(password))
 		return models.User{}, false, nil
 	}
-	u, err := s.store.GetUserByName(ctx, strings.TrimSpace(name))
+	u, err := s.userForLogin(ctx, login)
 	if errors.Is(err, store.ErrNotFound) {
 		return fail()
 	}
@@ -345,6 +356,7 @@ type loginView struct {
 	PasswordEnabled bool
 	SignupOpen      bool
 	FirstUser       bool
+	LegacyAccounts  bool   // some accounts have no e-mail address yet
 	ClaimName       string // existing administrator that can set a first password
 	Providers       []loginProvider
 }
@@ -385,6 +397,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		return
 	}
 	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: len(users) == 0}
+	view.LegacyAccounts = slices.ContainsFunc(users, func(u models.User) bool { return u.Email == "" })
 	for _, p := range providers {
 		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
 	}
@@ -430,13 +443,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, "Signing in with a password is turned off.", http.StatusForbidden)
 		return
 	}
-	u, ok, err := s.verifyPassword(r.Context(), r.PostFormValue("name"), r.PostFormValue("password"))
+	u, ok, err := s.verifyPassword(r.Context(), r.PostFormValue("email"), r.PostFormValue("password"))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	if !ok {
-		s.renderLogin(w, r, "Wrong name or password.", http.StatusUnauthorized)
+		s.renderLogin(w, r, "Wrong e-mail address or password.", http.StatusUnauthorized)
 		return
 	}
 	s.finishSignIn(w, r, u, models.ProviderLocal)
@@ -445,6 +458,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, u models.User, method string) {
 	if err := s.startSession(w, r, u.ID, method); err != nil {
 		s.fail(w, err)
+		return
+	}
+	if u.Email == "" {
+		settingsRedirect(w, r, u.ID, "Please add your e-mail address: it is how you sign in from now on.")
 		return
 	}
 	http.Redirect(w, r, userPath(u.ID, ""), http.StatusSeeOther)
@@ -462,6 +479,11 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, "New accounts are closed. Ask your administrator for one.", http.StatusForbidden)
 		return
 	}
+	email, ok := parseEmail(r.PostFormValue("email"))
+	if !ok {
+		s.renderLogin(w, r, "Please enter a valid e-mail address.", http.StatusUnprocessableEntity)
+		return
+	}
 	password := r.PostFormValue("password")
 	if msg := validatePassword(password, r.PostFormValue("confirm")); msg != "" {
 		s.renderLogin(w, r, msg, http.StatusUnprocessableEntity)
@@ -472,10 +494,10 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
-		s.renderLogin(w, r, "That name is already taken.", http.StatusUnprocessableEntity)
+		s.renderLogin(w, r, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
 		s.renderLogin(w, r, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
 	case err != nil:
@@ -506,6 +528,16 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, msg, http.StatusUnprocessableEntity)
 		return
 	}
+	email, ok := parseEmail(r.PostFormValue("email"))
+	if !ok {
+		s.renderLogin(w, r, "Please enter a valid e-mail address.", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := s.store.UpdateUserProfile(ctx, u.ID, u.Name, email, u.HeightCm); err != nil {
+		s.fail(w, err)
+		return
+	}
+	u.Email = email
 	if err := s.setPassword(ctx, u.ID, password); err != nil {
 		s.fail(w, err)
 		return

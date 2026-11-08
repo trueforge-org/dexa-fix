@@ -103,7 +103,7 @@ func TestCopyIncludesAccounts(t *testing.T) {
 	dst := newStore(t)
 
 	height := 180.5
-	u, err := src.CreateUserWithIdentity(ctx, "alice", models.Identity{Provider: models.ProviderLocal, Secret: "hash"})
+	u, err := src.CreateUserWithIdentity(ctx, "alice", "a@example.com", models.Identity{Provider: models.ProviderLocal, Secret: "hash"})
 	if err != nil {
 		t.Fatal(err)
 	}

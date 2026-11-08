@@ -28,15 +28,13 @@ import (
 )
 
 const (
-	providerTimeout    = 15 * time.Second
-	providerStateTTL   = 10 * time.Minute
-	providerCookie     = "dexafix_provider_state"
-	appleIssuer        = "https://appleid.apple.com"
-	appleSecretTTL     = 5 * time.Minute
-	maxProviderBody    = 1 << 20
-	maxNameRetries     = 20
-	userNameLimit      = 64
-	userNameSuffixRoom = 6
+	providerTimeout  = 15 * time.Second
+	providerStateTTL = 10 * time.Minute
+	providerCookie   = "dexafix_provider_state"
+	appleIssuer      = "https://appleid.apple.com"
+	appleSecretTTL   = 5 * time.Minute
+	maxProviderBody  = 1 << 20
+	userNameLimit    = 64
 )
 
 // providerState travels through the browser during a sign-in. It is signed because Apple's
@@ -277,7 +275,11 @@ func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, "No account is linked to this "+p.Label+" login. Sign in another way and link it in Settings.", http.StatusForbidden)
 		return
 	}
-	u, err := s.createProviderUser(ctx, p, subject, claims)
+	u, err := s.store.CreateUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
+	if errors.Is(err, store.ErrExists) { // never linked automatically: the provider may not own that address
+		s.renderLogin(w, r, "An account with that e-mail address already exists. Sign in and link "+p.Label+" in Settings.", http.StatusConflict)
+		return
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -390,7 +392,7 @@ func providerUserName(p models.AuthProvider, subject string, claims map[string]a
 			continue
 		}
 		if v := claimString(claims, c); v != "" {
-			return truncateRunes(v, userNameLimit-userNameSuffixRoom)
+			return truncateRunes(v, userNameLimit)
 		}
 	}
 	return truncateRunes(p.Slug+"-"+subject, 24)
@@ -407,30 +409,23 @@ func truncateRunes(s string, n int) string {
 	return b.String()
 }
 
-// createProviderUser makes a new account, adding a number when the name is taken.
-func (s *Server) createProviderUser(ctx context.Context, p models.AuthProvider, subject string, claims map[string]any) (models.User, error) {
-	base := providerUserName(p, subject, claims)
-	for i := 1; i <= maxNameRetries; i++ {
-		name := base
-		if i > 1 {
-			name = fmt.Sprintf("%s-%d", base, i)
+// verifiedEmail returns the provider's e-mail claim, unless the provider says it is unverified.
+func verifiedEmail(claims map[string]any) string {
+	switch v := claims["email_verified"].(type) {
+	case bool:
+		if !v {
+			return ""
 		}
-		u, err := s.store.CreateUserWithIdentity(ctx, name, models.Identity{Provider: p.Slug, Subject: subject})
-		if errors.Is(err, store.ErrExists) {
-			continue
+	case string: // Apple sends booleans as strings
+		if v == "false" {
+			return ""
 		}
-		if err != nil {
-			return u, err
-		}
-		if email := claimString(claims, "email"); email != "" && len(email) <= maxEmailLen {
-			if err := s.store.UpdateUserProfile(ctx, u.ID, u.Name, email, nil); err != nil {
-				return u, err
-			}
-			u.Email = email
-		}
-		return u, nil
 	}
-	return models.User{}, fmt.Errorf("%w: no free name for %q", store.ErrExists, base)
+	email, ok := parseEmail(claimString(claims, "email"))
+	if !ok {
+		return ""
+	}
+	return email
 }
 
 // keepsSignIn reports whether a user can still sign in after losing the given provider.

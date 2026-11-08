@@ -3,11 +3,13 @@ package sqlstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 func testCipher(t *testing.T, fill byte) *Cipher {
@@ -122,6 +124,9 @@ func TestExistingValuesAreEncryptedOnOpen(t *testing.T) {
 	s := openFile(t, path, WithCipher(testCipher(t, 1)))
 	checkEncrypted(t, s)
 	checkReadable(t, s, u.ID)
+	if u2, err := s.GetUserByEmail(context.Background(), "alice@example.com"); err != nil || u2.ID != u.ID {
+		t.Errorf("lookup after backfill: %+v %v", u2, err)
+	}
 	before := rawColumn(t, s, rawSetting)
 	s.Close()
 
@@ -139,15 +144,64 @@ func TestWrongOrMissingKeyCannotRead(t *testing.T) {
 	s.Close()
 	ctx := context.Background()
 
-	wrong := openFile(t, path, WithCipher(testCipher(t, 2)))
-	if _, err := wrong.GetSetting(ctx, "k"); err == nil || !strings.Contains(err.Error(), "encryption key") {
+	if _, err := Open(ctx, DriverSQLite, "file:"+path, WithCipher(testCipher(t, 2))); err == nil || !strings.Contains(err.Error(), "encryption key") {
 		t.Errorf("wrong key: %v", err)
 	}
-	wrong.Close()
 
 	none := openFile(t, path)
 	if _, err := none.GetIntegration(ctx, 1, "withings"); err == nil || !strings.Contains(err.Error(), "no encryption key") {
 		t.Errorf("no key: %v", err)
+	}
+}
+
+func TestEmailIsUniqueAndSearchableWhileEncrypted(t *testing.T) {
+	ctx := context.Background()
+	s := openFile(t, filepath.Join(t.TempDir(), "a.db"), WithCipher(testCipher(t, 1)))
+	id := models.Identity{Provider: models.ProviderLocal, Secret: "h"}
+	u, err := s.CreateUserWithIdentity(ctx, "a", "Same@Example.com", id)
+	if err != nil || u.Email != "same@example.com" {
+		t.Fatalf("create: %+v %v", u, err)
+	}
+	if lookup := rawColumn(t, s, `SELECT email_lookup FROM users LIMIT 1`); strings.Contains(lookup, "same") {
+		t.Fatalf("lookup is readable: %q", lookup)
+	}
+	if _, err := s.CreateUserWithIdentity(ctx, "b", "same@example.com", id); !errors.Is(err, store.ErrExists) {
+		t.Fatalf("duplicate: %v", err)
+	}
+	got, err := s.GetUserByEmail(ctx, " SAME@example.COM ")
+	if err != nil || got.ID != u.ID || got.Email != "same@example.com" {
+		t.Fatalf("find: %+v %v", got, err)
+	}
+	other, err := s.CreateUser(ctx, "c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateUserProfile(ctx, other.ID, "c", "same@example.com", nil); !errors.Is(err, store.ErrExists) {
+		t.Fatalf("taken on update: %v", err)
+	}
+	if _, err := s.GetUserByEmail(ctx, "nobody@example.com"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+}
+
+func TestEmailBackfillClearsDuplicates(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "a.db")
+	s := openFile(t, path)
+	a, _ := s.CreateUser(ctx, "a")
+	b, _ := s.CreateUser(ctx, "b")
+	for _, id := range []int64{a.ID, b.ID} { // as written before addresses had to be unique
+		if _, err := s.db.ExecContext(ctx, `UPDATE users SET email = 'x@example.com', email_lookup = NULL WHERE id = ?`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	again := openFile(t, path, WithCipher(testCipher(t, 1)))
+	if got, err := again.GetUserByEmail(ctx, "x@example.com"); err != nil || got.ID != a.ID {
+		t.Fatalf("oldest keeps it: %+v %v", got, err)
+	}
+	if got, _ := again.GetUser(ctx, b.ID); got.Email != "" {
+		t.Fatalf("duplicate kept: %q", got.Email)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -79,15 +81,22 @@ func (s *Server) securityView(r *http.Request, u models.User, newToken string) (
 	return view, nil
 }
 
+// parseEmail validates an address and returns its canonical form.
+func parseEmail(raw string) (string, bool) {
+	email := models.NormalizeEmail(raw)
+	a, err := mail.ParseAddress(email)
+	if err != nil || a.Address != email || len(email) > maxEmailLen {
+		return "", false
+	}
+	return email, true
+}
+
 // saveProfile stores the name, e-mail address and height shown on the settings page.
 func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.User) {
-	email := strings.TrimSpace(r.PostFormValue("email"))
-	if email != "" {
-		a, err := mail.ParseAddress(email)
-		if err != nil || a.Address != email || len(email) > maxEmailLen {
-			s.settingsPage(w, r, u, "Please enter a valid e-mail address.", "", http.StatusUnprocessableEntity)
-			return
-		}
+	email, ok := parseEmail(r.PostFormValue("email"))
+	if !ok {
+		s.settingsPage(w, r, u, "Please enter a valid e-mail address.", "", http.StatusUnprocessableEntity)
+		return
 	}
 	var height *float64
 	if raw := strings.TrimSpace(r.PostFormValue("height_cm")); raw != "" {
@@ -100,7 +109,7 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	}
 	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, r.PostFormValue("name"), email, height); {
 	case errors.Is(err, store.ErrExists):
-		s.settingsPage(w, r, u, "That name is already taken.", "", http.StatusUnprocessableEntity)
+		s.settingsPage(w, r, u, "Another account already uses that e-mail address.", "", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
 		s.settingsPage(w, r, u, "Please enter a name of 1-64 characters.", "", http.StatusUnprocessableEntity)
 	case err != nil:
@@ -119,10 +128,12 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models
 	_, err := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
 	switch {
 	case err == nil: // changing a password needs the current one
-		if _, ok, verr := s.verifyPassword(ctx, u.Name, r.PostFormValue("current")); verr != nil {
-			s.fail(w, verr)
+		id, ierr := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
+		if ierr != nil {
+			s.fail(w, ierr)
 			return
-		} else if !ok {
+		}
+		if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
 			s.settingsPage(w, r, u, "The current password is wrong.", "", http.StatusUnprocessableEntity)
 			return
 		}

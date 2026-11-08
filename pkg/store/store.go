@@ -38,12 +38,15 @@ type Store interface {
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
 	CreateUser(ctx context.Context, name string) (models.User, error)
 	// CreateUserWithIdentity creates a user and its identity atomically. An empty Subject means
-	// the new user's id.
-	CreateUserWithIdentity(ctx context.Context, name string, id models.Identity) (models.User, error)
+	// the new user's id, and an e-mail address already in use returns ErrExists.
+	CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
 	GetUser(ctx context.Context, id int64) (models.User, error)
-	GetUserByName(ctx context.Context, name string) (models.User, error)
-	// UpdateUserProfile stores the name, e-mail address and height (nil clears it).
+	GetUserByEmail(ctx context.Context, email string) (models.User, error)
+	// GetUserWithoutEmailByName finds an account from before e-mail sign-in.
+	GetUserWithoutEmailByName(ctx context.Context, name string) (models.User, error)
+	// UpdateUserProfile stores the name, e-mail address and height (nil clears it). An e-mail
+	// address already in use returns ErrExists.
 	UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error
 	// SetUserRole changes a role; demoting the last administrator returns ErrLastAdmin.
 	SetUserRole(ctx context.Context, userID int64, role string) error

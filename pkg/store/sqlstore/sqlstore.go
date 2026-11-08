@@ -149,30 +149,38 @@ func now() time.Time { return time.Now().UTC() }
 // ---- users ----
 
 func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
-	return s.createUser(ctx, name, nil)
+	return s.createUser(ctx, name, "", nil)
 }
 
 // CreateUserWithIdentity creates a user together with a way to sign in.
-func (s *Store) CreateUserWithIdentity(ctx context.Context, name string, id models.Identity) (models.User, error) {
-	return s.createUser(ctx, name, &id)
+func (s *Store) CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error) {
+	return s.createUser(ctx, name, email, &id)
 }
 
-func (s *Store) createUser(ctx context.Context, name string, id *models.Identity) (models.User, error) {
+func (s *Store) createUser(ctx context.Context, name, email string, id *models.Identity) (models.User, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 64 {
 		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
+	email = models.NormalizeEmail(email)
 	var row userRow
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		n, err := tx.NewSelect().Model((*userRow)(nil)).Count(ctx)
 		if err != nil {
 			return err
 		}
-		row = userRow{Name: name, Role: models.RoleUser, CreatedAt: now()}
+		row = userRow{Name: name, Role: models.RoleUser, CreatedAt: now(), EmailLookup: s.emailLookup(email)}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
+			return err
+		}
+		enc, err := s.encrypt(email, emailContext(row.ID)) // the context needs the new id
+		if err != nil {
+			return err
+		}
+		if _, err := tx.NewUpdate().Model((*userRow)(nil)).Set("email = ?", enc).Where("id = ?", row.ID).Exec(ctx); err != nil {
 			return err
 		}
 		if id == nil {
@@ -191,7 +199,9 @@ func (s *Store) createUser(ctx context.Context, name string, id *models.Identity
 		}
 		return models.User{}, err
 	}
-	return row.toModel(), nil
+	u := row.toModel()
+	u.Email = email
+	return u, nil
 }
 
 // UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.

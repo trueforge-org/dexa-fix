@@ -97,9 +97,18 @@ func notFound(err error) error {
 
 // ---- users ----
 
-func (s *Store) GetUserByName(ctx context.Context, name string) (models.User, error) {
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, error) {
 	var row userRow
-	if err := s.db.NewSelect().Model(&row).Where("name = ?", name).Scan(ctx); err != nil {
+	if err := s.db.NewSelect().Model(&row).Where("email_lookup = ?", s.emailLookup(models.NormalizeEmail(email))).Scan(ctx); err != nil {
+		return models.User{}, notFound(err)
+	}
+	return s.userModel(&row)
+}
+
+func (s *Store) GetUserWithoutEmailByName(ctx context.Context, name string) (models.User, error) {
+	var row userRow
+	err := s.db.NewSelect().Model(&row).Where("name = ?", name).Where("email_lookup IS NULL").OrderExpr("id").Limit(1).Scan(ctx)
+	if err != nil {
 		return models.User{}, notFound(err)
 	}
 	return s.userModel(&row)
@@ -110,12 +119,13 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email
 	if name == "" || len(name) > 64 {
 		return fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
+	email = models.NormalizeEmail(email)
 	enc, err := s.encrypt(email, emailContext(userID))
 	if err != nil {
 		return err
 	}
 	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
-		Set("name = ?", name).Set("email = ?", enc).Set("height_cm = ?", heightCm).
+		Set("name = ?", name).Set("email = ?", enc).Set("email_lookup = ?", s.emailLookup(email)).Set("height_cm = ?", heightCm).
 		Where("id = ?", userID).Exec(ctx)
 	if err != nil {
 		if isUnique(err) {

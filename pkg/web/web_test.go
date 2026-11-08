@@ -58,7 +58,7 @@ func (ct cookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // signup creates an account and makes the client act as it.
 func signup(t *testing.T, ts *httptest.Server, c *http.Client, name string) {
 	t.Helper()
-	resp := post(t, c, ts.URL+"/signup", url.Values{"name": {name}, "password": {testPassword}, "confirm": {testPassword}})
+	resp := post(t, c, ts.URL+"/signup", url.Values{"name": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
 	if resp.StatusCode != 303 {
 		t.Fatalf("signup %s: %d", name, resp.StatusCode)
 	}
@@ -221,11 +221,14 @@ func TestAPI(t *testing.T) {
 	if code, b := do("GET", "/api/v1/users", ""); code != 200 || !strings.Contains(b, `"name":"admin"`) || !strings.Contains(b, `"role":"admin"`) {
 		t.Fatalf("users: %d %s", code, b)
 	}
-	if code, _ := do("POST", "/api/v1/users", `{"name":"carol"}`); code != 201 {
+	if code, _ := do("POST", "/api/v1/users", `{"name":"carol","email":"carol@example.com"}`); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if code, _ := do("POST", "/api/v1/users", `{"name":"carol"}`); code != 409 {
+	if code, _ := do("POST", "/api/v1/users", `{"name":"carol","email":"carol@example.com"}`); code != 409 {
 		t.Fatalf("duplicate: %d", code)
+	}
+	if code, _ := do("POST", "/api/v1/users", `{"name":"no-email"}`); code != 400 {
+		t.Fatalf("missing email: %d", code)
 	}
 	if code, _ := do("POST", "/api/v1/users", `{"nope":1}`); code != 400 {
 		t.Fatalf("unknown field: %d", code)
