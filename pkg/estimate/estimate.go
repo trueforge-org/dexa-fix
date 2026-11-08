@@ -451,13 +451,13 @@ func deriveFromBodyFat(vals map[string]Value) {
 	}
 	fm, haveFM := vals["fat_mass_kg"]
 	if fat, haveFat := vals["fat_ratio_pct"]; haveFat && fm.Origin != OriginDexa {
-		fm = calculatedValue(fm, haveFM, fat, w.V*fat.V/100)
+		fm = calculatedValue(fat, w.V*fat.V/100)
 		vals["fat_mass_kg"] = fm
 		haveFM = true
 	}
-	ffm, haveFFM := vals["fat_free_mass_kg"]
+	ffm := vals["fat_free_mass_kg"]
 	if haveFM && ffm.Origin != OriginDexa {
-		vals["fat_free_mass_kg"] = calculatedValue(ffm, haveFFM, fm, w.V-fm.V)
+		vals["fat_free_mass_kg"] = calculatedValue(fm, w.V-fm.V)
 	}
 }
 
@@ -466,11 +466,10 @@ func deriveFromBodyFat(vals map[string]Value) {
 func deriveLeanMass(vals map[string]Value) {
 	ffm, haveFFM := vals["fat_free_mass_kg"]
 	bone, haveBone := vals["bone_mass_kg"]
-	lean, haveLean := vals["lean_mass_kg"]
-	if !haveFFM || !haveBone || lean.Origin == OriginDexa {
+	if !haveFFM || !haveBone || vals["lean_mass_kg"].Origin == OriginDexa {
 		return
 	}
-	lean = calculatedValue(lean, haveLean, ffm, ffm.V-bone.V)
+	lean := calculatedValue(ffm, ffm.V-bone.V)
 	lean.Corrected = lean.Corrected || bone.Corrected || bone.Origin == OriginDexa
 	vals["lean_mass_kg"] = lean
 }
@@ -485,20 +484,20 @@ func deriveBodyIndices(vals map[string]Value, heightCm *float64) {
 		{"bmi", "weight_kg"}, {"fmi", "fat_mass_kg"}, {"lmi", "lean_mass_kg"},
 	} {
 		if source, ok := vals[index.from]; ok {
-			vals[index.key] = calculatedValue(Value{}, false, source, source.V/(metres*metres))
+			vals[index.key] = calculatedValue(source, source.V/(metres*metres))
 		}
 	}
 }
 
-// calculatedValue sets v to value, calculated from source: it counts as corrected when source is
-// corrected or comes from DEXA. Without an existing value (have is false) it takes over the origin
-// and group of source.
-func calculatedValue(v Value, have bool, source Value, value float64) Value {
-	if !have {
-		v = Value{Origin: source.Origin, Method: source.Method, AthleteMode: source.AthleteMode}
-		if v.Origin == OriginDexa {
-			v.Origin = OriginMeasured // calculated, not a value of the scan itself
-		}
+// calculatedValue returns value as a Value calculated from source: it takes over the origin and
+// group of source, and counts as corrected when source is corrected or comes from DEXA.
+func calculatedValue(source Value, value float64) Value {
+	// The number is calculated from source, so its origin, group and raw reading are source's too:
+	// an own reading of the same field (a scale's fat mass) would otherwise be shown next to a
+	// value it did not produce.
+	v := Value{Origin: source.Origin, Method: source.Method, AthleteMode: source.AthleteMode}
+	if v.Origin == OriginDexa {
+		v.Origin = OriginMeasured // calculated, not a value of the scan itself
 	}
 	v.V, v.Corrected = value, source.Corrected || source.Origin == OriginDexa
 	return v

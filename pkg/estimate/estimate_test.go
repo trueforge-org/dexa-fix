@@ -687,3 +687,13 @@ func TestTodayFollowsTheUsersTimeZone(t *testing.T) {
 		t.Fatalf("newest day: %+v", r.Days)
 	}
 }
+
+// A fat mass calculated from weight and body fat % must not keep the scale's own fat mass reading
+// as its "raw" value.
+func TestCalculatedMassDoesNotKeepTheScalesRawReading(t *testing.T) {
+	r := models.ScaleReading{MeasuredAt: d(1, 1).Add(8 * time.Hour), WeightKg: f(80), FatRatioPct: f(20), FatMassKg: f(99), Method: models.MethodScale}
+	got := find(t, Compute(nil, []models.ScaleReading{r}, Options{}), d(1, 1)).Values["fat_mass_kg"]
+	if !near(got.V, 16) || got.Raw != nil {
+		t.Errorf("fat mass: %+v, want 16 without a raw value", got)
+	}
+}
