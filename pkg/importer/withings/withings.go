@@ -38,7 +38,16 @@ type Importer struct {
 
 	http *http.Client
 	now  func() time.Time
-	mu   sync.Mutex // refresh tokens are single use, so refreshes must not race
+	// userLocks holds one mutex per user: refresh tokens are single use, so one user's refreshes
+	// must not race, but a slow refresh for one user must not hold up the others.
+	userLocks sync.Map // int64 -> *sync.Mutex
+}
+
+func (i *Importer) lockUser(userID int64) func() {
+	m, _ := i.userLocks.LoadOrStore(userID, new(sync.Mutex))
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 var (
@@ -125,18 +134,32 @@ func (i *Importer) Disconnect(ctx context.Context, st store.Store, userID int64)
 	return st.DeleteIntegration(ctx, userID, Name)
 }
 
+// saveTokens stores a token set. A refresh token is single use: once Withings handed out a new
+// pair, failing to store it would leave the old, now invalid, pair behind and force the user to
+// reconnect. So the save is retried, and it carries on if the request that triggered the refresh
+// was cancelled in the meantime.
 func saveTokens(ctx context.Context, st store.Store, userID int64, t tokens) error {
 	data, err := json.Marshal(t)
 	if err != nil {
 		return err
 	}
-	return st.PutIntegration(ctx, userID, Name, data)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	for attempt := 0; ; attempt++ {
+		if err = st.PutIntegration(ctx, userID, Name, data); err == nil || attempt == 2 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(retryBackoff(attempt)):
+		}
+	}
 }
 
 // accessToken returns a valid access token for the user, refreshing (and persisting) it if needed.
 func (i *Importer) accessToken(ctx context.Context, st store.Store, userID int64) (string, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	defer i.lockUser(userID)()
 	data, err := st.GetIntegration(ctx, userID, Name)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", importer.ErrNotConnected

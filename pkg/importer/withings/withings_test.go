@@ -25,6 +25,8 @@ type fakeWithings struct {
 	groups   []measureGroup
 	pageSize int
 	status   int // non-zero makes every call fail with this API status
+	flaky    int // the next n /measure calls fail: with 503, or with API status 601 when flaky601
+	flaky601 bool
 	tokens   []url.Values
 	meas     []url.Values
 	bearers  []string
@@ -45,6 +47,15 @@ func (f *fakeWithings) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(map[string]any{"userid": 123, "access_token": "at-" + n, "refresh_token": "rt-" + n, "expires_in": 10800})
 	case "/measure":
 		f.meas = append(f.meas, r.PostForm)
+		if f.flaky > 0 {
+			f.flaky--
+			if f.flaky601 {
+				w.Write([]byte(`{"status":601,"error":"too many requests"}`))
+			} else {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			}
+			return
+		}
 		f.bearers = append(f.bearers, r.Header.Get("Authorization"))
 		var in []measureGroup
 		for _, g := range f.groups {
@@ -278,5 +289,54 @@ func TestImportFollowsAthleteDefault(t *testing.T) {
 	rs, _ := st.ListScaleReadings(ctx, 1)
 	if len(rs) != 1 || rs[0].Method != models.MethodScale || !rs[0].AthleteMode {
 		t.Fatalf("stored: %+v", rs)
+	}
+}
+
+func TestMeasureCallsAreRetried(t *testing.T) {
+	backoffBase = time.Millisecond
+	t.Cleanup(func() { backoffBase = 500 * time.Millisecond })
+	for name, rate := range map[string]bool{"HTTP 503": false, "status 601": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			imp, f, st := setup(t)
+			f.groups = []measureGroup{grp(1, "2026-03-01T07:00", 80500)}
+			if err := imp.Connect(ctx, st, 1, "code"); err != nil {
+				t.Fatal(err)
+			}
+			f.flaky, f.flaky601 = 2, rate
+			res, err := imp.Import(ctx, st, 1, importer.Options{})
+			if err != nil || res.Imported != 1 || len(f.meas) != 3 {
+				t.Fatalf("after two failures: %+v %v (%d calls)", res, err, len(f.meas))
+			}
+			f.flaky, f.meas = maxAttempts+5, nil
+			if _, err := imp.Import(ctx, st, 1, importer.Options{}); err == nil || len(f.meas) != maxAttempts {
+				t.Fatalf("a permanent failure must give up after %d attempts: %v (%d calls)", maxAttempts, err, len(f.meas))
+			}
+		})
+	}
+}
+
+func TestOtherAPIErrorsAreNotRetried(t *testing.T) {
+	ctx := context.Background()
+	imp, f, st := setup(t)
+	if err := imp.Connect(ctx, st, 1, "code"); err != nil {
+		t.Fatal(err)
+	}
+	f.status = 293
+	if _, err := imp.Import(ctx, st, 1, importer.Options{}); err == nil || len(f.meas) != 1 {
+		t.Fatalf("err %v after %d calls, want one call", err, len(f.meas))
+	}
+}
+
+func TestUsersDoNotBlockEachOther(t *testing.T) {
+	imp, _, _ := setup(t)
+	release := imp.lockUser(1)
+	defer release()
+	done := make(chan struct{})
+	go func() { imp.lockUser(2)(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("user 2 waited for user 1's lock")
 	}
 }

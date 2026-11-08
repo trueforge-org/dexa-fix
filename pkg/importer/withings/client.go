@@ -3,8 +3,10 @@ package withings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -96,6 +98,44 @@ func (c Config) authURL(state string) string {
 	return c.authBase() + "/oauth2_user/authorize2?" + q.Encode()
 }
 
+// Retry settings for read-only calls: a transport error, an HTTP 5xx or 429, or the Withings
+// "too many requests" status is tried again after a growing pause. Tests shorten the pause.
+var (
+	maxAttempts  = 3
+	backoffBase  = 500 * time.Millisecond
+	errRetryable = errors.New("retryable")
+)
+
+// withingsTooManyRequests is the status Withings returns when an application sends too many
+// requests; 100-series and 5xx statuses are temporary failures on their side as well.
+const withingsTooManyRequests = 601
+
+// retryBackoff returns the pause before retry number attempt+1: exponential, with jitter.
+func retryBackoff(attempt int) time.Duration {
+	d := backoffBase << attempt
+	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
+}
+
+// callRetry is call for requests that are safe to repeat (reading measurements). Token requests
+// are not: a refresh token is single use.
+func (i *Importer) callRetry(ctx context.Context, path, bearer string, form url.Values, out any) error {
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err = i.call(ctx, path, bearer, form, out); err == nil || !errors.Is(err, errRetryable) {
+			return err
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryBackoff(attempt)):
+		}
+	}
+	return err
+}
+
 // call POSTs a form to the Withings API and decodes the "body" of a status-0 response into out.
 func (i *Importer) call(ctx context.Context, path, bearer string, form url.Values, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.config().apiBase()+path, strings.NewReader(form.Encode()))
@@ -108,7 +148,10 @@ func (i *Importer) call(ctx context.Context, path, bearer string, form url.Value
 	}
 	resp, err := i.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("withings request: %w", err)
+		if ctx.Err() != nil {
+			return fmt.Errorf("withings request: %w", err)
+		}
+		return fmt.Errorf("withings request: %w: %w", errRetryable, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
@@ -117,10 +160,17 @@ func (i *Importer) call(ctx context.Context, path, bearer string, form url.Value
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("withings response (HTTP %d): %w", resp.StatusCode, errRetryable)
+		}
 		return fmt.Errorf("withings response (HTTP %d): not JSON", resp.StatusCode)
 	}
 	if env.Status != 0 {
-		return fmt.Errorf("withings api status %d: %s", env.Status, env.Error)
+		err := fmt.Errorf("withings api status %d: %s", env.Status, env.Error)
+		if env.Status == withingsTooManyRequests || resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			err = fmt.Errorf("%w: %w", errRetryable, err)
+		}
+		return err
 	}
 	if out == nil {
 		return nil
@@ -164,7 +214,7 @@ func (i *Importer) getMeas(ctx context.Context, accessToken string, start, end t
 			form.Set("offset", strconv.Itoa(offset))
 		}
 		var b measBody
-		if err := i.call(ctx, "/measure", accessToken, form, &b); err != nil {
+		if err := i.callRetry(ctx, "/measure", accessToken, form, &b); err != nil {
 			return nil, err
 		}
 		all = append(all, b.Groups...)
