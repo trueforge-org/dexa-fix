@@ -1,3 +1,5 @@
+// Package cmd implements the dexa-fix command line: `serve` runs the web app, `db` migrates and
+// copies the database, and `info` prints information about the binary.
 package cmd
 
 import (

@@ -85,7 +85,8 @@ var serveCmd = &cobra.Command{
 	Short: "Run the web application",
 	Long: `Run the web application.
 
-Flags can also be set through DEXAFIX_LISTEN, DEXAFIX_DB_DRIVER, DEXAFIX_DSN and DEXAFIX_AUTO_MIGRATE.
+Each flag can also be set through an environment variable, such as DEXAFIX_LISTEN or DEXAFIX_DSN.
+A flag on the command line overrides its variable.
 Secrets are never accepted as flags: a connection string with a password goes in DEXAFIX_DSN or a
 file (--dsn-file), and the Withings client secret in DEXAFIX_WITHINGS_CLIENT_SECRET or a file
 (--withings-client-secret-file).

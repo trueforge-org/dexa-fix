@@ -2,7 +2,8 @@
 // e-mail address and password and uses the app's JSON bodyweight endpoints. Strength Level
 // publishes no API; use is by agreement with its developer, and only for the user's own account.
 //
-// The client only adds missing days. It never changes or deletes an entry on Strength Level.
+// Days missing on Strength Level are added. An existing day is changed only by Update, by Upsert,
+// or by Sync with Options.Update set. Nothing is ever deleted.
 package client
 
 import (

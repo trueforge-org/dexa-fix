@@ -1,3 +1,5 @@
+// Command dexa-fix is the entry point of the binary. It sets up logging and runs the command line
+// implemented in package cmd.
 package main
 
 import (

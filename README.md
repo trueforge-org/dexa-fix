@@ -19,7 +19,9 @@ A smart scale is convenient but biased. A DEXA scan is accurate but rare. The
 app uses the difference between the two (the offset) to correct the scale
 between scans.
 
-- Stored readings are never changed. Everything below is calculated per request.
+- Stored readings are never changed. Everything below is calculated from them
+  and kept in a memory cache until the data or the date changes (see
+  [Estimate cache](#estimate-cache)).
 - First the app builds its own per-day series: the most accurate reading of
   each day, averaged over a centred 7-day window of real readings, with the
   gaps filled in by straight lines.
@@ -70,6 +72,11 @@ Open <http://localhost:8080>, create an account and enter some data. The first
 account becomes the administrator. By default the SQLite database is
 `dexa-fix.db` in the current directory.
 
+The first run also creates the encryption key file `dexa-fix.key` in the current
+directory, unless `DEXAFIX_ENCRYPTION_KEY` is set. Back up the key file too. The
+server does not start without it, because the encrypted values cannot be read.
+See [Encryption](#encryption) for where to keep it.
+
 To build a binary:
 
 ```bash
@@ -102,6 +109,13 @@ overrides the variable.
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
 | `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing.     |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
+
+Two variables are read strictly:
+
+- `DEXAFIX_FORCE_PASSWORD_LOGIN` counts as set only when it is exactly `true`.
+  `1` or `TRUE` leaves it off.
+- An invalid `DEXAFIX_AUDIT_RETENTION_DAYS` (not a whole number, or negative) is
+  ignored without a warning, and `365` is used.
 
 Other environment variables:
 
@@ -296,9 +310,10 @@ Settings and Admin are in a menu under your name in the header, which also has
   the environment. Also:
   - **Profile**: name, e-mail and height in cm. The e-mail is required, because
     it is how you sign in.
-  - **Access tokens**: create personal access tokens for the API.
+  - **Access tokens**: create and revoke personal access tokens for the API.
   - **Linked accounts**: link or unlink sign-in providers.
-  - **Password**: set or change the account's password.
+  - **Password**: set or change the account's password. Changing it signs out
+    the other sessions and revokes all access tokens.
 - `/admin`: administrators only. Administrators can add users and open or
   close new accounts. The page shows the server status and has these
   sections:
@@ -436,7 +451,7 @@ The same is set with `DEXAFIX_FORCE_PASSWORD_LOGIN=true`.
 
 These values are encrypted with AES-256-GCM before they are stored:
 
-- each user's Withings tokens
+- each user's Withings tokens and Strength Level login
 - sign-in provider secrets, including the Apple key
 - Withings application credentials and other server settings
 - e-mail addresses
@@ -542,8 +557,10 @@ one day. It replaces that day's Withings data:
 
 ## Estimation details
 
-Estimates are computed from the stored data on each request. Nothing is cached,
-and stored readings are never changed. Each field is handled on its own.
+Estimates are computed from the stored data. The result is cached per user and
+recalculated when the data or the date changes (see
+[Estimate cache](#estimate-cache)). Stored readings are never changed. Each
+field is handled on its own.
 
 1. **Daily average.** Readings are averaged per day, for each field and each
    group. A group is a measurement method plus athlete mode. Missing values are
@@ -583,10 +600,17 @@ and stored readings are never changed. Each field is handled on its own.
    - Before the first calibration of the day's group the series is corrected
      with that first calibration's offset.
    - Between two calibrations of the group the offset is blended with a
-     smoothstep curve. The first half stays near the earlier scan, and the
-     second half moves towards the later one.
+     smoothstep curve, `w(t) = t²(3 − 2t)`, where `t` is 0 at the earlier scan
+     and 1 at the later one: `offset = (1 − w) × earlier + w × later`. The first
+     half stays near the earlier scan, and the second half moves towards the
+     later one.
    - After the last calibration the last offset is kept.
-   - Corrected values have `corrected: true`.
+   - A window that mixes methods applies each reading's own offset: the offsets
+     of the groups behind the window's real readings are averaged, weighted by
+     how many readings each group has in the window. A group without a
+     calibration counts as 0.
+   - Corrected values have `corrected: true`. Body fat % is kept within 0 to 100
+     and bone mass is kept at 0 or more, after the offset is applied.
    - Fat mass and fat-free mass are calculated on every day with a weight,
      whether or not a calibration applies. When body fat % is known, fat mass =
      weight x body fat % / 100. When it is not, the fat mass already on that day
@@ -601,10 +625,11 @@ and stored readings are never changed. Each field is handled on its own.
      is no lean mass. A DEXA lean mass value on its own day is used as it is
      (origin `dexa`). Lean mass is marked `corrected: true` when the fat-free
      mass or bone mass it comes from is corrected or from DEXA.
-   - BMI = weight / height², FMI = fat mass / height² and LMI = lean mass /
-     height², with height in metres from the profile. Without a height, these
-     three are left out. They are marked `corrected: true` when the value they
-     come from is corrected or from DEXA. The A/G ratio = android fat % /
+   - BMI = weight (kg) / height (m)², FMI = fat mass (kg) / height (m)² and
+     LMI = lean mass (kg) / height (m)², where lean mass is the fat-free mass
+     minus the bone mass. Height comes from the profile in cm. Without a height,
+     these three are left out. They are marked `corrected: true` when the value
+     they come from is corrected or from DEXA. The A/G ratio = android fat % /
      gynoid fat %, from DEXA scans that have both values (origin `dexa` on the
      scan day). After a scan, the latest ratio is repeated (origin `held`)
      until the next scan with a ratio. There is no value before the first such
@@ -653,6 +678,11 @@ user's role is not enough. See [Authentication](#authentication).
 | GET    | `/audit`                        | The whole audit log. Administrators only.                                                                                                               |
 | GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                                                                                                       |
 | POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters.                                                                                    |
+
+Scans and readings cannot be deleted through the API, and access tokens cannot
+be created or revoked through it. Use the web interface for those. Changing a
+password revokes all of the user's access tokens, and so does an administrator
+setting it, so create new tokens afterwards if you use the API.
 
 The two list endpoints (`dexa-scans` and `scale-readings`) return the newest
 first and are paged. Query parameters: `limit` (default 1000, at most 10000),
@@ -762,8 +792,9 @@ zero.
 
 GitHub Actions runs lint (gofmt, `go vet`, `go mod tidy`), the tests with the
 race detector and coverage on SQLite and on Postgres, `govulncheck`, and a
-cross-compile of the release targets, on every push and pull request and once a
-week. Coverage is reported to Codecov. Pushing a tag such as `v1.0.0` publishes
+cross-compile for linux/amd64, linux/arm64, darwin/arm64 and windows/amd64. It
+runs on pushes to `main`, on pull requests, when started by hand, and weekly on
+Monday. Coverage is reported to Codecov. Pushing a tag such as `v1.0.0` publishes
 a GitHub release (archives, checksums, a cosign signature, SBOMs, build
 provenance, a grouped changelog) and a multi-arch container image at
 `ghcr.io/trueforge-org/dexa-fix`. See [docs/ci.md](docs/ci.md) for the details,
@@ -795,6 +826,8 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
 - `cmd/`: `serve` runs the web app, `db` migrates and copies the database,
   `info` prints binary information.
 - `pkg/estimate/`: estimation logic.
+- `pkg/strengthlevel/`: the Strength Level entries built from the estimates
+  (`strengthlevel.go`) and the sync client (`client/`).
 - `pkg/importer/`: the importer interfaces and the registry.
 - `pkg/importer/withings/`: OAuth and API client (`client.go`), the rules for
   what to write (`plan.go`), and the importer (`withings.go`).
@@ -802,7 +835,8 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
 - `pkg/store/`: the `Store` interface. `sqlstore/` implements it with bun for
   SQLite and Postgres. Its goose migrations live under `migrations/`.
 - `pkg/web/`: HTML handlers and templates, the JSON API (`api.go`), the
-  integration routes (`handlers_import.go`), and routes in `server.go`.
+  integration routes (`handlers_import.go`), routes in `server.go`, and the
+  in-memory estimate cache (`estcache.go`).
 
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.

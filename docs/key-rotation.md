@@ -18,11 +18,13 @@ the same master key (HKDF) produces the HMAC used to look users up by e-mail (`e
 
 ## Problems
 
-1. **A missing or mistyped key is not noticed.** If the key file is not found (wrong working
-   directory, a volume that did not mount), `serve` generates a new random key and carries on. New
-   secrets are then written under the new key while the old rows stay unreadable. Startup only
-   fails if some row happens to be read during start (the e-mail backfill does that when users
-   exist), and by then a second key file exists on disk.
+1. **A missing key file is replaced by a new key.** If the key file is not found (wrong working
+   directory, a volume that did not mount), `serve` writes a new random key to that path. Startup
+   then fails for any database that has run before: opening it decrypts every user's e-mail address
+   (when users exist), and `web.New` reads the encrypted cookie key. The generated file stays on
+   disk, so every later start fails the same way until the original key is back (the file, or
+   `DEXAFIX_ENCRYPTION_KEY`) and the generated file is removed. A wrong key in an existing file or in
+   `DEXAFIX_ENCRYPTION_KEY` fails at the same points, without creating a file.
 2. **There is no way to change the key.** The master key is also the root of the e-mail lookup, so
    a new key invalidates every `email_lookup` value as well as every ciphertext. A leaked or
    suspected-leaked key can only be handled by hand.

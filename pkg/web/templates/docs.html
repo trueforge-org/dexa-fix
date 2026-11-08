@@ -102,6 +102,7 @@
   <li><strong>Format:</strong> starts with <code>dxf_</code>. Send it as <code>Authorization: Bearer dxf_...</code>.</li>
   <li><strong>Fields:</strong> a name (up to 64 characters) and an expiry: 30 days, 90 days (default), 1 year, or never.</li>
   <li><strong>Gotchas:</strong> the token is shown once, right after you create it, and only a hash is stored. The list shows the first characters, when it was created, last used and when it expires. Revoke a token to stop it working at once.</li>
+  <li><strong>Changing the password</strong> revokes all your tokens. Tokens are created and revoked only on the website, not through the API.</li>
 </ul>
 <pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/1/estimates</code></pre>
 
@@ -312,7 +313,7 @@
 <ul>
   <li><strong>Add user:</strong> name, e-mail and password. Works even when sign-up is closed.</li>
   <li><strong>Make admin / Remove admin:</strong> the last administrator cannot be removed.</li>
-  <li><strong>Set password:</strong> sets a new password for a user (8 to 72 bytes). It does not revoke the user's access tokens.</li>
+  <li><strong>Set password:</strong> sets a new password for a user (8 to 72 bytes). The user is signed out everywhere and their access tokens are revoked.</li>
   <li><strong>Delete:</strong> deletes the user with all their data, immediately and without undo. You cannot delete yourself.</li>
   <li id="strengthlevel-permissions"><strong>Strength Level permissions:</strong> <em>Enable Strength Level sync</em> lets that user store a Strength Level login and send single days. Once enabled, <em>Allow multi-day sync</em> additionally lets them run the background sync of many days.</li>
 </ul>
@@ -373,13 +374,13 @@
     <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
     <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
     <tr><td><code>--withings-client-id</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_ID</code></td><td>empty</td><td>Withings application client id.</td></tr>
-    <tr><td>(no flag)</td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET</code></td><td>empty</td><td>Withings client secret. Secrets are never accepted as flags: <code>--withings-client-secret</code> no longer exists.</td></tr>
+    <tr><td>(no flag)</td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET</code></td><td>empty</td><td>Withings client secret. Secrets are never accepted as flags. A hidden <code>--withings-client-secret</code> flag is still registered, but passing it makes <code>serve</code> fail with an error. If <code>--withings-client-secret-file</code> is also given, the file is used and the flag is ignored.</td></tr>
     <tr><td><code>--withings-client-secret-file</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET_FILE</code></td><td>empty</td><td>File holding the Withings client secret.</td></tr>
     <tr><td><code>--withings-redirect-url</code></td><td><code>DEXAFIX_WITHINGS_REDIRECT_URL</code></td><td><code>http://localhost:8080/integrations/withings/callback</code></td><td>Callback URL registered with Withings. Set it to the public URL.</td></tr>
-    <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever.</td></tr>
+    <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever. An invalid <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> (not a whole number, or negative) is ignored without a warning, and 365 is used.</td></tr>
     <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
     <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
-    <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout.</td></tr>
+    <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout. Only the exact value <code>true</code> turns it on; <code>1</code> or <code>TRUE</code> does not.</td></tr>
     <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing. Unused when the key variable is set.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
   </tbody>
@@ -532,6 +533,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
     <tr><td>GET</td><td><code>/audit</code></td><td>The whole audit log. Administrators only.</td></tr>
   </tbody>
 </table></div>
+<p>Scans and readings cannot be deleted through the API, and access tokens cannot be created or revoked through it. Use the website for those. Changing a password revokes all the user's access tokens, and so does an administrator setting it.</p>
 <p>Also: <code>GET /healthz</code> returns <code>ok</code> without authentication.</p>
 <h3 id="api-pagination">Pagination and filters</h3>
 <p>List endpoints (<code>dexa-scans</code>, <code>scale-readings</code>) take:</p>
