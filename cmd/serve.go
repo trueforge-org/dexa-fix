@@ -134,6 +134,17 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 			return err
 		}
 		srv.Version = Version
+		proxies, _ := cmd.Flags().GetString("trusted-proxies")
+		if srv.TrustedProxies, err = web.ParseTrustedProxies([]string{proxies}); err != nil {
+			return err
+		}
+		baseURL, _ := cmd.Flags().GetString("base-url")
+		if srv.BaseURL, err = web.ParseBaseURL(baseURL); err != nil {
+			return err
+		}
+		if len(srv.TrustedProxies) > 0 || srv.BaseURL != nil {
+			log.Info().Str("trusted_proxies", proxies).Str("base_url", baseURL).Msg("reverse proxy settings")
+		}
 		days, _ := cmd.Flags().GetInt("audit-retention-days")
 		srv.AuditRetention = time.Duration(days) * 24 * time.Hour
 		srv.StartMaintenance()
@@ -169,6 +180,8 @@ func init() {
 	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "Withings OAuth client secret")
 	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")
 	serveCmd.Flags().Int("audit-retention-days", envInt("DEXAFIX_AUDIT_RETENTION_DAYS", 365), "delete audit log events (and the IP addresses in them) after this many days; 0 keeps them forever")
+	serveCmd.Flags().String("trusted-proxies", envOr("DEXAFIX_TRUSTED_PROXIES", ""), "comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-* headers are believed; also \"loopback\" and \"private\"")
+	serveCmd.Flags().String("base-url", envOr("DEXAFIX_BASE_URL", ""), "public address of the app, such as https://dexa.example.com; used for sign-in callback URLs and to decide that cookies are Secure")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
 	serveCmd.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing, unused when "+encryptionKeyEnv+" is set")
 	RootCmd.AddCommand(serveCmd)

@@ -306,19 +306,6 @@ func (s *Server) loadCookieKey(ctx context.Context) ([]byte, error) {
 	return hex.DecodeString(v)
 }
 
-func isSecure(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-}
-
-// externalURL builds an absolute URL for this server as seen by the browser.
-func externalURL(r *http.Request, path string) string {
-	scheme := "http"
-	if isSecure(r) {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host + path
-}
-
 // startSession signs the user in, whichever way they proved who they are.
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int64, method string) error {
 	token, err := randomHex(32)

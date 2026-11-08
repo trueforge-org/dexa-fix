@@ -10,9 +10,12 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -38,6 +41,10 @@ type Server struct {
 	Version string
 	// AuditRetention is how long audit events are kept; zero keeps them for good.
 	AuditRetention time.Duration
+	// TrustedProxies are the reverse proxies whose X-Forwarded-* headers are believed.
+	TrustedProxies []netip.Prefix
+	// BaseURL is the public address of the app (scheme and host); nil derives it from requests.
+	BaseURL *url.URL
 	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
 	// from a lockout.
 	ForcePasswordLogin bool
@@ -52,9 +59,10 @@ type Server struct {
 	cancelJob context.CancelFunc
 	jobs      sync.WaitGroup
 
-	auditNoise *auditNoise
-	limiter    *failLimiter      // failed sign-in attempts
-	assetVer   map[string]string // content hash per static file, for cache-busting URLs
+	auditNoise      *auditNoise
+	warnedUntrusted atomic.Bool
+	limiter         *failLimiter      // failed sign-in attempts
+	assetVer        map[string]string // content hash per static file, for cache-busting URLs
 
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
@@ -154,7 +162,12 @@ func (s *Server) Handler() http.Handler {
 	// cross-site POST and is protected by its signed state instead.
 	cop := http.NewCrossOriginProtection()
 	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
-	return logRequests(secureHeaders(compress(limitBody(cop.Handler(s.withAuth(mux))))))
+	if s.BaseURL != nil {
+		if err := cop.AddTrustedOrigin(s.BaseURL.Scheme + "://" + s.BaseURL.Host); err != nil {
+			log.Error().Err(err).Msg("base URL not accepted as a trusted origin")
+		}
+	}
+	return logRequests(s.proxyHeaders(secureHeaders(compress(limitBody(cop.Handler(s.withAuth(mux)))))))
 }
 
 // integrationView is the state of an OAuth integration for the current user.
