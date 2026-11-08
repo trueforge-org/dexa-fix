@@ -146,6 +146,8 @@ type User struct {
 	AthleteDefault bool `json:"athlete_default"`
 	// MethodRanking lists methods most accurate first. Always contains every method.
 	MethodRanking []string `json:"method_ranking"`
+	// HiddenColumns lists the daily table columns the user has hidden.
+	HiddenColumns []string `json:"-"`
 }
 
 // ScaleReading is a single smart-scale measurement. Fields are aligned with Withings measure types.

@@ -167,16 +167,24 @@ func TestEstimatesPage(t *testing.T) {
 	if code, b := body(t, c, ts.URL+"/u/1/estimates"); code != 200 || !strings.Contains(b, "No data yet") || strings.Contains(b, `id="overview"`) {
 		t.Fatalf("empty: %d", code)
 	}
-	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}})
-	post(t, c, ts.URL+"/u/1/dexa", url.Values{"measured_at": {"2026-03-01"}, "weight_kg": {"80"}})
-	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-02T07:30"}, "weight_kg": {"82"}})
-	_, b := body(t, c, ts.URL+"/u/1/estimates")
-	// DEXA day shows 80; the series is a constant 82, so the offset is -2 and the following days
-	// (a measured one, then held up to today) are corrected to 80 as well.
-	for _, want := range []string{"80.00", "2026-03-02", "Weight -2.00 kg", "Smart scale", "held", "corr.", `id="overview"`, `class="tile"`} {
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}, "fat_ratio_pct": {"20"}})
+	post(t, c, ts.URL+"/u/1/dexa", url.Values{"measured_at": {"2026-03-01"}, "weight_kg": {"80"}, "fat_ratio_pct": {"18"}})
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-02T07:30"}, "weight_kg": {"82"}, "fat_ratio_pct": {"20"}})
+	_, b := body(t, c, ts.URL+"/u/1/estimates?range=all")
+	if strings.Contains(b, ">est</span>") {
+		t.Error("no value is interpolated yet, but a row is tagged")
+	}
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-04T07:30"}, "weight_kg": {"82"}, "fat_ratio_pct": {"20"}})
+	_, b = body(t, c, ts.URL+"/u/1/estimates?range=all")
+	// DEXA day shows body fat 18; the reading is 20, so the offset is -2 and the following days
+	// (a measured one, then held up to today) are corrected to 18 as well. Weight has no offset.
+	for _, want := range []string{"18.00", "2026-03-02", "Body fat -2.00 %", "Smart scale", "held", "corr.", ">est</span>", `id="overview"`, `class="tile"`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("estimates page missing %q", want)
 		}
+	}
+	if strings.Contains(b, "Weight -") || strings.Contains(b, "Weight +") || strings.Contains(b, "Fat mass -") {
+		t.Error("only body fat and bone mass may have an offset")
 	}
 	if code, _ := body(t, c, ts.URL+"/u/1"); code != 303 {
 		t.Errorf("home redirect: %d", code)
@@ -399,7 +407,7 @@ func TestWithingsFlow(t *testing.T) {
 	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", nil)); !strings.Contains(msg, "1 imported") || !strings.Contains(msg, "1 day(s) skipped") || !strings.Contains(msg, "2026-03-01") {
 		t.Fatalf("bulk msg %q", msg)
 	}
-	_, b := body(t, c, ts.URL+"/u/1/estimates")
+	_, b := body(t, c, ts.URL+"/u/1/estimates?range=all")
 	for _, want := range []string{`name="day" value="2026-03-01"`, `name="day" value="2026-03-02"`, "Re-import this day from Withings", "80.00"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("estimates page missing %q", want)
@@ -491,5 +499,74 @@ func TestMethodsAthleteModeAndSettings(t *testing.T) {
 	}
 	if code, _ := api("POST", "/api/v1/users/1/scale-readings", `[{"measured_at":"2026-03-07T07:00:00Z","weight_kg":80,"method":"nope"}]`); code != 400 {
 		t.Fatalf("unknown method via API: %d", code)
+	}
+}
+
+func TestMeasureFormsSuggestValues(t *testing.T) {
+	ts, c := newTestServer(t)
+	signup(t, ts, c, "bob")
+	for _, page := range []string{"scale", "dexa"} {
+		if _, b := body(t, c, ts.URL+"/u/1/"+page); !strings.Contains(b, "data-calc") || !strings.Contains(b, "/static/measure.js") {
+			t.Errorf("%s form does not load the suggestions", page)
+		}
+	}
+	if code, b := body(t, c, ts.URL+"/static/measure.js"); code != 200 || !strings.Contains(b, "fat_ratio_pct") {
+		t.Errorf("measure.js: %d", code)
+	}
+}
+
+func TestDailyTableFollowsChartRange(t *testing.T) {
+	ts, c := newTestServer(t)
+	signup(t, ts, c, "bob")
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}})
+	oldRow := "<td>2026-03-01</td>"
+	for _, tt := range []struct {
+		query string
+		rows  int
+		old   bool
+	}{{"", 90, false}, {"?range=30", 30, false}} {
+		_, b := body(t, c, ts.URL+"/u/1/estimates"+tt.query)
+		if got := strings.Count(b, "<tr><td>"); got != tt.rows || strings.Contains(b, oldRow) != tt.old {
+			t.Errorf("%q: %d rows, want %d; old row shown: %v", tt.query, got, tt.rows, strings.Contains(b, oldRow))
+		}
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/estimates?range=all"); !strings.Contains(b, oldRow) || !strings.Contains(b, `id="estimates-data"`) {
+		t.Error("all time must show every day")
+	}
+}
+
+func TestEstimatesShowBodyIndices(t *testing.T) {
+	ts, c := newTestServer(t)
+	signup(t, ts, c, "bob")
+	post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"bob"}, "email": {"bob@example.com"}, "height_cm": {"200"}})
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"100"}})
+	_, b := body(t, c, ts.URL+"/u/1/estimates?range=all")
+	for _, want := range []string{">BMI <small>", ">FMI <small>", ">LMI <small>", ">A/G ratio<", ">25.00"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("estimates page missing %q", want)
+		}
+	}
+}
+
+func TestDailyTableRemembersHiddenColumns(t *testing.T) {
+	ts, c := newTestServer(t)
+	signup(t, ts, c, "bob")
+	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}, "fat_ratio_pct": {"20"}})
+	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "<th>Body fat") || !strings.Contains(b, `value="fat_ratio_pct" checked`) {
+		t.Fatal("every column starts out visible")
+	}
+	r := post(t, c, ts.URL+"/u/1/estimates/columns", url.Values{"column": {"weight_kg", "bogus"}, "range": {"30"}})
+	if loc := r.Header.Get("Location"); r.StatusCode != 303 || loc != "/u/1/estimates?range=30" {
+		t.Fatalf("save: %d %q", r.StatusCode, loc)
+	}
+	_, b := body(t, c, ts.URL+"/u/1/estimates")
+	if !strings.Contains(b, "<th>Weight") || strings.Contains(b, "<th>Body fat") {
+		t.Error("the hidden column must be gone, the visible one kept")
+	}
+	if !strings.Contains(b, `value="weight_kg" checked`) || strings.Contains(b, `value="fat_ratio_pct" checked`) || !strings.Contains(b, `value="fat_ratio_pct"`) {
+		t.Error("the picker must still list hidden columns, unchecked")
+	}
+	if !strings.Contains(b, `id="daily-table"`) {
+		t.Error("the picker needs the table to swap")
 	}
 }

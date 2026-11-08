@@ -36,11 +36,14 @@ const (
 // tileFields are the measurements summarised at the top of the estimates page.
 var tileFields = []string{"weight_kg", "fat_ratio_pct", "fat_mass_kg", "fat_free_mass_kg"}
 
-// chartRanges are the selectable chart windows. Days 0 means the whole series.
-var chartRanges = []struct {
+// chartRange is a selectable time window of the chart and the daily table.
+type chartRange struct {
 	Key, Label, Desc string
 	Days             int
-}{
+}
+
+// chartRanges are the selectable windows. Days 0 means the whole series.
+var chartRanges = []chartRange{
 	{"30", "30d", "the last 30 days", 30},
 	{"90", "90d", "the last 90 days", 90},
 	{"365", "1y", "the last year", 365},
@@ -118,6 +121,30 @@ type chartPoint struct {
 	value estimate.Value
 }
 
+// selectedRange returns the range with the given key, or 90 days for an unknown key.
+func selectedRange(key string) chartRange {
+	for _, r := range chartRanges {
+		if r.Key == key {
+			return r
+		}
+	}
+	return chartRanges[1]
+}
+
+// daysInRange returns the part of days (newest first) within rangeDays of the newest day. A
+// rangeDays of 0 returns all of them.
+func daysInRange(days []estimate.DayEstimate, rangeDays int) []estimate.DayEstimate {
+	if rangeDays <= 0 || len(days) == 0 {
+		return days
+	}
+	cutoff := days[0].Date.AddDate(0, 0, -(rangeDays - 1))
+	n := 0
+	for n < len(days) && !days[n].Date.Before(cutoff) {
+		n++
+	}
+	return days[:n]
+}
+
 // buildOverview summarises a result for the given chart selection. Unknown selections fall back
 // to the defaults, and nil is returned when there is nothing to summarise.
 func buildOverview(res estimate.Result, userID int64, metric, rng string) *overviewView {
@@ -125,12 +152,7 @@ func buildOverview(res estimate.Result, userID int64, metric, rng string) *overv
 		return nil
 	}
 	field := fieldOrDefault(metric)
-	window := chartRanges[1] // 90 days unless another range is selected
-	for _, r := range chartRanges {
-		if r.Key == rng {
-			window = r
-		}
-	}
+	window := selectedRange(rng)
 
 	ov := &overviewView{}
 	for _, key := range tileFields {

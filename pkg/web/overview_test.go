@@ -182,3 +182,16 @@ func TestInitial(t *testing.T) {
 		}
 	}
 }
+
+func TestDaysInRange(t *testing.T) {
+	days := weightDays(200, func(int) estimate.Value { return estimate.Value{} })
+	for _, tt := range []struct{ rangeDays, want int }{{30, 30}, {90, 90}, {365, 200}, {0, 200}} {
+		got := daysInRange(days, tt.rangeDays)
+		if len(got) != tt.want || !got[0].Date.Equal(days[0].Date) {
+			t.Errorf("range %d: %d days starting %v", tt.rangeDays, len(got), got[0].Date)
+		}
+	}
+	if got := daysInRange(nil, 30); len(got) != 0 {
+		t.Errorf("no days: %d", len(got))
+	}
+}

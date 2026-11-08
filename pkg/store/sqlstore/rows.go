@@ -24,12 +24,16 @@ type userRow struct {
 	CreatedAt      time.Time `bun:"created_at"`
 	AthleteDefault bool      `bun:"athlete_default"`
 	MethodRanking  string    `bun:"method_ranking"`
+	HiddenColumns  string    `bun:"hidden_columns"`
 }
 
 func (r *userRow) toModel() models.User {
-	var keys []string
+	var keys, hidden []string
 	if r.MethodRanking != "" {
 		keys = strings.Split(r.MethodRanking, ",")
+	}
+	if r.HiddenColumns != "" {
+		hidden = strings.Split(r.HiddenColumns, ",")
 	}
 	return models.User{
 		ID:             r.ID,
@@ -40,6 +44,7 @@ func (r *userRow) toModel() models.User {
 		CreatedAt:      r.CreatedAt,
 		AthleteDefault: r.AthleteDefault,
 		MethodRanking:  models.NormalizeRanking(keys),
+		HiddenColumns:  hidden,
 	}
 }
 

@@ -219,6 +219,20 @@ func (s *Store) UpdateUserSettings(ctx context.Context, userID int64, athleteDef
 	return nil
 }
 
+// UpdateUserHiddenColumns stores which daily table columns the user has hidden.
+func (s *Store) UpdateUserHiddenColumns(ctx context.Context, userID int64, keys []string) error {
+	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
+		Set("hidden_columns = ?", strings.Join(keys, ",")).
+		Where("id = ?", userID).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	var rows []userRow
 	if err := s.db.NewSelect().Model(&rows).OrderExpr("name").Scan(ctx); err != nil {

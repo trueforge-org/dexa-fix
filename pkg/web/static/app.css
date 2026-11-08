@@ -497,3 +497,9 @@ form.fields.card > * + * { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+.measure input::placeholder { color: var(--muted); opacity: .8; }
+
+.columns summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+.columns[open] { flex-basis: 100%; }
+.columns form { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin-top: .5rem; }

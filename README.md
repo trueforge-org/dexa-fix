@@ -15,19 +15,26 @@ between scans.
 
 - Stored readings are never changed. Everything below is calculated per request.
 - First the app builds its own per-day series: the most accurate reading of
-  each day, gaps filled in, and a centred 7-day rolling average.
-- The offset is `DEXA - series` on the day of each DEXA scan.
+  each day, averaged over a centred 7-day window of real readings, with the
+  gaps filled in by straight lines.
+- The offset is `DEXA - the actual reading` on the day of each DEXA scan. The
+  reading is the scale's own value that day, not the smoothed series.
 - On a day with a DEXA value, that value is used.
 - On every other day, the series is corrected by the nearby offset.
 
-Example: one DEXA scan on 2026-03-01 with weight 80.0 kg, while the scale says
-82.0 kg every day. The series is 82.0 kg, so the offset is -2.0 kg.
+Example: one DEXA scan on 2026-03-01 with body fat 18.0 %, while the scale says
+20.0 % every day. The reading on the scan day is 20.0 %, so the offset is
+-2.0 percentage points.
 
-| Date       | Scale (kg) | Estimate (kg) | Origin     |
-| ---------- | ---------- | ------------- | ---------- |
-| 2026-03-01 | 82.0       | 80.0          | `dexa`     |
-| 2026-03-02 | 82.0       | 80.0          | `measured` |
-| 2026-03-05 | none       | 80.0          | `interpolated` or `held` |
+| Date       | Scale (%) | Estimate (%) | Origin                   |
+| ---------- | --------- | ------------ | ------------------------ |
+| 2026-03-01 | 20.0      | 18.0         | `dexa`                   |
+| 2026-03-02 | 20.0      | 18.0         | `measured`               |
+| 2026-03-05 | none      | 18.0         | `interpolated` or `held` |
+
+Fat mass and fat-free mass are then calculated from the body fat % and the
+weight on every day with a weight, whether or not a calibration applies. The
+scale's own values are used only when they cannot be calculated.
 
 The full rules are in [Estimation details](#estimation-details).
 
@@ -38,8 +45,9 @@ The full rules are in [Estimation details](#estimation-details).
 - Per-user DEXA scans and scale readings, entered in the browser or by JSON API.
 - Each reading records its measurement method (smart scale, caliper, BodPod,
   hydrostatic, tape, visual AI) and whether athlete mode was on.
-- One estimate per day for weight, body fat, fat mass, fat-free mass, muscle
-  mass, hydration, bone mass and visceral fat index.
+- One estimate per day for weight, body fat, fat mass, fat-free mass, lean
+  mass, hydration, bone mass, visceral fat index, BMI, fat mass index (FMI),
+  lean mass index (LMI) and the android/gynoid (A/G) fat ratio.
 - Optional Withings import, so scale readings do not need typing in.
 - SQLite (default) or Postgres. Schema changes are versioned migrations, applied
   on startup. See [Database](#database).
@@ -189,11 +197,23 @@ Settings and Admin are in a menu under your name in the header, which also has
 
 Numbers may use a decimal comma. Notes are limited to 500 characters.
 
+While a scale reading or DEXA scan is being entered, an empty field shows a gray
+value when it can be calculated from what was typed. Weight, body fat %, fat
+mass and fat-free mass calculate from each other: any two give the rest. On the
+DEXA form, lean mass + bone mass gives fat-free mass. A typed value is never
+replaced. Gray values are saved with the form unless a value is typed instead.
+This needs JavaScript; without it the fields stay empty.
+
 On the estimates page, a `DEXA` badge marks a value from a DEXA scan, and a
-`corr.` badge marks a corrected value. Faded values are interpolated or held.
-Hovering a value shows its origin, the method and mode it is based on, and the
-raw reading. The calibrations section lists each scan's offsets (DEXA minus
-series) per method and mode. Days with only a DEXA scan appear too.
+`corr.` badge marks a corrected value. Faded values are interpolated or held,
+and a gray `est` tag in front of the date marks a row with a value
+interpolated between two readings of that field. Hovering a value shows its
+origin, the method and mode it is based on, and the raw reading. The
+calibrations section lists each scan's offsets (DEXA minus the reading on the
+scan day) per method and mode. Days with only a DEXA scan appear too. The
+daily table shows the same period as the chart (30 days, 90 days, 1 year or
+all time, 90 days by default). The Columns menu above the daily table shows
+and hides columns, and the choice is remembered per account.
 
 ## Accounts and sign-in
 
@@ -387,28 +407,60 @@ and stored readings are never changed. Each field is handled on its own.
    caliper reading with only body fat does not hide the scale weight. If the
    normal and athlete group of one method both have a value, the one matching
    the user's athlete-mode default wins.
-3. **Missing days.** From the first reading until today, gaps are filled by a
-   straight line between the known days (origin `interpolated`). After the last
-   reading the last value is repeated (origin `held`).
-4. **Smoothing.** The filled series is replaced by a centred 7-day rolling
-   average (3 days before, 3 after). The window is shorter at the ends of the
-   series. Peaks are not capped. This is the per-day series.
+3. **Rolling average.** Each day is averaged over the real readings within 3
+   days before and after it (a 7-day window, shorter at the ends of the series).
+   Only real readings count, never days filled in by step 4. If the window has
+   at least 3 days with a real reading, the day's value is that average. This
+   also applies to a day without a reading of its own, and its origin stays
+   `interpolated` or `held`. Otherwise a day with a reading keeps that reading.
+   Peaks are not capped.
+4. **Missing days.** A day still without a value from step 3 gets a value on a
+   straight line between the nearest days that have one (origin `interpolated`).
+   After the last such day, its value is repeated up to today (origin `held`).
+   The held value can therefore be the last average, not the last raw reading.
+   This is the per-day series.
 5. **Calibration.** On each DEXA day inside the series, the offset (DEXA minus
-   series) is recorded for weight, body fat, fat mass, fat-free mass and bone
-   mass. It belongs to the group used around that day (the most common group
-   within 3 days, the more accurate one on a tie), so athlete and normal
-   readings of the same method get their own offsets. Muscle mass, hydration
-   and visceral fat index are never corrected, because DEXA does not measure
-   them here. A scan before the first reading cannot calibrate.
+   the reading on that day) is recorded for body fat % and bone mass. Every
+   group (method and athlete mode) with a reading of that field on the scan day
+   gets its own offset. Several readings of one group on one day are averaged
+   first. A group without a reading on the scan day gets no offset from that
+   scan. A scan with fat mass and weight but no body fat % gets its body fat %
+   calculated as fat mass / weight x 100, so it still calibrates body fat %.
+   Weight is measured by DEXA but is never corrected. Hydration and visceral
+   fat index are never corrected either, because DEXA does not measure them
+   here. A scan with no reading of a group on that day cannot calibrate that
+   group.
 6. **Estimate.** For each field and day:
    - A DEXA value is used as it is (origin `dexa`).
-   - Before the first calibration of the day's group the series is used as it
-     is.
+   - Before the first calibration of the day's group the series is corrected
+     with that first calibration's offset.
    - Between two calibrations of the group the offset is blended with a
      smoothstep curve. The first half stays near the earlier scan, and the
      second half moves towards the later one.
    - After the last calibration the last offset is kept.
    - Corrected values have `corrected: true`.
+   - Fat mass and fat-free mass are calculated on every day with a weight,
+     whether or not a calibration applies. When body fat % is known, fat mass =
+     weight x body fat % / 100. When it is not, the fat mass already on that day
+     is kept. Fat-free mass = weight - fat mass, so the two always add up to the
+     weight. The scale's own fat mass and fat-free mass are used only when they
+     cannot be calculated, for example on a day with no weight. A DEXA fat mass
+     or fat-free mass value on its own day is used as it is, and the other is
+     calculated from it where needed. They are marked `corrected: true` when
+     the value they come from is corrected or from DEXA. They are unmarked only
+     for a group with no calibration at all. Lean mass = fat-free mass - bone
+     mass, calculated on every day with both. On a day missing either one there
+     is no lean mass. A DEXA lean mass value on its own day is used as it is
+     (origin `dexa`). Lean mass is marked `corrected: true` when the fat-free
+     mass or bone mass it comes from is corrected or from DEXA.
+   - BMI = weight / height², FMI = fat mass / height² and LMI = lean mass /
+     height², with height in metres from the profile. Without a height, these
+     three are left out. They are marked `corrected: true` when the value they
+     come from is corrected or from DEXA. The A/G ratio = android fat % /
+     gynoid fat %, from DEXA scans that have both values (origin `dexa` on the
+     scan day). After a scan, the latest ratio is repeated (origin `held`)
+     until the next scan with a ratio. There is no value before the first such
+     scan.
 
 ## JSON API
 

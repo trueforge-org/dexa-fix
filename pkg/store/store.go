@@ -54,6 +54,8 @@ type Store interface {
 	DeleteUser(ctx context.Context, userID int64) error
 	// UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.
 	UpdateUserSettings(ctx context.Context, userID int64, athleteDefault bool, ranking []string) error
+	// UpdateUserHiddenColumns stores which daily table columns the user has hidden.
+	UpdateUserHiddenColumns(ctx context.Context, userID int64, keys []string) error
 
 	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
 	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)

@@ -5,14 +5,21 @@
 //
 //  1. Readings are averaged per day and per group (measurement method + athlete mode).
 //  2. For every day the most accurate group wins, using the user's method ranking.
-//  3. Days without a reading are filled: straight-line interpolation between known days, and the
-//     last known value held up to today.
-//  4. The filled series is smoothed with a centred 7-day rolling average. This is our per-day
-//     series; peaks are kept, not capped.
-//  5. DEXA scans calibrate that series: the offset (dexa − series) is stored per group, because
-//     e.g. an athlete-mode scale reading is biased differently from a normal-mode one.
+//  3. A day with at least MinWindowReadings real readings in its centred 7-day window gets the
+//     average of those readings; interpolated days are never part of an average. Any other day
+//     with a reading keeps that reading. Peaks are kept, not capped.
+//  4. All remaining days are a straight line between the days from step 3, and the last of those
+//     is held up to today. Together this is our per-day series.
+//  5. DEXA scans calibrate that series: the offset (dexa − the day's reading) is stored per group,
+//     because e.g. an athlete-mode scale reading is biased differently from a normal-mode one. A
+//     group needs its own reading on the scan day to get an offset; the 7-day average is not used.
 //  6. Between two calibrations the offset is blended with a smoothstep curve, so the first half of
 //     the gap stays close to the earlier DEXA scan and the second half moves towards the later one.
+//     Days before a group's first calibration use its offset, days after the last one use that one.
+//  7. Only body fat % and bone mass have offsets. Fat mass is calculated from body fat % and the
+//     day's weight, and fat-free mass is the weight minus that fat mass, so the two add up to the
+//     weight. The scale's own values of these two are only used when they can't be calculated.
+//     Lean mass is the fat-free mass minus the bone mass.
 //
 // For every field a DEXA value on its own day wins over the calibrated series.
 package estimate
@@ -27,6 +34,9 @@ import (
 // WindowDays is the number of days on each side of a day that the rolling average covers
 // (3 + 1 + 3 = a 7-day window).
 const WindowDays = 3
+
+// MinWindowReadings is how many days with a real reading a window needs before it is averaged.
+const MinWindowReadings = 3
 
 // Origin tells where an estimated value came from.
 type Origin string
@@ -43,20 +53,26 @@ type Field struct {
 	Key   string
 	Label string
 	Unit  string
-	// Comparable fields are measured by both DEXA and the scale and so can be corrected.
+	// Comparable fields are corrected with a DEXA offset: only body fat % and bone mass. Fat mass
+	// and fat-free mass are calculated from the corrected body fat % instead, and weight is
+	// deliberately left uncorrected.
 	Comparable bool
 }
 
 // Fields lists the estimated measurements in display order.
 var Fields = []Field{
-	{"weight_kg", "Weight", "kg", true},
+	{"weight_kg", "Weight", "kg", false},
 	{"fat_ratio_pct", "Body fat", "%", true},
-	{"fat_mass_kg", "Fat mass", "kg", true},
-	{"fat_free_mass_kg", "Fat-free mass", "kg", true},
+	{"fat_mass_kg", "Fat mass", "kg", false},
+	{"fat_free_mass_kg", "Fat-free mass", "kg", false},
 	{"bone_mass_kg", "Bone mass", "kg", true},
-	{"muscle_mass_kg", "Muscle mass", "kg", false},
+	{"lean_mass_kg", "Lean mass", "kg", false},
 	{"hydration_kg", "Hydration", "kg", false},
 	{"visceral_fat_index", "Visceral fat index", "", false},
+	{"bmi", "BMI", "kg/m²", false},
+	{"fmi", "FMI", "kg/m²", false},
+	{"lmi", "LMI", "kg/m²", false},
+	{"ag_ratio", "A/G ratio", "", false},
 }
 
 // Options configure Compute.
@@ -68,6 +84,8 @@ type Options struct {
 	Ranking []string
 	// AthleteDefault breaks ties between the normal and athlete group of the same method.
 	AthleteDefault bool
+	// HeightCm is needed for BMI, FMI and LMI. Without it they are left out.
+	HeightCm *float64
 }
 
 // Value is an estimated value with its origin.
@@ -89,8 +107,8 @@ type DayEstimate struct {
 	Values map[string]Value `json:"values"`
 }
 
-// Calibration is the reading-to-DEXA offset (dexa − smoothed series) observed at a DEXA scan, for
-// one reading group.
+// Calibration is the reading-to-DEXA offset (dexa − daily reading) observed at a DEXA scan, for one
+// reading group.
 type Calibration struct {
 	Date        time.Time          `json:"date"`
 	Method      string             `json:"method"`
@@ -123,8 +141,6 @@ func scaleGet(r *models.ScaleReading, key string) *float64 {
 		return r.FatFreeMassKg
 	case "bone_mass_kg":
 		return r.BoneMassKg
-	case "muscle_mass_kg":
-		return r.MuscleMassKg
 	case "hydration_kg":
 		return r.HydrationKg
 	case "visceral_fat_index":
@@ -145,6 +161,13 @@ func dexaGet(d *models.DexaScan, key string) *float64 {
 		return d.FatFreeMassKg
 	case "bone_mass_kg":
 		return d.BoneMassKg
+	case "lean_mass_kg":
+		return d.LeanMassKg
+	case "ag_ratio":
+		if d.AndroidFatPct != nil && d.GynoidFatPct != nil && *d.GynoidFatPct > 0 {
+			ratio := *d.AndroidFatPct / *d.GynoidFatPct
+			return &ratio
+		}
 	}
 	return nil
 }
@@ -244,7 +267,7 @@ func daily(readings []models.ScaleReading) map[string]map[time.Time]map[group]fl
 type seriesDay struct {
 	origin Origin
 	raw    float64 // selected raw daily reading, valid when origin == OriginMeasured
-	smooth float64 // centred rolling average of the filled series
+	smooth float64 // average of the real readings in the window, or interpolated between such days
 	grp    group   // group the value is based on (window group for non-measured days)
 }
 
@@ -285,7 +308,6 @@ func buildSeries(byDay map[time.Time]map[group]float64, rk ranker, today time.Ti
 
 	// Step 2: most accurate group per measured day.
 	var mi []int // indices of measured days
-	filled := make([]float64, n)
 	for _, d := range known {
 		i := int(d.Sub(first) / dayDur)
 		var best group
@@ -297,33 +319,52 @@ func buildSeries(byDay map[time.Time]map[group]float64, rk ranker, today time.Ti
 		}
 		v := byDay[d][best]
 		s.days[i] = seriesDay{origin: OriginMeasured, raw: v, grp: best}
-		filled[i] = v
 		mi = append(mi, i)
 	}
 
-	// Step 3: interpolate gaps, hold the last value.
+	// Days without a reading are interpolated between readings, or held after the last one.
 	for k := 0; k+1 < len(mi); k++ {
-		a, b := mi[k], mi[k+1]
-		for i := a + 1; i < b; i++ {
-			t := float64(i-a) / float64(b-a)
-			filled[i] = filled[a] + t*(filled[b]-filled[a])
+		for i := mi[k] + 1; i < mi[k+1]; i++ {
 			s.days[i].origin = OriginInterpolated
 		}
 	}
-	lastIdx := mi[len(mi)-1]
-	for i := lastIdx + 1; i < n; i++ {
-		filled[i] = filled[lastIdx]
+	for i := mi[len(mi)-1] + 1; i < n; i++ {
 		s.days[i].origin = OriginHeld
 	}
 
-	// Step 4: centred rolling average, window shrinking at the ends of the series.
+	// Step 3: anchor days. A day with enough real readings in its window gets their average; any
+	// other day with a reading keeps that reading. Filled days never enter an average.
+	var anchors []int
 	for i := range s.days {
-		lo, hi := max(0, i-WindowDays), min(n-1, i+WindowDays)
-		sum := 0.0
-		for j := lo; j <= hi; j++ {
-			sum += filled[j]
+		sum, count := 0.0, 0
+		for j := max(0, i-WindowDays); j <= min(n-1, i+WindowDays); j++ {
+			if s.days[j].origin == OriginMeasured {
+				sum += s.days[j].raw
+				count++
+			}
 		}
-		s.days[i].smooth = sum / float64(hi-lo+1)
+		switch {
+		case count >= MinWindowReadings:
+			s.days[i].smooth = sum / float64(count)
+		case s.days[i].origin == OriginMeasured:
+			s.days[i].smooth = s.days[i].raw
+		default:
+			continue
+		}
+		anchors = append(anchors, i)
+	}
+
+	// Step 4: the remaining days are a straight line between anchors, then the last anchor is held.
+	for k := 0; k+1 < len(anchors); k++ {
+		a, b := anchors[k], anchors[k+1]
+		for i := a + 1; i < b; i++ {
+			t := float64(i-a) / float64(b-a)
+			s.days[i].smooth = s.days[a].smooth + t*(s.days[b].smooth-s.days[a].smooth)
+		}
+	}
+	lastAnchor := anchors[len(anchors)-1]
+	for i := lastAnchor + 1; i < n; i++ {
+		s.days[i].smooth = s.days[lastAnchor].smooth
 	}
 
 	// Window group for filled days: most common measured group within the window, ties to the more
@@ -372,6 +413,70 @@ type calKey struct {
 	grp   group
 }
 
+// deriveFromBodyFat makes a day's fat mass and fat-free mass add up to its weight. Fat mass is
+// calculated from body fat % and weight when both are known, otherwise the existing fat mass is
+// kept. Fat-free mass is the weight minus that fat mass. The scale's own values of these two are
+// replaced; a DEXA value of a mass itself is kept. Without a weight nothing changes.
+func deriveFromBodyFat(vals map[string]Value) {
+	w, haveW := vals["weight_kg"]
+	if !haveW {
+		return
+	}
+	fm, haveFM := vals["fat_mass_kg"]
+	if fat, haveFat := vals["fat_ratio_pct"]; haveFat && fm.Origin != OriginDexa {
+		fm = calculatedValue(fm, haveFM, fat, w.V*fat.V/100)
+		vals["fat_mass_kg"] = fm
+		haveFM = true
+	}
+	ffm, haveFFM := vals["fat_free_mass_kg"]
+	if haveFM && ffm.Origin != OriginDexa {
+		vals["fat_free_mass_kg"] = calculatedValue(ffm, haveFFM, fm, w.V-fm.V)
+	}
+}
+
+// deriveLeanMass sets a day's lean mass to its fat-free mass minus its bone mass. A DEXA value of
+// the lean mass itself is kept. Without both inputs nothing is calculated.
+func deriveLeanMass(vals map[string]Value) {
+	ffm, haveFFM := vals["fat_free_mass_kg"]
+	bone, haveBone := vals["bone_mass_kg"]
+	lean, haveLean := vals["lean_mass_kg"]
+	if !haveFFM || !haveBone || lean.Origin == OriginDexa {
+		return
+	}
+	lean = calculatedValue(lean, haveLean, ffm, ffm.V-bone.V)
+	lean.Corrected = lean.Corrected || bone.Corrected || bone.Origin == OriginDexa
+	vals["lean_mass_kg"] = lean
+}
+
+// deriveBodyIndices sets BMI, FMI and LMI: weight, fat mass and lean mass divided by height squared.
+func deriveBodyIndices(vals map[string]Value, heightCm *float64) {
+	if heightCm == nil || *heightCm <= 0 {
+		return
+	}
+	metres := *heightCm / 100
+	for _, index := range []struct{ key, from string }{
+		{"bmi", "weight_kg"}, {"fmi", "fat_mass_kg"}, {"lmi", "lean_mass_kg"},
+	} {
+		if source, ok := vals[index.from]; ok {
+			vals[index.key] = calculatedValue(Value{}, false, source, source.V/(metres*metres))
+		}
+	}
+}
+
+// calculatedValue sets v to value, calculated from source: it counts as corrected when source is
+// corrected or comes from DEXA. Without an existing value (have is false) it takes over the origin
+// and group of source.
+func calculatedValue(v Value, have bool, source Value, value float64) Value {
+	if !have {
+		v = Value{Origin: source.Origin, Method: source.Method, AthleteMode: source.AthleteMode}
+		if v.Origin == OriginDexa {
+			v.Origin = OriginMeasured // calculated, not a value of the scan itself
+		}
+	}
+	v.V, v.Corrected = value, source.Corrected || source.Origin == OriginDexa
+	return v
+}
+
 // Compute returns the per-day estimates and the calibrations used. The inputs are not modified.
 func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options) Result {
 	rk := newRanker(o)
@@ -404,8 +509,17 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 			}
 		}
 	}
+	// A scan without a body fat % still calibrates it, through its fat mass and weight.
+	for _, vals := range dexaDay {
+		w, haveW := vals["weight_kg"]
+		fm, haveFM := vals["fat_mass_kg"]
+		if _, havePct := vals["fat_ratio_pct"]; !havePct && haveW && haveFM && w > 0 {
+			vals["fat_ratio_pct"] = fm / w * 100
+		}
+	}
 
-	// Calibrations: offset between each DEXA value and the smoothed series, per reading group.
+	// Calibrations: offset between each DEXA value and the group's own reading on that day. A group
+	// without a reading on the scan day gets no calibration from that scan.
 	perKey := map[calKey][]point{}
 	type calID struct {
 		date time.Time
@@ -423,17 +537,15 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 			if !ok || !f.Comparable {
 				continue
 			}
-			sd, ok := all[f.Key].at(d)
-			if !ok {
-				continue
+			for g, measured := range byField[f.Key][d] {
+				off := dv - measured
+				perKey[calKey{f.Key, g}] = append(perKey[calKey{f.Key, g}], point{d, off})
+				id := calID{d, g}
+				if calOffsets[id] == nil {
+					calOffsets[id] = map[string]float64{}
+				}
+				calOffsets[id][f.Key] = off
 			}
-			off := dv - sd.smooth
-			perKey[calKey{f.Key, sd.grp}] = append(perKey[calKey{f.Key, sd.grp}], point{d, off})
-			id := calID{d, sd.grp}
-			if calOffsets[id] == nil {
-				calOffsets[id] = map[string]float64{}
-			}
-			calOffsets[id][f.Key] = off
 		}
 	}
 	var cals []Calibration
@@ -466,8 +578,10 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 			}
 		}
 		switch {
-		case c1 == nil:
+		case c1 == nil && c2 == nil:
 			return 0, false
+		case c1 == nil: // before the group's first calibration
+			return c2.offset, true
 		case c2 == nil:
 			return c1.offset, true
 		}
@@ -510,6 +624,18 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 				v.Corrected = true
 			}
 			est.Values[f.Key] = v
+		}
+		deriveFromBodyFat(est.Values)
+		deriveLeanMass(est.Values)
+		deriveBodyIndices(est.Values, o.HeightCm)
+		if _, ok := est.Values["ag_ratio"]; !ok {
+			// A/G is only measured by DEXA: keep the latest earlier scan's ratio.
+			for i := len(dexaDays) - 1; i >= 0; i-- {
+				if v, has := dexaDay[dexaDays[i]]["ag_ratio"]; has && dexaDays[i].Before(d) {
+					est.Values["ag_ratio"] = Value{V: v, Origin: OriginHeld}
+					break
+				}
+			}
 		}
 		if len(est.Values) > 0 {
 			res.Days = append(res.Days, est)

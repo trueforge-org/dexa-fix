@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
@@ -23,6 +24,14 @@ type estCell struct {
 type estRow struct {
 	Date  string
 	Cells []estCell
+	// Interpolated is set when a value on this row lies between two readings of that field.
+	Interpolated bool
+}
+
+// estColumn is one entry of the daily table's column picker.
+type estColumn struct {
+	Key, Label string
+	Visible    bool
 }
 
 type calRow struct {
@@ -45,7 +54,36 @@ func (s *Server) computeEstimates(r *http.Request, u models.User) (estimate.Resu
 		Today:          time.Now().UTC(),
 		Ranking:        u.MethodRanking,
 		AthleteDefault: u.AthleteDefault,
+		HeightCm:       u.HeightCm,
 	}), nil
+}
+
+// columnsSave remembers the hidden columns of the daily table. The form posts the visible ones, so
+// columns added later start out visible.
+func (s *Server) columnsSave(w http.ResponseWriter, r *http.Request, u models.User) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	visible := make(map[string]bool, len(r.PostForm["column"]))
+	for _, key := range r.PostForm["column"] {
+		visible[key] = true
+	}
+	var hidden []string
+	for _, f := range estimate.Fields {
+		if !visible[f.Key] {
+			hidden = append(hidden, f.Key)
+		}
+	}
+	if err := s.store.UpdateUserHiddenColumns(r.Context(), u.ID, hidden); err != nil {
+		s.fail(w, err)
+		return
+	}
+	target := userPath(u.ID, "estimates")
+	if rng := r.PostFormValue("range"); rng != "" {
+		target += "?" + url.Values{"range": {rng}}.Encode()
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -54,10 +92,24 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 		s.fail(w, err)
 		return
 	}
-	rows := make([]estRow, 0, len(res.Days))
-	for _, d := range res.Days {
+	window := selectedRange(r.URL.Query().Get("range"))
+	visible := daysInRange(res.Days, window.Days)
+	hidden := make(map[string]bool, len(u.HiddenColumns))
+	for _, key := range u.HiddenColumns {
+		hidden[key] = true
+	}
+	var shown []estimate.Field
+	columns := make([]estColumn, 0, len(estimate.Fields))
+	for _, f := range estimate.Fields {
+		columns = append(columns, estColumn{Key: f.Key, Label: f.Label, Visible: !hidden[f.Key]})
+		if !hidden[f.Key] {
+			shown = append(shown, f)
+		}
+	}
+	rows := make([]estRow, 0, len(visible))
+	for _, d := range visible {
 		er := estRow{Date: d.Date.Format(dateLayout)}
-		for _, f := range estimate.Fields {
+		for _, f := range shown {
 			v, ok := d.Values[f.Key]
 			if !ok {
 				er.Cells = append(er.Cells, estCell{Text: "–"})
@@ -75,6 +127,9 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 				c.Class, c.Badge = "dexa", "DEXA"
 			case v.Corrected:
 				c.Class, c.Badge = "corrected", "corr."
+			}
+			if v.Origin == estimate.OriginInterpolated {
+				er.Interpolated = true
 			}
 			if v.Origin == estimate.OriginInterpolated || v.Origin == estimate.OriginHeld {
 				c.Class += " filled"
@@ -97,7 +152,7 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 	msg := flashParam(r)
 	data := pageData{
 		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
-		EstFields: estimate.Fields, EstRows: rows, Cals: cals, Msg: msg,
+		EstFields: shown, EstColumns: columns, EstRows: rows, EstRange: window.Desc, EstRangeKey: window.Key, Cals: cals, Msg: msg,
 		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}
 	data.Withings = s.withingsView(r, u)

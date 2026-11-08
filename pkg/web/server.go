@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/scale", s.user(s.scaleCreate))
 	mux.HandleFunc("POST /u/{id}/scale/{item}/delete", s.user(s.scaleDelete))
 	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
+	mux.HandleFunc("POST /u/{id}/estimates/columns", s.user(s.columnsSave))
 	mux.HandleFunc("GET /u/{id}/settings", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		s.settingsPage(w, r, u, "", flashParam(r), http.StatusOK)
 	}))
@@ -143,10 +144,13 @@ type pageData struct {
 	Withings *integrationView
 	Resync   bool // show the per-day re-import button
 
-	EstFields []estimate.Field
-	EstRows   []estRow
-	Cals      []calRow
-	Overview  *overviewView // summary above the estimates table, nil without data
+	EstFields   []estimate.Field
+	EstRange    string // description of the period the daily table covers
+	EstRangeKey string
+	EstColumns  []estColumn // every column, for the picker
+	EstRows     []estRow
+	Cals        []calRow
+	Overview    *overviewView // summary above the estimates table, nil without data
 
 	Login *loginView // sign-in page
 
