@@ -148,6 +148,8 @@ type Store interface {
 	CreateAccessToken(ctx context.Context, t *models.AccessToken) error
 	ListAccessTokens(ctx context.Context, userID int64) ([]models.AccessToken, error)
 	DeleteAccessToken(ctx context.Context, userID, id int64) error
+	// DeleteUserAccessTokens revokes every access token of a user.
+	DeleteUserAccessTokens(ctx context.Context, userID int64) error
 	// UserByTokenHash returns the user of an unexpired token and records its use, or ErrNotFound.
 	UserByTokenHash(ctx context.Context, tokenHash string) (models.User, error)
 

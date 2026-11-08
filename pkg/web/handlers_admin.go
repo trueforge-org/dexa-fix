@@ -321,6 +321,10 @@ func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ mode
 		s.fail(w, err)
 		return
 	}
+	if err := s.store.DeleteUserAccessTokens(r.Context(), t.ID); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.audit(r, t.ID, auditPasswordSet, "")
 	adminRedirect(w, r, "Password set for "+t.Name+".")
 }

@@ -160,6 +160,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			apiError(w, err)
 			return
 		}
+		s.audit(r, u.ID, auditUserAdded, "api")
 		writeJSON(w, http.StatusCreated, u)
 	}))
 

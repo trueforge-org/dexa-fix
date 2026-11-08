@@ -299,6 +299,11 @@ func (s *Store) ListAccessTokens(ctx context.Context, userID int64) ([]models.Ac
 	return out, nil
 }
 
+func (s *Store) DeleteUserAccessTokens(ctx context.Context, userID int64) error {
+	_, err := s.db.NewDelete().Model((*tokenRow)(nil)).Where("user_id = ?", userID).Exec(ctx)
+	return err
+}
+
 func (s *Store) DeleteAccessToken(ctx context.Context, userID, id int64) error {
 	res, err := s.db.NewDelete().Model((*tokenRow)(nil)).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx)
 	if err != nil {

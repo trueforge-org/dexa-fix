@@ -151,8 +151,13 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models
 		s.fail(w, err)
 		return
 	}
-	// A changed password signs out everywhere else.
+	// A changed password signs out everywhere else and revokes API tokens, which would otherwise
+	// keep working for whoever stole the old session.
 	if err := s.store.DeleteUserSessions(ctx, u.ID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.store.DeleteUserAccessTokens(ctx, u.ID); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -161,7 +166,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models
 		return
 	}
 	s.audit(r, u.ID, auditPasswordChanged, "")
-	s.settingsPage(w, r, u, "", "Password saved.", http.StatusOK)
+	s.settingsPage(w, r, u, "", "Password saved. Access tokens were revoked; create new ones if you use the API.", http.StatusOK)
 }
 
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request, u models.User) {

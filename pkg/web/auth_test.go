@@ -328,6 +328,11 @@ func TestChangePassword(t *testing.T) {
 	other := noRedirectClient()
 	useSession(t, other, post(t, other, ts.URL+"/login", url.Values{"email": {"alice@example.com"}, "password": {testPassword}}))
 
+	token := createPAT(t, ts, c, 1, url.Values{"name": {"script"}})
+	if code, _ := apiCall(t, noRedirectClient(), "GET", ts.URL+"/api/v1/users/1/settings", "", bearer(token)); code != 200 {
+		t.Fatalf("token before change: %d", code)
+	}
+
 	const next = "a brand new password"
 	if r := post(t, c, ts.URL+"/u/1/password", url.Values{"current": {"wrong one here"}, "password": {next}, "confirm": {next}}); r.StatusCode != 422 {
 		t.Fatalf("wrong current: %d", r.StatusCode)
@@ -338,6 +343,9 @@ func TestChangePassword(t *testing.T) {
 	}
 	if code, _ := body(t, other, ts.URL+"/u/1/settings"); code != 303 {
 		t.Fatalf("other sessions must end: %d", code)
+	}
+	if code, _ := apiCall(t, noRedirectClient(), "GET", ts.URL+"/api/v1/users/1/settings", "", bearer(token)); code != 401 {
+		t.Fatalf("tokens must be revoked by a password change: %d", code)
 	}
 	if r := post(t, noRedirectClient(), ts.URL+"/login", url.Values{"email": {"alice@example.com"}, "password": {next}}); r.StatusCode != 303 {
 		t.Fatalf("login with new password: %d", r.StatusCode)
