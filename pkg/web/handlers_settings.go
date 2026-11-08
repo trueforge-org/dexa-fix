@@ -16,7 +16,7 @@ type rankRow struct {
 	Rank  int
 }
 
-func (s *Server) settingsPage(w http.ResponseWriter, u models.User, errMsg, saved string, status int) {
+func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved string, status int) {
 	rows := make([]rankRow, len(u.MethodRanking))
 	for i, k := range u.MethodRanking {
 		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
@@ -24,6 +24,7 @@ func (s *Server) settingsPage(w http.ResponseWriter, u models.User, errMsg, save
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,
+		Withings: s.withingsView(r, u),
 	})
 }
 
@@ -40,7 +41,7 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request, u models.U
 			n, err := strconv.Atoi(raw)
 			if err != nil || n < 1 || n > 100 {
 				u.AthleteDefault = r.PostFormValue("athlete_default") != ""
-				s.settingsPage(w, u, "Ranks must be whole numbers from 1 to 100.", "", http.StatusUnprocessableEntity)
+				s.settingsPage(w, r, u, "Ranks must be whole numbers from 1 to 100.", "", http.StatusUnprocessableEntity)
 				return
 			}
 			rank = n
@@ -59,5 +60,5 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request, u models.U
 		return
 	}
 	u.AthleteDefault, u.MethodRanking = athlete, models.NormalizeRanking(keys)
-	s.settingsPage(w, u, "", "Settings saved.", http.StatusOK)
+	s.settingsPage(w, r, u, "", "Settings saved.", http.StatusOK)
 }

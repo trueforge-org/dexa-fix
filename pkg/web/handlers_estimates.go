@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
@@ -100,12 +101,28 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 	data := pageData{
 		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
 		EstFields: estimate.Fields, EstRows: rows, Cals: cals, Msg: msg,
+		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}
-	if p, ok := s.oauthProvider(providerWithings); ok {
-		data.Withings = &integrationView{Connected: p.Connected(r.Context(), s.store, u.ID)}
-		data.Resync = data.Withings.Connected
-	}
+	data.Withings = s.withingsView(r, u)
+	data.Resync = data.Withings != nil && data.Withings.Connected
 	s.render(w, "estimates.html", http.StatusOK, data)
+}
+
+// withingsView reports the Withings state for a user, or nil if the importer is not registered.
+// Unlike oauthProvider it also returns a view when the server lacks credentials, so the pages can
+// say so instead of showing nothing.
+func (s *Server) withingsView(r *http.Request, u models.User) *integrationView {
+	imp, ok := s.importers.Get(providerWithings)
+	if !ok {
+		return nil
+	}
+	p, ok := imp.(importer.OAuthProvider)
+	if !ok {
+		return nil
+	}
+	v := &integrationView{Configured: p.Configured()}
+	v.Connected = v.Configured && p.Connected(r.Context(), s.store, u.ID)
+	return v
 }
 
 // groupLabel names a reading group, e.g. "Smart scale (Withings, manual), athlete".

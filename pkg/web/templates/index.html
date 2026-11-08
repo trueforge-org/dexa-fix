@@ -1,13 +1,18 @@
 {{define "content"}}
-<h1>Who are you?</h1>
-{{if .Users}}
-<ul class="users">
-  {{range .Users}}<li><a class="button" href="/u/{{.ID}}">{{.Name}}</a></li>{{end}}
-</ul>
-{{else}}<p>No users yet. Add the first one below.</p>{{end}}
-<h2>New user</h2>
-<form method="post" action="/users" class="inline">
-  <input type="text" name="name" placeholder="Name" maxlength="64" required>
-  <button type="submit">Add</button>
-</form>
+<div class="card welcome">
+  <div>
+    <h1>Who are you?</h1>
+    <small>Pick your profile, or add a new one.</small>
+  </div>
+  {{if .Users}}
+  <ul class="users">
+    {{range .Users}}<li><a href="/u/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .Name}}</span>{{.Name}}</a></li>{{end}}
+  </ul>
+  {{else}}<p>No users yet. Add the first one below.</p>{{end}}
+  <h2>New user</h2>
+  <form method="post" action="/users" class="inline">
+    <input type="text" name="name" placeholder="Name" maxlength="64" required aria-label="Name">
+    <button type="submit">Add</button>
+  </form>
+</div>
 {{end}}

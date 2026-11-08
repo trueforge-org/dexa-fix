@@ -10,7 +10,9 @@ import (
 	"io/fs"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog/log"
 
@@ -37,6 +39,8 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 	funcs := template.FuncMap{
 		"day": func(t time.Time) string { return t.Format("2006-01-02") },
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
+
+		"initial": initial,
 	}
 	s := &Server{store: st, importers: importers, tmpl: map[string]*template.Template{}}
 	for _, p := range pages {
@@ -68,7 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/scale/{item}/delete", s.user(s.scaleDelete))
 	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
 	mux.HandleFunc("GET /u/{id}/settings", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		s.settingsPage(w, u, "", "", http.StatusOK)
+		s.settingsPage(w, r, u, "", "", http.StatusOK)
 	}))
 	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
 
@@ -79,7 +83,10 @@ func (s *Server) Handler() http.Handler {
 }
 
 // integrationView is the state of an OAuth integration for the current user.
-type integrationView struct{ Connected bool }
+type integrationView struct {
+	Configured bool // the server has the provider's credentials
+	Connected  bool // the user has linked their account
+}
 
 // pageData is the data passed to every template.
 type pageData struct {
@@ -105,6 +112,7 @@ type pageData struct {
 	EstFields []estimate.Field
 	EstRows   []estRow
 	Cals      []calRow
+	Overview  *overviewView // summary above the estimates table, nil without data
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, status int, data pageData) {
@@ -201,6 +209,15 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Redirect(w, r, userPath(u.ID, ""), http.StatusSeeOther)
 	}
+}
+
+// initial returns the upper-cased first character of a name, for avatars.
+func initial(name string) string {
+	r, _ := utf8.DecodeRuneInString(strings.TrimSpace(name))
+	if r == utf8.RuneError {
+		return "?"
+	}
+	return strings.ToUpper(string(r))
 }
 
 func userPath(id int64, tab string) string {

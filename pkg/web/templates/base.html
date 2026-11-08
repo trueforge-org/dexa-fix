@@ -3,23 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>{{.Title}}</title>
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <header>
-  <a class="brand" href="/">dexa-fix</a>
-  {{if .User}}
-  <span class="who">{{.User.Name}}</span>
-  <nav>
-    <a href="/u/{{.User.ID}}/estimates" {{if eq .Tab "estimates"}}class="active"{{end}}>Estimates</a>
-    <a href="/u/{{.User.ID}}/dexa" {{if eq .Tab "dexa"}}class="active"{{end}}>DEXA scans</a>
-    <a href="/u/{{.User.ID}}/scale" {{if eq .Tab "scale"}}class="active"{{end}}>Scale</a>
-    <a href="/u/{{.User.ID}}/settings" {{if eq .Tab "settings"}}class="active"{{end}}>Settings</a>
-  </nav>
-  {{end}}
+  <div class="bar">
+    <a class="brand" href="/">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6"/><path d="M4 13h4l2.5-6 3.5 10 2-4h4" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      dexa-fix
+    </a>
+    {{if .User}}
+    <nav class="tabs" aria-label="Sections">
+      <a href="/u/{{.User.ID}}/estimates"{{if eq .Tab "estimates"}} class="active" aria-current="page"{{end}}>Estimates</a>
+      <a href="/u/{{.User.ID}}/dexa"{{if eq .Tab "dexa"}} class="active" aria-current="page"{{end}}>DEXA scans</a>
+      <a href="/u/{{.User.ID}}/scale"{{if eq .Tab "scale"}} class="active" aria-current="page"{{end}}>Scale</a>
+      <a href="/u/{{.User.ID}}/settings"{{if eq .Tab "settings"}} class="active" aria-current="page"{{end}}>Settings</a>
+    </nav>
+    <a class="who" href="/" title="Switch user"><span class="avatar" aria-hidden="true">{{initial .User.Name}}</span>{{.User.Name}}</a>
+    {{end}}
+  </div>
 </header>
 <main id="content">
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
@@ -39,9 +46,9 @@
     <td>{{$r.Notes}}</td>
     <td><form method="post" action="{{$.User.ID | printf "/u/%d"}}/{{$.Tab}}/{{$r.ID}}/delete"
           hx-post="{{$.User.ID | printf "/u/%d"}}/{{$.Tab}}/{{$r.ID}}/delete" hx-confirm="Delete this entry?"
-          hx-target="#content" hx-select="#content" hx-swap="outerHTML"><button class="link" type="submit">delete</button></form></td>
+          hx-target="#content" hx-select="#content" hx-swap="outerHTML"><button class="link" type="submit">Delete</button></form></td>
   </tr>{{end}}
   </tbody>
 </table></div>
-{{else}}<p>Nothing submitted yet.</p>{{end}}
+{{else}}<div class="empty"><p>Nothing submitted yet.</p></div>{{end}}
 {{end}}

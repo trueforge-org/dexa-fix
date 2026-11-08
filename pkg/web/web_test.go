@@ -134,7 +134,7 @@ func TestUnknownUser(t *testing.T) {
 func TestEstimatesPage(t *testing.T) {
 	ts, c := newTestServer(t)
 	post(t, c, ts.URL+"/users", url.Values{"name": {"bob"}})
-	if code, b := body(t, c, ts.URL+"/u/1/estimates"); code != 200 || !strings.Contains(b, "No data yet") {
+	if code, b := body(t, c, ts.URL+"/u/1/estimates"); code != 200 || !strings.Contains(b, "No data yet") || strings.Contains(b, `id="overview"`) {
 		t.Fatalf("empty: %d", code)
 	}
 	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"82"}})
@@ -143,13 +143,24 @@ func TestEstimatesPage(t *testing.T) {
 	_, b := body(t, c, ts.URL+"/u/1/estimates")
 	// DEXA day shows 80; the series is a constant 82, so the offset is -2 and the following days
 	// (a measured one, then held up to today) are corrected to 80 as well.
-	for _, want := range []string{"80.00", "2026-03-02", "Weight -2.00 kg", "Smart scale", "held", "corr."} {
+	for _, want := range []string{"80.00", "2026-03-02", "Weight -2.00 kg", "Smart scale", "held", "corr.", `id="overview"`, `class="tile"`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("estimates page missing %q", want)
 		}
 	}
 	if code, _ := body(t, c, ts.URL+"/u/1"); code != 303 {
 		t.Errorf("home redirect: %d", code)
+	}
+}
+
+func TestWithingsNotSetUp(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/users", url.Values{"name": {"bob"}})
+	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Not set up") || !strings.Contains(b, "DEXAFIX_WITHINGS_CLIENT_ID") || strings.Contains(b, "/integrations/withings/connect") {
+		t.Errorf("settings should explain the missing setup:\n%s", b)
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Set up Withings") || strings.Contains(b, "/integrations/withings/connect") {
+		t.Errorf("estimates should link to the setup:\n%s", b)
 	}
 }
 
@@ -284,6 +295,9 @@ func TestWithingsFlow(t *testing.T) {
 	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Connect Withings") || strings.Contains(b, "Import from Withings") {
 		t.Fatalf("expected connect link:\n%s", b)
 	}
+	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Not connected") || !strings.Contains(b, "/u/1/integrations/withings/connect") {
+		t.Fatalf("expected connect link in settings:\n%s", b)
+	}
 	// not connected yet
 	if msg := flash(post(t, c, ts.URL+"/u/1/import/withings", nil)); !strings.Contains(msg, "not connected") {
 		t.Fatalf("msg %q", msg)
@@ -339,6 +353,9 @@ func TestWithingsFlow(t *testing.T) {
 
 	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Import from Withings") || strings.Contains(b, "Connect Withings") {
 		t.Fatalf("expected import button:\n%s", b)
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Import from Withings") || !strings.Contains(b, "Disconnect Withings") || strings.Contains(b, "/integrations/withings/connect") {
+		t.Fatalf("expected import and disconnect in settings:\n%s", b)
 	}
 	// a manual reading on the first day must be protected from the bulk import
 	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T09:00"}, "weight_kg": {"81"}})

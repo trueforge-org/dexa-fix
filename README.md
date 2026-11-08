@@ -145,14 +145,16 @@ changed, but it must already be fully migrated (`db migrate up`).
 - `/`: list users, add one, or open one by name. Names have 1 to 64
   characters. Entering an existing name opens that user.
 - `/u/{id}`: redirects to the estimates page.
-- `/u/{id}/estimates`: one row per day with the estimated values, the
-  calibrations in use, and the Withings buttons when Withings is set up.
+- `/u/{id}/estimates`: one row per day with the estimated values, an overview
+  with the latest values and a trend chart, the calibrations in use, and the
+  Withings buttons.
 - `/u/{id}/dexa`: add and delete DEXA scans. A scan needs a date and at least
   one measurement.
 - `/u/{id}/scale`: add and delete readings. The time is UTC. Choose the
   measurement method in the drop-down and tick **Athlete mode** if it applies.
 - `/u/{id}/settings`: the athlete-mode default and the accuracy rank of each
-  method.
+  method. A Withings section connects, imports from and disconnects the user's
+  Withings account. It says so when the server is not set up for Withings.
 
 Numbers may use a decimal comma. Notes are limited to 500 characters.
 
@@ -180,11 +182,12 @@ as scale readings with the source `withings`.
    export DEXAFIX_WITHINGS_REDIRECT_URL=https://dexa.example.com/integrations/withings/callback
    ```
 
-   The Withings buttons appear only when all three are set. The redirect URL
+   Connecting is possible only when all three are set. Until then, the Settings
+   page shows Withings as not set up and lists these variables. The redirect URL
    has a local default, so set it explicitly for any public deployment, to the
    URL registered with Withings.
-3. On the estimates page, choose **Connect Withings** and grant access. Finish
-   within 10 minutes, the lifetime of the connection state.
+3. On the estimates or Settings page, choose **Connect Withings** and grant
+   access. Finish within 10 minutes, the lifetime of the connection state.
 4. Choose **Import from Withings**.
 
 **Disconnect Withings** forgets the user's tokens. Imported readings are kept.

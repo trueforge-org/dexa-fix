@@ -1,17 +1,26 @@
 {{define "content"}}
-<h1>Smart-scale readings</h1>
-<form method="post" action="/u/{{.User.ID}}/scale" class="measure"
+<div class="page-head"><h1>Smart-scale readings</h1></div>
+<form method="post" action="/u/{{.User.ID}}/scale" class="measure card"
       hx-post="/u/{{.User.ID}}/scale" hx-target="#content" hx-select="#content" hx-swap="outerHTML">
-  <label>Date &amp; time (UTC) <input type="datetime-local" name="measured_at" value="{{.Now}}" required></label>
-  <label>Method <select name="method">{{range .Methods}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
-  <label class="check"><input type="checkbox" name="athlete_mode" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode</label>
-  <div class="grid">
-    {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}
-      <input type="number" step="any" inputmode="decimal" name="{{.Key}}"></label>{{end}}
+  <div class="section">
+    <div class="form-row">
+      <label>Date &amp; time (UTC) <input type="datetime-local" name="measured_at" value="{{.Now}}" required></label>
+      <label>Method <select name="method">{{range .Methods}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+      <label class="check"><input type="checkbox" name="athlete_mode" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode</label>
+    </div>
   </div>
-  <label>Notes <input type="text" name="notes" maxlength="500"></label>
-  <button type="submit">Add reading</button>
+  <div class="section">
+    <h3>Measurements</h3>
+    <div class="grid">
+      {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}
+        <input type="number" step="any" inputmode="decimal" name="{{.Key}}"></label>{{end}}
+    </div>
+    <label>Notes <input type="text" name="notes" maxlength="500"></label>
+  </div>
+  <div class="form-actions"><button type="submit">Add reading</button></div>
 </form>
-<h2>All readings</h2>
-{{template "table" .}}
+<section class="card flush">
+  <div class="card-head"><h2>All readings</h2></div>
+  {{template "table" .}}
+</section>
 {{end}}

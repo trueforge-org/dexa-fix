@@ -1,28 +1,83 @@
 {{define "content"}}
-<h1>Estimated results</h1>
+<div class="page-head">
+  <h1>Estimated results</h1>
+  {{with .Withings}}<div class="integration">
+  {{if .Connected}}
+    <form method="post" action="/u/{{$.User.ID}}/import/withings"><button type="submit" title="Fetch all Withings measurements: fills days without readings first and leaves days with manual readings alone">Import from Withings</button></form>
+    <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect"><button type="submit" class="secondary">Disconnect Withings</button></form>
+  {{else if .Configured}}<a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a>
+  {{else}}<a class="button secondary" href="/u/{{$.User.ID}}/settings#withings">Set up Withings</a>{{end}}
+  </div>{{end}}
+</div>
 {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
-{{with .Withings}}<div class="integration">
-{{if .Connected}}
-  <form method="post" action="/u/{{$.User.ID}}/import/withings"><button type="submit" title="Fetch all Withings measurements: fills days without readings first and leaves days with manual readings alone">Import from Withings</button></form>
-  <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect"><button type="submit" class="secondary">Disconnect Withings</button></form>
-{{else}}<a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a>{{end}}
-</div>{{end}}
-<p><small>One row per day. Each day uses the most accurate reading (see <a href="/u/{{.User.ID}}/settings">Settings</a>); days without readings are interpolated, and after the last reading the last value is held. The series is a centred 7-day rolling average. A DEXA value is used when there is one; otherwise the series is corrected by the offset to DEXA scans for the same method and mode (blended smoothly between two scans). Stored readings are never changed. Faded values are interpolated or held.</small></p>
-{{if .EstRows}}
-<div class="scroll"><table>
-  <thead><tr><th>Date</th>{{range .EstFields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}{{if .Resync}}<th></th>{{end}}</tr></thead>
-  <tbody>
-  {{range .EstRows}}<tr><td>{{.Date}}</td>
-    {{range .Cells}}<td class="num {{.Class}}" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
-    {{if $.Resync}}<td><form method="post" action="/u/{{$.User.ID}}/import/withings" onsubmit="return confirm('Re-import {{.Date}} from Withings? Withings readings for this day are replaced.')"><input type="hidden" name="day" value="{{.Date}}"><button class="link" type="submit" title="Re-import this day from Withings">↻</button></form></td>{{end}}
-  </tr>{{end}}
-  </tbody>
-</table></div>
-{{else}}<p>No data yet. Add <a href="/u/{{.User.ID}}/scale">scale readings</a> or a <a href="/u/{{.User.ID}}/dexa">DEXA scan</a>.</p>{{end}}
+{{with .Overview}}{{template "overview" .}}{{end}}
 
-<h2>Calibrations in use</h2>
-{{if .Cals}}
-<p><small>Offset = DEXA − the 7-day series on the scan day, kept separately for each method and mode.</small></p>
-<ul>{{range .Cals}}<li><strong>{{.Date}}</strong> ({{.Group}}): {{range $i, $it := .Items}}{{if $i}}; {{end}}{{$it}}{{end}}</li>{{end}}</ul>
-{{else}}<p>None: values are shown uncorrected. A calibration needs a DEXA scan on a day inside the series (from the first reading until today).</p>{{end}}
+<section class="card flush">
+  <div class="card-head"><h2>Daily estimates</h2></div>
+  <details class="help">
+    <summary>How this is calculated</summary>
+    <p>One row per day. Each day uses the most accurate reading (see <a href="/u/{{.User.ID}}/settings">Settings</a>); days without readings are interpolated, and after the last reading the last value is held. The series is a centred 7-day rolling average. A DEXA value is used when there is one; otherwise the series is corrected by the offset to DEXA scans for the same method and mode (blended smoothly between two scans). Stored readings are never changed. Faded values are interpolated or held.</p>
+  </details>
+  {{if .EstRows}}
+  <div class="scroll"><table>
+    <thead><tr><th>Date</th>{{range .EstFields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}{{if .Resync}}<th></th>{{end}}</tr></thead>
+    <tbody>
+    {{range .EstRows}}<tr><td>{{.Date}}</td>
+      {{range .Cells}}<td class="num {{.Class}}" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
+      {{if $.Resync}}<td><form method="post" action="/u/{{$.User.ID}}/import/withings" onsubmit="return confirm('Re-import {{.Date}} from Withings? Withings readings for this day are replaced.')"><input type="hidden" name="day" value="{{.Date}}"><button class="icon" type="submit" title="Re-import this day from Withings" aria-label="Re-import {{.Date}} from Withings">↻</button></form></td>{{end}}
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}<div class="empty"><p>No data yet. Add <a href="/u/{{.User.ID}}/scale">scale readings</a> or a <a href="/u/{{.User.ID}}/dexa">DEXA scan</a>.</p></div>{{end}}
+</section>
+
+<section class="card">
+  <h2>Calibrations in use</h2>
+  {{if .Cals}}
+  <p class="help">Offset = DEXA − the 7-day series on the scan day, kept separately for each method and mode.</p>
+  <ul class="cal-list">{{range .Cals}}<li><strong>{{.Date}}</strong> ({{.Group}}): {{range $i, $it := .Items}}{{if $i}}; {{end}}{{$it}}{{end}}</li>{{end}}</ul>
+  {{else}}<p class="help">None: values are shown uncorrected. A calibration needs a DEXA scan on a day inside the series (from the first reading until today).</p>{{end}}
+</section>
+{{end}}
+
+{{define "overview"}}
+<section id="overview" aria-label="Overview">
+  {{if .Tiles}}<div class="tiles">
+    {{range .Tiles}}<div class="tile">
+      <div class="tile-label">{{.Label}}</div>
+      <div class="tile-value">{{.Value}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</div>
+      {{if .Arrow}}<div class="tile-delta"><span aria-hidden="true">{{.Arrow}}</span> {{.Delta}}</div>{{end}}
+      <div class="tile-origin">{{.Origin}}</div>
+    </div>{{end}}
+  </div>{{end}}
+  <div class="card">
+    <div class="chart-controls" hx-target="#overview" hx-select="#overview" hx-swap="outerHTML" hx-push-url="true">
+      <div class="pills" role="group" aria-label="Measurement">{{range .Metrics}}<a href="{{.Href}}" hx-get="{{.Href}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
+      <div class="pills" role="group" aria-label="Time range">{{range .Ranges}}<a href="{{.Href}}" hx-get="{{.Href}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
+    </div>
+    {{with .Chart}}
+    <div class="chart">
+      <svg viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="{{.Summary}}">
+        {{$c := .}}
+        {{range .YTicks}}<line class="grid-line" x1="{{$c.PlotLeft}}" x2="{{$c.PlotRight}}" y1="{{.Y}}" y2="{{.Y}}"/><text x="{{$c.YLabelX}}" y="{{.LabelY}}" text-anchor="end">{{.Label}}</text>{{end}}
+        {{range .XTicks}}<text x="{{.X}}" y="{{$c.XLabelY}}" text-anchor="{{.Anchor}}">{{.Label}}</text>{{end}}
+        {{if .Dashed}}<path class="series dashed" d="{{.Dashed}}"/>{{end}}
+        {{if .Solid}}<path class="series" d="{{.Solid}}"/>{{end}}
+        {{range .Markers}}<circle class="marker" cx="{{.X}}" cy="{{.Y}}" r="5"/>{{end}}
+        {{range .Hits}}<g class="hit">
+          <rect class="hit-area" x="{{.Left}}" y="{{$c.PlotTop}}" width="{{.Width}}" height="{{$c.PlotHeight}}"/>
+          <line class="crosshair" x1="{{.X}}" x2="{{.X}}" y1="{{$c.PlotTop}}" y2="{{$c.PlotBottom}}"/>
+          <circle class="dot" cx="{{.X}}" cy="{{.Y}}" r="5"/>
+          <g class="tip"><rect x="{{.TipX}}" y="{{.TipY}}" width="{{$c.TipWidth}}" height="{{$c.TipHeight}}" rx="8"/><text x="{{.TextX}}" y="{{.DateY}}">{{.Date}}</text><text class="tip-value" x="{{.TextX}}" y="{{.ValueY}}">{{.Value}}</text><text x="{{.TextX}}" y="{{.OriginY}}">{{.Origin}}</text></g>
+        </g>{{end}}
+      </svg>
+    </div>
+    {{if or .HasMarkers .HasDashed}}<div class="legend">
+      {{if .HasMarkers}}<span><i class="key-dot"></i>DEXA scan</span>{{end}}
+      {{if .HasDashed}}<span><i class="key-dash"></i>Interpolated or held</span>{{end}}
+    </div>{{end}}
+    {{end}}
+    {{if .Note}}<div class="empty"><p>{{.Note}}</p></div>{{end}}
+  </div>
+</section>
 {{end}}
