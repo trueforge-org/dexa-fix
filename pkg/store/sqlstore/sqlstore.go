@@ -419,14 +419,29 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 	rows = lastPerExternalID(rows)
 
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		for start := 0; start < len(rows); start += upsertChunk {
-			chunk := rows[start:min(start+upsertChunk, len(rows))]
-			q := tx.NewInsert().Model(&chunk).Returning("NULL").On("CONFLICT (user_id, source, external_id) DO UPDATE")
-			for _, c := range scaleValueCols {
-				q = q.Set(c + " = EXCLUDED." + c)
+		// A re-delivered reading without notes (every Withings import) must not wipe the note
+		// the user added in the app, so those rows are upserted without refreshing notes.
+		var withNotes, withoutNotes []scaleRow
+		for _, r := range rows {
+			if r.Notes == "" {
+				withoutNotes = append(withoutNotes, r)
+			} else {
+				withNotes = append(withNotes, r)
 			}
-			if _, err := q.Exec(ctx); err != nil {
-				return err
+		}
+		for _, part := range []struct {
+			rows []scaleRow
+			cols []string
+		}{{withNotes, scaleValueCols}, {withoutNotes, scaleValueColsKeepNotes}} {
+			for start := 0; start < len(part.rows); start += upsertChunk {
+				chunk := part.rows[start:min(start+upsertChunk, len(part.rows))]
+				q := tx.NewInsert().Model(&chunk).Returning("NULL").On("CONFLICT (user_id, source, external_id) DO UPDATE")
+				for _, c := range part.cols {
+					q = q.Set(c + " = EXCLUDED." + c)
+				}
+				if _, err := q.Exec(ctx); err != nil {
+					return err
+				}
 			}
 		}
 		if len(rows) == 0 {

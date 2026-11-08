@@ -84,6 +84,17 @@ var scaleValueCols = []string{
 	"muscle_mass_kg", "hydration_kg", "bone_mass_kg", "visceral_fat_index",
 }
 
+// scaleValueColsKeepNotes is scaleValueCols without notes, for re-delivered readings that carry none.
+var scaleValueColsKeepNotes = func() []string {
+	var out []string
+	for _, c := range scaleValueCols {
+		if c != "notes" {
+			out = append(out, c)
+		}
+	}
+	return out
+}()
+
 func (r *scaleRow) toModel() models.ScaleReading {
 	return models.ScaleReading{
 		ID: r.ID, UserID: r.UserID, MeasuredAt: r.MeasuredAt.UTC(),

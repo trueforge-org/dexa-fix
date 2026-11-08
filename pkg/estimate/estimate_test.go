@@ -640,3 +640,12 @@ func TestCorrectedValuesStayInRange(t *testing.T) {
 		t.Errorf("body fat above 100 not clamped: %+v", got)
 	}
 }
+
+func TestScanWithoutWeightUsesFatPlusFatFreeMass(t *testing.T) {
+	rs := []models.ScaleReading{scaleF(d(1, 1), 20)}
+	scan := models.DexaScan{ID: 1, MeasuredAt: d(1, 1), FatMassKg: f(20), FatFreeMassKg: f(60)}
+	r := Compute([]models.DexaScan{scan}, rs, Options{})
+	if len(r.Calibrations) != 1 || !near(r.Calibrations[0].Offsets["fat_ratio_pct"], 5) {
+		t.Fatalf("calibrations: %+v", r.Calibrations)
+	}
+}

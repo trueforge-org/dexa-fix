@@ -525,8 +525,19 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 	for _, vals := range dexaDay {
 		w, haveW := vals["weight_kg"]
 		fm, haveFM := vals["fat_mass_kg"]
-		if _, havePct := vals["fat_ratio_pct"]; !havePct && haveW && haveFM && w > 0 {
-			vals["fat_ratio_pct"] = fm / w * 100
+		if _, havePct := vals["fat_ratio_pct"]; !havePct && haveFM {
+			// Fat mass over weight; without the scan's weight, over fat plus fat-free mass.
+			total := w
+			if !haveW {
+				ffm, haveFFM := vals["fat_free_mass_kg"]
+				if !haveFFM {
+					continue
+				}
+				total = fm + ffm
+			}
+			if total > 0 {
+				vals["fat_ratio_pct"] = fm / total * 100
+			}
 		}
 	}
 

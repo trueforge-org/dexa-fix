@@ -195,3 +195,35 @@ func TestDataVersionChangesWithEverythingEstimatesUse(t *testing.T) {
 		t.Error("a write that changed nothing bumped the version")
 	}
 }
+
+// A re-import carries no notes; it must not wipe a note the user wrote, while a delivery that does
+// carry notes still updates them.
+func TestReimportKeepsUserNotes(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	u, _ := s.CreateUser(ctx, "alice")
+	at := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	id := "g1"
+	w := 80.0
+	first := models.ScaleReading{MeasuredAt: at, WeightKg: &w, Source: "withings", ExternalID: &id, Notes: "after run"}
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{first}); err != nil {
+		t.Fatal(err)
+	}
+	w2 := 81.0
+	again := models.ScaleReading{MeasuredAt: at, WeightKg: &w2, Source: "withings", ExternalID: &id}
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{again}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.ListScaleReadings(ctx, u.ID)
+	if len(got) != 1 || *got[0].WeightKg != 81 || got[0].Notes != "after run" {
+		t.Fatalf("after re-import: %+v", got)
+	}
+	again.Notes = "edited"
+	if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{again}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.ListScaleReadings(ctx, u.ID)
+	if got[0].Notes != "edited" {
+		t.Fatalf("notes not updated: %+v", got[0])
+	}
+}
