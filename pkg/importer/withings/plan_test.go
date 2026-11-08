@@ -96,7 +96,7 @@ func TestPlan(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := plan(tc.existing, tc.fetched, tc.seen, tc.dayMode, day)
+			c := plan(tc.existing, tc.fetched, tc.seen, tc.dayMode, day, nil)
 			got := [...]int{len(c.Gap), len(c.Other), len(c.Delete), c.Imported, c.Updated, c.Unchanged, c.Removed, c.Skipped}
 			want := [...]int{tc.gap, tc.other, tc.del, tc.imported, tc.updated, tc.unchanged, tc.removed, tc.skipped}
 			if got != want {
@@ -111,7 +111,7 @@ func TestPlan(t *testing.T) {
 
 func TestPlanDeletesOnlyThatDaysIDs(t *testing.T) {
 	existing := []models.ScaleReading{stored(7, "g1", "2026-03-01T07:00", 80), stored(8, "g2", "2026-03-02T07:00", 80)}
-	c := plan(existing, nil, seenOf(), true, ts("2026-03-01T00:00"))
+	c := plan(existing, nil, seenOf(), true, ts("2026-03-01T00:00"), nil)
 	if !reflect.DeepEqual(c.Delete, []int64{7}) {
 		t.Fatalf("delete %v, want [7]", c.Delete)
 	}

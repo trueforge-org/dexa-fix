@@ -7,6 +7,8 @@
     <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="name"></label>
     <label>E-mail <small>(you sign in with this)</small> <input type="email" name="email" value="{{.User.Email}}" maxlength="254" required autocomplete="username"></label>
     {{if and .Security .Security.ConfirmPassword}}<label>Current password <small>(only to change the e-mail address)</small> <input type="password" name="current" autocomplete="current-password"></label>{{end}}
+    <label>Time zone {{help "time-zone"}} <input type="text" name="timezone" value="{{.User.Timezone}}" list="timezones" maxlength="64" placeholder="Europe/Amsterdam" autocomplete="off" spellcheck="false"></label>
+    <datalist id="timezones">{{range timezones}}<option value="{{.}}">{{end}}</datalist>
     <label>Height (cm) {{help "profile-settings"}} <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
   </div>
   <div class="form-actions"><button type="submit">Save profile</button></div>

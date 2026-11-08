@@ -131,6 +131,22 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email
 	return nil
 }
 
+func (s *Store) UpdateUserTimezone(ctx context.Context, userID int64, timezone string) error {
+	if _, err := time.LoadLocation(timezone); err != nil || timezone == "" || timezone == "Local" {
+		return fmt.Errorf("%w: unknown time zone %q", store.ErrInvalid, timezone)
+	}
+	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
+		Set("timezone = ?", timezone).Set("data_version = data_version + 1").
+		Where("id = ?", userID).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // guarded runs a statement that affects no row when the guard fails, and tells a missing user
 // from a refused change afterwards.
 func (s *Store) guarded(ctx context.Context, userID int64, query string, args ...any) error {

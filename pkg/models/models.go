@@ -143,6 +143,9 @@ type User struct {
 	// match accounts by it.
 	Email    string   `json:"email"`
 	HeightCm *float64 `json:"height_cm,omitempty"`
+	// Timezone is an IANA time zone name such as "Europe/Amsterdam". It decides which calendar
+	// day a reading belongs to and how manual date-times are read and shown. Empty means UTC.
+	Timezone string `json:"timezone"`
 	// AthleteDefault presets athlete mode for new readings and imports.
 	AthleteDefault bool `json:"athlete_default"`
 	// MethodRanking lists methods most accurate first. Always contains every method.
@@ -220,3 +223,14 @@ func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSp
 
 // IsAdmin reports whether the user has the administrator role.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
+
+// Location returns the user's time zone, or UTC when none is set or it cannot be loaded.
+func (u User) Location() *time.Location {
+	if u.Timezone == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(u.Timezone); err == nil {
+		return loc
+	}
+	return time.UTC
+}

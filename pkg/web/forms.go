@@ -132,12 +132,20 @@ func parseNotes(r *http.Request) (string, error) {
 const dateLayout = "2006-01-02"
 const dateTimeLayout = "2006-01-02T15:04"
 
-func parseWhen(raw, layout string) (time.Time, error) {
-	t, err := time.ParseInLocation(layout, strings.TrimSpace(raw), time.UTC)
+// parseWhen reads a date or date-time typed in loc. The result is the instant it denotes (in UTC);
+// a plain date is a calendar date and is passed with time.UTC, so it is stored as that date.
+func parseWhen(raw, layout string, loc *time.Location) (time.Time, error) {
+	t, err := time.ParseInLocation(layout, strings.TrimSpace(raw), loc)
 	if err != nil {
 		return time.Time{}, errors.New("Enter a valid date.")
 	}
-	return t, nil
+	return t.UTC(), nil
+}
+
+// calendarDate is the date t falls on in loc, as a UTC midnight (how scans are stored).
+func calendarDate(t time.Time, loc *time.Location) time.Time {
+	y, m, d := t.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 // valueRange is one allowed range for a numeric API field.

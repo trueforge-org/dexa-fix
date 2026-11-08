@@ -13,9 +13,13 @@ import (
 // attribUnsure is Withings' "measurement may belong to someone else" attribution (e.g. a guest on the scale).
 const attribUnsure = 1
 
-func dayOf(t time.Time) time.Time { return t.UTC().Truncate(24 * time.Hour) }
-
-func dayKey(t time.Time) string { return dayOf(t).Format("2006-01-02") }
+// dayKey is the calendar date of t in loc (nil: UTC), the day a reading belongs to for the user.
+func dayKey(t time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02")
+}
 
 // mapGroups converts Withings groups to scale readings. seen holds the id of every group the API
 // returned, including the ones that were dropped (guest measurements, groups without mapped
@@ -95,7 +99,7 @@ type dayState struct {
 	own     []models.ScaleReading
 }
 
-// plan decides what to write. Rules, per UTC day:
+// plan decides what to write. Rules, per calendar day in the user's time zone loc (nil: UTC):
 //   - a day without any readings is always filled (and written first);
 //   - a stored provider reading is updated when its values changed and left alone otherwise;
 //   - new provider readings on a day that holds manual readings are skipped in a bulk import
@@ -104,12 +108,13 @@ type dayState struct {
 //   - a day re-import also removes stored provider readings the provider no longer returns.
 //
 // existing is the user's stored readings, fetched the mapped provider readings and seen the ids of
-// all provider groups returned. dayMode must be true when day is the single day that was fetched.
-func plan(existing, fetched []models.ScaleReading, seen map[string]bool, dayMode bool, day time.Time) changes {
+// all provider groups returned. dayMode must be true when day is the single day that was fetched,
+// given as a calendar date (a UTC midnight).
+func plan(existing, fetched []models.ScaleReading, seen map[string]bool, dayMode bool, day time.Time, loc *time.Location) changes {
 	states := map[string]*dayState{}
 	byExt := map[string]models.ScaleReading{} // stored provider readings, any day
 	for _, r := range existing {
-		k := dayKey(r.MeasuredAt)
+		k := dayKey(r.MeasuredAt, loc)
 		st := states[k]
 		if st == nil {
 			st = &dayState{}
@@ -127,7 +132,7 @@ func plan(existing, fetched []models.ScaleReading, seen map[string]bool, dayMode
 	var c changes
 	skipped := map[string]bool{}
 	for _, f := range fetched {
-		st := states[dayKey(f.MeasuredAt)]
+		st := states[dayKey(f.MeasuredAt, loc)]
 		if old, ok := byExt[*f.ExternalID]; ok {
 			// already stored (possibly on another day if Withings moved it): refresh when changed
 			if sameReading(old, f) {
@@ -143,7 +148,7 @@ func plan(existing, fetched []models.ScaleReading, seen map[string]bool, dayMode
 			c.Gap = append(c.Gap, f)
 			c.Imported++
 		case st.foreign && !dayMode:
-			skipped[dayKey(f.MeasuredAt)] = true
+			skipped[dayKey(f.MeasuredAt, loc)] = true
 		default:
 			c.Other = append(c.Other, f)
 			c.Imported++
@@ -151,7 +156,7 @@ func plan(existing, fetched []models.ScaleReading, seen map[string]bool, dayMode
 	}
 
 	if dayMode {
-		if st := states[dayKey(day)]; st != nil {
+		if st := states[day.Format("2006-01-02")]; st != nil { // day is a calendar date
 			for _, r := range st.own {
 				if !seen[*r.ExternalID] {
 					c.Delete = append(c.Delete, r.ID)

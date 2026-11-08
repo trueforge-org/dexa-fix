@@ -649,3 +649,41 @@ func TestScanWithoutWeightUsesFatPlusFatFreeMass(t *testing.T) {
 		t.Fatalf("calibrations: %+v", r.Calibrations)
 	}
 }
+
+// A morning weigh-in in UTC+10 is on the previous UTC day; it must still land on the local day
+// and be calibrated against the scan of that local day.
+func TestReadingsFollowTheUsersTimeZone(t *testing.T) {
+	sydney, err := time.LoadLocation("Australia/Sydney")
+	if err != nil {
+		t.Skip("no tz data")
+	}
+	// 07:00 on 2 Feb in Sydney (UTC+11) is 20:00 on 1 Feb UTC.
+	at := time.Date(2026, 2, 2, 7, 0, 0, 0, sydney)
+	rs := []models.ScaleReading{{MeasuredAt: at, FatRatioPct: f(20), Method: models.MethodScale}}
+	scan := models.DexaScan{ID: 1, MeasuredAt: d(2, 2), FatRatioPct: f(25)}
+
+	utc := Compute([]models.DexaScan{scan}, rs, Options{})
+	if len(utc.Calibrations) != 0 {
+		t.Fatalf("in UTC the reading is on 1 Feb and cannot calibrate the 2 Feb scan: %+v", utc.Calibrations)
+	}
+	local := Compute([]models.DexaScan{scan}, rs, Options{Location: sydney})
+	if len(local.Calibrations) != 1 || !near(local.Calibrations[0].Offsets["fat_ratio_pct"], 5) {
+		t.Fatalf("local day calibration: %+v", local.Calibrations)
+	}
+	if got := find(t, local, d(2, 2)).Values["fat_ratio_pct"]; got.Origin != OriginDexa {
+		t.Errorf("scan day: %+v", got)
+	}
+}
+
+func TestTodayFollowsTheUsersTimeZone(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skip("no tz data")
+	}
+	rs := []models.ScaleReading{scaleW(d(1, 1), 80)}
+	now := time.Date(2026, 1, 3, 20, 0, 0, 0, time.UTC) // already 4 Jan in Tokyo
+	r := Compute(nil, rs, Options{Today: now, Location: tokyo})
+	if len(r.Days) == 0 || !r.Days[0].Date.Equal(d(1, 4)) {
+		t.Fatalf("newest day: %+v", r.Days)
+	}
+}

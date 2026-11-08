@@ -8,3 +8,6 @@
 
 # browser captures can hold passwords and session cookies
 *.har
+
+# Claude Code agent worktrees
+.claude/worktrees/

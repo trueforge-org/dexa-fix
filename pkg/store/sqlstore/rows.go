@@ -21,6 +21,7 @@ type userRow struct {
 	Email             string    `bun:"email"`
 	EmailLookup       *string   `bun:"email_lookup"`
 	HeightCm          *float64  `bun:"height_cm"`
+	Timezone          string    `bun:"timezone"`
 	CreatedAt         time.Time `bun:"created_at"`
 	AthleteDefault    bool      `bun:"athlete_default"`
 	MethodRanking     string    `bun:"method_ranking"`
@@ -38,12 +39,17 @@ func (r *userRow) toModel() models.User {
 	if r.HiddenColumns != "" {
 		hidden = strings.Split(r.HiddenColumns, ",")
 	}
+	tz := r.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
 	return models.User{
 		ID:                r.ID,
 		Name:              r.Name,
 		Role:              r.Role,
 		Email:             r.Email,
 		HeightCm:          r.HeightCm,
+		Timezone:          tz,
 		CreatedAt:         r.CreatedAt,
 		AthleteDefault:    r.AthleteDefault,
 		MethodRanking:     models.NormalizeRanking(keys),

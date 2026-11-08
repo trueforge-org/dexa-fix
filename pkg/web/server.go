@@ -80,8 +80,9 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		"day": func(t time.Time) string { return t.Format("2006-01-02") },
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
 
-		"initial": initial,
-		"help":    help,
+		"initial":   initial,
+		"help":      help,
+		"timezones": func() []string { return commonTimezones },
 	}
 	static, _ := fs.Sub(assets, "static")
 	s := &Server{
@@ -214,6 +215,8 @@ type pageData struct {
 	Rows   []row
 	Today  string
 	Now    string
+	// Timezone names the time zone of the date-times on the page (the user's).
+	Timezone string
 
 	Methods        []models.MethodInfo // measurement methods for the scale form
 	AthleteDefault bool                // preset of the athlete-mode checkbox

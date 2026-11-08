@@ -23,14 +23,14 @@ func (s *Server) dexaPage(w http.ResponseWriter, r *http.Request, u models.User,
 	}
 	s.render(w, "dexa.html", status, pageData{
 		Title: u.Name + " · DEXA scans", Tab: "dexa", User: &u, Error: errMsg,
-		Fields: dexaFields, Rows: rows, Today: time.Now().UTC().Format(dateLayout),
+		Fields: dexaFields, Rows: rows, Today: time.Now().In(u.Location()).Format(dateLayout),
 	})
 }
 
 func (s *Server) dexaCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	scan := &models.DexaScan{UserID: u.ID}
 	var err error
-	if scan.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateLayout); err == nil {
+	if scan.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateLayout, time.UTC); err == nil {
 		if err = parseMeasures(r, dexaFields, dexaTargets(scan)); err == nil {
 			scan.Notes, err = parseNotes(r)
 		}
@@ -84,11 +84,11 @@ func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User
 	rows := make([]row, 0, len(readings))
 	for i := range readings {
 		rd := &readings[i]
-		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Method: methodLabel(rd.Method), Athlete: rd.AthleteMode, Notes: rd.Notes})
+		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.In(u.Location()).Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Method: methodLabel(rd.Method), Athlete: rd.AthleteMode, Notes: rd.Notes})
 	}
 	s.render(w, "scale.html", status, pageData{
 		Title: u.Name + " · scale readings", Tab: "scale", User: &u, Error: errMsg,
-		Fields: scaleFields, Rows: rows, Now: time.Now().UTC().Format(dateTimeLayout),
+		Fields: scaleFields, Rows: rows, Now: time.Now().In(u.Location()).Format(dateTimeLayout), Timezone: u.Location().String(),
 		Methods: models.Methods, AthleteDefault: u.AthleteDefault, Pager: pager,
 	})
 }
@@ -105,7 +105,7 @@ type pager struct {
 func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	rd := models.ScaleReading{UserID: u.ID, Source: models.SourceManual, AthleteMode: r.PostFormValue("athlete_mode") != ""}
 	var err error
-	if rd.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateTimeLayout); err == nil {
+	if rd.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateTimeLayout, u.Location()); err == nil {
 		if rd.Method, err = parseMethod(r); err == nil {
 			if err = parseMeasures(r, scaleFields, scaleTargets(&rd)); err == nil {
 				rd.Notes, err = parseNotes(r)

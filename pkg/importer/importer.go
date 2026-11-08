@@ -23,7 +23,7 @@ var (
 type Options struct {
 	// Since limits a bulk import to measurements taken at or after this time (zero: everything).
 	Since time.Time
-	// Day, when non-zero, re-imports exactly this UTC day. It replaces the provider's readings for
+	// Day, when non-zero, re-imports exactly this calendar day (a plain date, in the user's time zone). It replaces the provider's readings for
 	// that day and also imports on days where manually entered readings exist.
 	Day time.Time
 }

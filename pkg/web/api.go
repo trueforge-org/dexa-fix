@@ -190,6 +190,8 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			badRequest(w, err.Error())
 			return
 		}
+		// A scan is a calendar date: take the date the client's timestamp has in the user's zone.
+		scan.MeasuredAt = calendarDate(scan.MeasuredAt, u.Location())
 		scan.ID, scan.UserID = 0, u.ID
 		if err := s.store.CreateDexaScan(r.Context(), &scan); err != nil {
 			apiError(w, err)
@@ -272,7 +274,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users/{id}/estimates", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		// The response only changes with the user's data and the day, so a client that kept an
 		// earlier copy can ask whether it is still good without the server computing anything.
-		etag := s.estimateETag(u.ID, u.DataVersion, time.Now().UTC().Format(dateLayout))
+		etag := s.estimateETag(u.ID, u.DataVersion, time.Now().In(u.Location()).Format(dateLayout))
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "private, no-cache")
 		if etagMatches(r.Header.Get("If-None-Match"), etag) {

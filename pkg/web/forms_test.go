@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
@@ -43,5 +44,24 @@ func TestAPIRangeChecks(t *testing.T) {
 	}
 	if err := validDexaScan(&models.DexaScan{TScore: f(-2.5), BMDGCm2: f(1.2)}); err != nil {
 		t.Errorf("valid scan rejected: %v", err)
+	}
+}
+
+func TestCalendarDateAndParseWhenUseTheZone(t *testing.T) {
+	sydney, err := time.LoadLocation("Australia/Sydney")
+	if err != nil {
+		t.Skip("no tz data")
+	}
+	// the API sends the scan at local midnight: its date in Sydney is 1 March, not 28 February (UTC)
+	at := time.Date(2026, 3, 1, 0, 0, 0, 0, sydney)
+	if got := calendarDate(at, sydney); !got.Equal(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("calendarDate = %v", got)
+	}
+	got, err := parseWhen("2026-03-01T07:30", dateTimeLayout, sydney)
+	if err != nil || !got.Equal(time.Date(2026, 2, 28, 20, 30, 0, 0, time.UTC)) {
+		t.Errorf("parseWhen = %v %v", got, err)
+	}
+	if got, _ := parseWhen("2026-03-01", dateLayout, time.UTC); !got.Equal(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("plain date = %v", got)
 	}
 }

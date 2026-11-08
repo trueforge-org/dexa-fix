@@ -91,6 +91,8 @@ type Store interface {
 	// UpdateUserProfile stores the name, e-mail address and height (nil clears it). An e-mail
 	// address already in use returns ErrExists.
 	UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error
+	// UpdateUserTimezone sets the user's IANA time zone. An unknown name is ErrInvalid.
+	UpdateUserTimezone(ctx context.Context, userID int64, timezone string) error
 	// SetUserRole changes a role; demoting the last administrator returns ErrLastAdmin.
 	SetUserRole(ctx context.Context, userID int64, role string) error
 	// DeleteUser removes a user and all their data; removing the last administrator returns ErrLastAdmin.

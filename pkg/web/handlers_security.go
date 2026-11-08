@@ -104,6 +104,14 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	if email != u.Email && !s.confirmPassword(w, r, u) {
 		return
 	}
+	timezone := u.Timezone
+	if raw := strings.TrimSpace(r.PostFormValue("timezone")); raw != "" {
+		var err error
+		if timezone, err = parseTimezone(raw); err != nil {
+			s.settingsPage(w, r, u, err.Error(), "", http.StatusUnprocessableEntity)
+			return
+		}
+	}
 	var height *float64
 	if raw := strings.TrimSpace(r.PostFormValue("height_cm")); raw != "" {
 		v, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", "."), 64)
@@ -121,6 +129,12 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	case err != nil:
 		s.fail(w, err)
 	default:
+		if timezone != u.Timezone {
+			if err := s.store.UpdateUserTimezone(r.Context(), u.ID, timezone); err != nil {
+				s.fail(w, err)
+				return
+			}
+		}
 		s.audit(r, u.ID, auditProfile, "")
 		settingsRedirect(w, r, u.ID, "Profile saved.")
 	}

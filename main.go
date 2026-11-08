@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+	_ "time/tzdata" // time zones must work in the minimal container image, which has no zoneinfo
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"

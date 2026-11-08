@@ -295,7 +295,7 @@ Settings and Admin are in a menu under your name in the header, which also has
   Withings buttons.
 - `/u/{id}/dexa`: add and delete DEXA scans. A scan needs a date and at least
   one measurement.
-- `/u/{id}/scale`: add and delete readings. The time is UTC. Choose the
+- `/u/{id}/scale`: add and delete readings. Times are in your time zone (Settings). Choose the
   measurement method in the drop-down and tick **Athlete mode** if it applies.
 - `/u/{id}/settings`: the athlete-mode default and the accuracy rank of each
   method. The ranking is a drag-to-reorder list, with up and down buttons for
@@ -303,8 +303,12 @@ Settings and Admin are in a menu under your name in the header, which also has
   section connects, imports from and disconnects the user's Withings account. It
   says so when Withings credentials are missing, either on the Admin page or in
   the environment. Also:
-  - **Profile**: name, e-mail and height in cm. The e-mail is required, because
-    it is how you sign in.
+  - **Profile**: name, e-mail, time zone and height in cm. The e-mail is
+    required, because it is how you sign in; changing it asks for your current
+    password. The time zone (an IANA name such as `Europe/Amsterdam`, default
+    `UTC`) decides which calendar day a scale reading belongs to, how the date
+    and time of a reading are read and shown, what "today" is and which day a
+    Withings import covers. DEXA scans are plain dates and are not moved.
   - **Access tokens**: create and revoke personal access tokens for the API.
   - **Linked accounts**: link or unlink sign-in providers.
   - **Password**: set or change the account's password. Changing it signs out
@@ -518,7 +522,8 @@ as scale readings with the source `withings`.
 
 Imported: weight, fat ratio, fat mass, fat-free mass, muscle mass, hydration,
 bone mass and visceral fat. Measurements Withings marks as possibly belonging
-to someone else (for example a guest) are ignored. Days are UTC days.
+to someone else (for example a guest) are ignored. Days are calendar days in the
+user's time zone.
 
 ### Bulk import
 
@@ -552,7 +557,7 @@ recalculated when the data or the date changes (see
 [Estimate cache](#estimate-cache)). Stored readings are never changed. Each
 field is handled on its own.
 
-1. **Daily average.** Readings are averaged per day, for each field and each
+1. **Daily average.** Readings are averaged per day (a calendar day in the user's time zone), for each field and each
    group. A group is a measurement method plus athlete mode. Missing values are
    ignored.
 2. **Most accurate reading.** Each day uses the group whose method ranks

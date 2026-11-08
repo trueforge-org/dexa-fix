@@ -872,3 +872,39 @@ func TestSensitiveChangesNeedThePassword(t *testing.T) {
 		t.Fatalf("after too many wrong passwords: %d", r.StatusCode)
 	}
 }
+
+func TestTimeZoneSetting(t *testing.T) {
+	ts, c, st := newAuthServer(t)
+	signup(t, ts, c, "alice")
+	profile := func(tz string) int {
+		return post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"alice"}, "email": {"alice@example.com"}, "timezone": {tz}}).StatusCode
+	}
+	for _, bad := range []string{"Mars/Base", "Local", "../etc/passwd"} {
+		if code := profile(bad); code != 422 {
+			t.Errorf("%q accepted: %d", bad, code)
+		}
+	}
+	if code := profile("Europe/Amsterdam"); code != 303 {
+		t.Fatalf("save time zone: %d", code)
+	}
+	if u, _ := st.GetUser(context.Background(), 1); u.Timezone != "Europe/Amsterdam" {
+		t.Fatalf("stored zone: %q", u.Timezone)
+	}
+	// 23:30 on 1 March in Amsterdam (UTC+1) is stored as 22:30 UTC and shown as typed
+	if r := post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T23:30"}, "weight_kg": {"80"}}); r.StatusCode != 303 {
+		t.Fatalf("add reading: %d", r.StatusCode)
+	}
+	rs, _ := st.ListScaleReadings(context.Background(), 1)
+	if len(rs) != 1 || !rs[0].MeasuredAt.Equal(time.Date(2026, 3, 1, 22, 30, 0, 0, time.UTC)) {
+		t.Fatalf("stored: %+v", rs)
+	}
+	if _, b := body(t, c, ts.URL+"/u/1/scale"); !strings.Contains(b, "2026-03-01 23:30") || !strings.Contains(b, "Europe/Amsterdam") {
+		t.Errorf("scale page should show local times and the zone:\n%s", b)
+	}
+	// a scan is a plain date, whatever the zone
+	post(t, c, ts.URL+"/u/1/dexa", url.Values{"measured_at": {"2026-03-02"}, "weight_kg": {"80"}})
+	scans, _ := st.ListDexaScans(context.Background(), 1)
+	if len(scans) != 1 || !scans[0].MeasuredAt.Equal(time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("scan date: %+v", scans)
+	}
+}

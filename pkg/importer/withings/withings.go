@@ -198,12 +198,15 @@ func (i *Importer) Import(ctx context.Context, st store.Store, userID int64, o i
 		return importer.Result{}, err
 	}
 
+	// Days are the user's calendar days, in their time zone. o.Day is a plain date.
+	loc := user.Location()
 	dayMode := !o.Day.IsZero()
-	day := dayOf(o.Day)
+	day := o.Day.UTC().Truncate(24 * time.Hour)
 	var start, end time.Time
 	switch {
 	case dayMode:
-		start, end = day, day.Add(24*time.Hour-time.Second)
+		start = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
+		end = start.AddDate(0, 0, 1).Add(-time.Second)
 	case !o.Since.IsZero():
 		start = o.Since
 	}
@@ -220,7 +223,7 @@ func (i *Importer) Import(ctx context.Context, st store.Store, userID int64, o i
 	if err != nil {
 		return importer.Result{}, err
 	}
-	c := plan(existing, fetched, seen, dayMode, day)
+	c := plan(existing, fetched, seen, dayMode, day, loc)
 
 	// Days without any readings go first so a failure further down still keeps them.
 	if len(c.Gap) > 0 {

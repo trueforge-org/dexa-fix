@@ -126,7 +126,7 @@
 <div class="scroll"><table>
   <thead><tr><th>Field</th><th>JSON key</th><th>Unit</th><th>Meaning</th></tr></thead>
   <tbody>
-    <tr><td>Date</td><td><code>measured_at</code></td><td>date (UTC)</td><td>Required. In the API an RFC 3339 timestamp. Scans are matched to scale readings by UTC day.</td></tr>
+    <tr><td>Date</td><td><code>measured_at</code></td><td>date</td><td>Required. In the API an RFC 3339 timestamp; its date in your time zone is used. Scans are matched to scale readings by the reading's day in your time zone.</td></tr>
     <tr><td>Weight</td><td><code>weight_kg</code></td><td>kg</td><td>Total body weight. Used as the estimate on the scan day but never corrected.</td></tr>
     <tr><td>Body fat</td><td><code>fat_ratio_pct</code></td><td>%</td><td>Body fat percentage. Calibrates the scale's body fat %. If left out but fat mass and weight are known, it is calculated as fat mass / weight x 100.</td></tr>
     <tr><td>Fat mass</td><td><code>fat_mass_kg</code></td><td>kg</td><td>Total fat mass.</td></tr>
@@ -149,11 +149,11 @@
 
 <section id="scale-page">
 <h2>Scale readings</h2>
-<p>Page: <code>/u/{id}/scale</code>. A reading is one measurement from a scale or another method. The time is UTC. The page shows <strong>100 readings per page</strong>, newest first, with <strong>Older</strong> and <strong>Newer</strong> links. The links use the query parameter <code>before</code>, a cursor that marks where the next page starts.</p>
+<p>Page: <code>/u/{id}/scale</code>. A reading is one measurement from a scale or another method. The times are in your <a href="#time-zone">time zone</a>. The page shows <strong>100 readings per page</strong>, newest first, with <strong>Older</strong> and <strong>Newer</strong> links. The links use the query parameter <code>before</code>, a cursor that marks where the next page starts.</p>
 <div class="scroll"><table>
   <thead><tr><th>Field</th><th>JSON key</th><th>Unit</th><th>Meaning</th></tr></thead>
   <tbody>
-    <tr><td>Date &amp; time</td><td><code>measured_at</code></td><td>UTC</td><td>Required. Several readings on one UTC day are averaged per method.</td></tr>
+    <tr><td>Date &amp; time</td><td><code>measured_at</code></td><td>your time zone</td><td>Required. Several readings on one day (in your time zone) are averaged per method. The API takes an RFC 3339 timestamp.</td></tr>
     <tr><td>Method</td><td><code>method</code></td><td>see below</td><td>Default <code>scale</code>.</td></tr>
     <tr><td>Athlete mode</td><td><code>athlete_mode</code></td><td>yes/no</td><td>Defaults to your Settings default when left out in the API.</td></tr>
     <tr><td>Weight</td><td><code>weight_kg</code></td><td>kg</td><td></td></tr>
@@ -252,7 +252,9 @@
 <p>Page: <code>/u/{id}/settings</code>, from the menu under your name in the header. It also has <strong>Sign out</strong>.</p>
 <dl>
   <dt id="profile-settings">Profile</dt>
-  <dd>Name (1 to 64 characters), e-mail (required, it is how you sign in) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
+  <dd>Name (1 to 64 characters), e-mail (required, it is how you sign in; changing it asks for your current password) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
+  <dt id="time-zone">Time zone</dt>
+  <dd>Your IANA time zone, such as <code>Europe/Amsterdam</code> (default <code>UTC</code>). It decides which calendar day a scale reading belongs to, how the date and time you type for a reading are read and shown, what "today" is, and which day a Withings import covers. DEXA scans are plain dates and are not moved by it. Changing it re-groups your readings into days, so the estimates are recalculated.</dd>
   <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
   <dt>Linked accounts</dt><dd>See <a href="#linked-accounts">Linked accounts</a>.</dd>
   <dt id="password">Password</dt><dd>Set or change your password (current password required when you have one). Shown only while password sign-in is on. Minimum 8 characters, at most 72 bytes.</dd>
@@ -279,7 +281,7 @@
   <li>On the Settings or Estimates page choose <strong>Connect Withings</strong> and grant access. Finish within 10 minutes.</li>
   <li>Choose <strong>Import from Withings</strong>. It fetches the whole history.</li>
 </ol>
-<p>Imported: weight, fat ratio, fat mass, fat-free mass, muscle mass, hydration, bone mass and visceral fat. Measurements Withings marks as possibly belonging to someone else (a guest) are ignored. Days are UTC days. How each day is handled:</p>
+<p>Imported: weight, fat ratio, fat mass, fat-free mass, muscle mass, hydration, bone mass and visceral fat. Measurements Withings marks as possibly belonging to someone else (a guest) are ignored. Days are calendar days in your <a href="#time-zone">time zone</a>. How each day is handled:</p>
 <div class="scroll"><table>
   <thead><tr><th>Day has</th><th>What happens</th></tr></thead>
   <tbody>

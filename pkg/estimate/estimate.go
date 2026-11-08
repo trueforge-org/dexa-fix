@@ -77,9 +77,12 @@ var Fields = []Field{
 
 // Options configure Compute.
 type Options struct {
-	// Today is the last day of the series; the last known value is held up to it. The zero value
-	// ends each series at its last reading.
+	// Today is the last day of the series (the day it falls on in Location); the last known value
+	// is held up to it. The zero value ends each series at its last reading.
 	Today time.Time
+	// Location is the user's time zone: it decides which calendar day a scale reading belongs to.
+	// Nil means UTC. DEXA scans are plain dates and are not moved by it.
+	Location *time.Location
 	// Ranking lists methods, most accurate first. Empty means models.DefaultRanking.
 	Ranking []string
 	// AthleteDefault breaks ties between the normal and athlete group of the same method.
@@ -124,7 +127,19 @@ type Result struct {
 
 const dayDur = 24 * time.Hour
 
+// day is the calendar date of t in UTC, as a UTC midnight. It is used for DEXA scans, which are
+// stored as plain dates.
 func day(t time.Time) time.Time { return t.UTC().Truncate(dayDur) }
+
+// localDay is the calendar date of t in loc, as a UTC midnight, so days from different time zones
+// can be compared and stepped through in whole 24-hour units.
+func localDay(t time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		return day(t)
+	}
+	y, m, d := t.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
 
 // weight is the blend weight for the later calibration at fraction t (0..1) of the gap.
 func weight(t float64) float64 { return t * t * (3 - 2*t) }
@@ -217,7 +232,7 @@ func (r ranker) better(a, b group) bool {
 
 // daily averages each field over all readings of the same day and group, ignoring missing values.
 // Result: field key → day → group → mean.
-func daily(readings []models.ScaleReading) map[string]map[time.Time]map[group]float64 {
+func daily(readings []models.ScaleReading, loc *time.Location) map[string]map[time.Time]map[group]float64 {
 	type acc struct {
 		sum float64
 		n   int
@@ -225,7 +240,7 @@ func daily(readings []models.ScaleReading) map[string]map[time.Time]map[group]fl
 	sums := map[string]map[time.Time]map[group]*acc{}
 	for i := range readings {
 		r := &readings[i]
-		d := day(r.MeasuredAt)
+		d := localDay(r.MeasuredAt, loc)
 		g := group{r.Method, r.AthleteMode}
 		if g.method == "" {
 			g.method = models.MethodScale
@@ -492,10 +507,14 @@ func calculatedValue(v Value, have bool, source Value, value float64) Value {
 // Compute returns the per-day estimates and the calibrations used. The inputs are not modified.
 func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options) Result {
 	rk := newRanker(o)
-	byField := daily(readings)
+	byField := daily(readings, o.Location)
+	var today time.Time
+	if !o.Today.IsZero() {
+		today = localDay(o.Today, o.Location)
+	}
 	all := map[string]*series{}
 	for _, f := range Fields {
-		all[f.Key] = buildSeries(byField[f.Key], rk, o.Today)
+		all[f.Key] = buildSeries(byField[f.Key], rk, today)
 	}
 
 	sorted := append([]models.DexaScan(nil), scans...)

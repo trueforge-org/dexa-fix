@@ -340,3 +340,28 @@ func TestUsersDoNotBlockEachOther(t *testing.T) {
 		t.Fatal("user 2 waited for user 1's lock")
 	}
 }
+
+// A day re-import covers the user's calendar day: 07:00 on 2 March in Sydney (UTC+11) is 20:00 on
+// 1 March in UTC.
+func TestDayImportUsesTheUsersTimeZone(t *testing.T) {
+	ctx := context.Background()
+	imp, f, st := setup(t)
+	if err := st.UpdateUserTimezone(ctx, 1, "Australia/Sydney"); err != nil {
+		t.Skip("no tz data: ", err)
+	}
+	f.groups = []measureGroup{
+		grp(1, "2026-03-01T06:00", 80000), // 17:00 on 1 March in Sydney
+		grp(2, "2026-03-01T20:00", 80500), // 07:00 on 2 March in Sydney
+	}
+	if err := imp.Connect(ctx, st, 1, "code"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := imp.Import(ctx, st, 1, importer.Options{Day: ts("2026-03-02T00:00")})
+	if err != nil || res.Imported != 1 {
+		t.Fatalf("day import: %+v %v", res, err)
+	}
+	rs, _ := st.ListScaleReadings(ctx, 1)
+	if len(rs) != 1 || *rs[0].WeightKg != 80.5 {
+		t.Fatalf("stored: %+v", rs)
+	}
+}
