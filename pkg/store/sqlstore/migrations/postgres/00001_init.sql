@@ -14,6 +14,9 @@ CREATE TABLE users (
   hidden_columns TEXT NOT NULL DEFAULT '',
   -- Set by an administrator: the user may store Strength Level credentials and sync automatically.
   strengthlevel_auto BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Counts changes to everything the estimates are computed from, so cached estimates can tell when
+  -- they are out of date (see Store.bumpVersion).
+  data_version BIGINT NOT NULL DEFAULT 0,
   -- Set by an administrator: the user may also run the multi-day Strength Level sync from Settings.
   strengthlevel_bulk BOOLEAN NOT NULL DEFAULT FALSE
 );

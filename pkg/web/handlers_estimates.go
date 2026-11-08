@@ -41,21 +41,27 @@ type calRow struct {
 }
 
 // computeEstimates loads a user's data and runs the estimator.
+// The result comes from the cache when the user's data has not changed since it was computed (see
+// estcache.go) and is shared, so callers must not modify it.
 func (s *Server) computeEstimates(r *http.Request, u models.User) (estimate.Result, error) {
-	scans, err := s.store.ListDexaScans(r.Context(), u.ID)
-	if err != nil {
-		return estimate.Result{}, err
-	}
-	readings, err := s.store.ListScaleReadings(r.Context(), u.ID)
-	if err != nil {
-		return estimate.Result{}, err
-	}
-	return estimate.Compute(scans, readings, estimate.Options{
-		Today:          time.Now().UTC(),
-		Ranking:        u.MethodRanking,
-		AthleteDefault: u.AthleteDefault,
-		HeightCm:       u.HeightCm,
-	}), nil
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	key := estimateKey{version: u.DataVersion, day: today.Format(dateLayout)}
+	return s.estCache.get(u.ID, key, func() (estimate.Result, error) {
+		scans, err := s.store.ListDexaScans(r.Context(), u.ID)
+		if err != nil {
+			return estimate.Result{}, err
+		}
+		readings, err := s.store.ListScaleReadings(r.Context(), u.ID)
+		if err != nil {
+			return estimate.Result{}, err
+		}
+		return estimate.Compute(scans, readings, estimate.Options{
+			Today:          today,
+			Ranking:        u.MethodRanking,
+			AthleteDefault: u.AthleteDefault,
+			HeightCm:       u.HeightCm,
+		}), nil
+	})
 }
 
 // columnsSave remembers the hidden columns of the daily table. The form posts the visible ones, so

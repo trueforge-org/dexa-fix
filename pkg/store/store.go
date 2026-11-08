@@ -4,6 +4,8 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
@@ -31,6 +33,40 @@ type Stats struct {
 	ScaleReadings int
 	Sessions      int
 	AccessTokens  int
+}
+
+// Cursor marks a position in a listing that is sorted newest first, by measurement time and id.
+// A page is continued with the cursor the previous page returned, which stays correct when
+// readings are added or deleted in between (unlike an offset).
+type Cursor struct {
+	MeasuredAt time.Time
+	ID         int64
+}
+
+// String is the form used in URLs and API responses.
+func (c Cursor) String() string {
+	return strconv.FormatInt(c.MeasuredAt.UnixNano(), 10) + "." + strconv.FormatInt(c.ID, 10)
+}
+
+// ParseCursor reverses Cursor.String.
+func ParseCursor(s string) (Cursor, error) {
+	ts, id, ok := strings.Cut(s, ".")
+	if !ok {
+		return Cursor{}, ErrInvalid
+	}
+	n, err1 := strconv.ParseInt(ts, 10, 64)
+	i, err2 := strconv.ParseInt(id, 10, 64)
+	if err1 != nil || err2 != nil || i < 0 {
+		return Cursor{}, ErrInvalid
+	}
+	return Cursor{MeasuredAt: time.Unix(0, n).UTC(), ID: i}, nil
+}
+
+// ListFilter selects a window of scans or readings, newest first.
+type ListFilter struct {
+	Since, Until time.Time // inclusive bounds on the measurement time; the zero time means no bound
+	After        *Cursor   // continue after this position
+	Limit        int       // at most this many; 0 means all of them
 }
 
 // AuditFilter selects audit events. The zero value lists the latest ones.
@@ -70,6 +106,8 @@ type Store interface {
 
 	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
 	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
+	// ListDexaScansPage lists one page. The cursor is non-nil when there are older scans.
+	ListDexaScansPage(ctx context.Context, userID int64, f ListFilter) ([]models.DexaScan, *Cursor, error)
 	DeleteDexaScan(ctx context.Context, userID, id int64) error
 
 	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
@@ -77,6 +115,8 @@ type Store interface {
 	// measured values and notes only, so a reading keeps its method and athlete mode.
 	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
 	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
+	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
+	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
 	DeleteScaleReading(ctx context.Context, userID, id int64) error
 
 	// GetIntegration returns the provider data (e.g. OAuth tokens) stored for a user, or ErrNotFound.

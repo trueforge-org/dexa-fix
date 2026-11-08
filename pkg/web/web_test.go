@@ -32,6 +32,9 @@ func mustGet(t *testing.T, c *http.Client, u string) []byte {
 	return b
 }
 
+// testServers lets tests reach the Server behind a test HTTP server.
+var testServers sync.Map
+
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
 	return newServerWith(t, withings.New(withings.Config{}, nil))
@@ -50,12 +53,16 @@ func newServerAndStore(t *testing.T, wi *withings.Importer) (*httptest.Server, *
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	if err := st.PutSetting(context.Background(), settingSignup, valueEnabled); err != nil { // sign-up is closed by default
+		t.Fatal(err)
+	}
 	srv, err := New(st, importer.NewRegistry(wi))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
+	testServers.Store(ts, srv)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return ts, client, st
 }

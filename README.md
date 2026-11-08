@@ -1,5 +1,11 @@
 # dexa-fix
 
+[![CI](https://github.com/trueforge-org/dexa-fix/actions/workflows/ci.yaml/badge.svg)](https://github.com/trueforge-org/dexa-fix/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/trueforge-org/dexa-fix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexa-fix)
+[![Go Report Card](https://goreportcard.com/badge/github.com/trueforge-org/dexa-fix)](https://goreportcard.com/report/github.com/trueforge-org/dexa-fix)
+[![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexa-fix)](https://github.com/trueforge-org/dexa-fix/releases/latest)
+[![License](https://img.shields.io/github/license/trueforge-org/dexa-fix)](LICENSE)
+
 Corrects smart-scale results using DEXA scan results. A Go web app that stores
 per-user DEXA scans and scale readings, and shows one estimated value per day.
 
@@ -83,10 +89,12 @@ overrides the variable.
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
 | `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on.                                  |
 | `--db-driver`              | `DEXAFIX_DB_DRIVER`              | `sqlite`                                                              | `sqlite` or `postgres`.                                |
-| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string.                            |
+| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
+| `--dsn-file`               | `DEXAFIX_DSN_FILE`               | empty                                                                 | File holding the connection string. |
 | `--auto-migrate`            | `DEXAFIX_AUTO_MIGRATE`           | `true`                                                                | Apply pending migrations on startup; when `false`, `serve` fails if any are pending. |
 | `--withings-client-id`     | `DEXAFIX_WITHINGS_CLIENT_ID`     | empty                                                                 | Withings application client id.                        |
-| `--withings-client-secret` | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret.                    |
+| (none)                     | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret. Never a flag. |
+| `--withings-client-secret-file` | `DEXAFIX_WITHINGS_CLIENT_SECRET_FILE` | empty                                                    | File holding the Withings client secret. |
 | `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
 | `--trusted-proxies`        | `DEXAFIX_TRUSTED_PROXIES`        | empty                                                                 | Reverse proxies whose `X-Forwarded-*` headers are believed. See [Running behind a reverse proxy](#running-behind-a-reverse-proxy). |
 | `--base-url`               | `DEXAFIX_BASE_URL`               | empty                                                                 | Public address, such as `https://dexa.example.com`. |
@@ -105,8 +113,19 @@ Other environment variables:
 Postgres example:
 
 ```bash
-go run . serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
+export DEXAFIX_DSN=postgres://user:pass@localhost/dexafix
+go run . serve --db-driver postgres
 ```
+
+**Secrets are never accepted as command-line flags**, because other users of the
+machine can read them with `ps` and shells keep them in their history. A
+connection string with a password, and the Withings client secret, come from
+the environment or from a file (`--dsn-file`, `--from-dsn-file`,
+`--to-dsn-file`, `--withings-client-secret-file`, or the matching
+`DEXAFIX_*_FILE` variables), which works well with Docker and Kubernetes
+secrets. A plain `--dsn file:path.db` without a password is fine. Passing a
+password in a flag makes the command fail with a message that says so. The
+encryption key has no flag either (see [Encryption](#encryption)).
 
 `dexa-fix info` prints information about the binary.
 
@@ -193,6 +212,11 @@ migrations, embedded per backend in `pkg/store/sqlstore/migrations/{sqlite,postg
 `serve` applies pending migrations on startup. It refuses to start if the
 database schema is newer than the binary, so upgrade dexa-fix first.
 
+A new SQLite database file is created readable by its owner only (mode 0600,
+and SQLite gives its `-wal` and `-shm` files the same mode), because it holds
+password hashes and health data. An existing file is left as it is, but a
+warning is logged when other users can read it.
+
 SQLite connections always enforce foreign keys and wait up to 5 seconds for
 locks, and file databases run in WAL mode, so the DSN needs no pragmas. The
 default DSN is `file:dexa-fix.db`.
@@ -204,19 +228,27 @@ instead of guessing. Start from a fresh database.
 | Command                  | Description                                                   |
 | ------------------------ | ------------------------------------------------------------- |
 | `db migrate [up]`        | Apply all pending migrations. This is the default action.     |
-| `db migrate down`        | Roll back the latest migration.                               |
-| `db migrate to N`        | Migrate up or down to version N. `0` empties the schema.      |
+| `db migrate down --yes`  | Roll back the latest migration. Drops tables and their data.  |
+| `db migrate to N`        | Migrate up or down to version N. `0` empties the schema. Going down needs `--yes`. |
 | `db migrate status`      | List every migration and whether it is applied.               |
 | `db migrate version`     | Print the current schema version.                             |
 | `db copy`                | Copy all data to another database. See below.                 |
 
 `db migrate` takes `--db-driver` and `--dsn`, with the same environment
 variables as `serve`. `db copy` takes `--from-driver`, `--from-dsn`,
-`--to-driver` and `--to-dsn`. `--from-dsn` defaults to `DEXAFIX_DSN`.
+`--to-driver` and `--to-dsn`, with the variables `DEXAFIX_FROM_DSN`,
+`DEXAFIX_TO_DRIVER` and `DEXAFIX_TO_DSN` (and `*_FILE` variants for the
+connection strings). `--from-dsn` falls back to `DEXAFIX_DSN`.
+
+Rolling back drops the tables and columns of the migrations it undoes, together
+with their data. `db migrate down` and `db migrate to N` for an N below the
+current version therefore refuse to run without `--yes`; without it they print
+which migrations would be undone. Make a backup first.
 
 ```bash
 go run . db migrate status
-go run . db migrate up --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix go run . db migrate up --db-driver postgres
+go run . db migrate down --yes
 ```
 
 ### Moving from SQLite to Postgres
@@ -224,11 +256,11 @@ go run . db migrate up --db-driver postgres --dsn postgres://user:pass@localhost
 Create an empty Postgres database, then copy and start the server:
 
 ```bash
-go run . db copy \
-  --from-driver sqlite --from-dsn file:dexa-fix.db \
-  --to-driver postgres --to-dsn postgres://user:pass@localhost/dexafix
+export DEXAFIX_TO_DSN=postgres://user:pass@localhost/dexafix
+go run . db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
 
-go run . serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
+export DEXAFIX_DSN=$DEXAFIX_TO_DSN
+go run . serve --db-driver postgres
 ```
 
 The target is migrated to the latest schema and must be empty. Ids are kept,
@@ -308,11 +340,13 @@ e-mail address is the account's unique key, and it is what you sign in with. It
 is compared case-insensitively and stored in lowercase. Names are display names
 and need not be unique.
 
-Administrators can close new accounts on the Admin page. While closed, nobody
-can create their own account, with a password or on first sign-in through a
-provider, and an administrator adds people from the Users list on the Admin
-page. Existing accounts keep working. The very first account on an empty
-server can always be created.
+**New accounts are closed by default.** Only the very first account on an empty
+server can be created without an invitation. After that nobody can create
+their own account, with a password or on first sign-in through a provider,
+until an administrator opens **New accounts** on the Admin page. Until then an
+administrator adds people from the Users list. Existing accounts keep working.
+This keeps a server that is reachable from the internet from handing out
+accounts by accident.
 
 ### Your data
 
@@ -432,7 +466,8 @@ one. Values stored before encryption are encrypted automatically at startup.
 Back up the key separately from the database. Without it, the encrypted values
 cannot be read, and the server does not start, because a server setting can no
 longer be read. Keeping the key next to database backups defeats the purpose.
-There is no built-in key rotation.
+There is no built-in key rotation or key check yet; the plan is in
+[docs/key-rotation.md](docs/key-rotation.md).
 
 ### Storage and rate limiting
 
@@ -575,6 +610,24 @@ and stored readings are never changed. Each field is handled on its own.
      until the next scan with a ratio. There is no value before the first such
      scan.
 
+### Estimate cache
+
+Computing the estimates walks a user's whole history, so the result is kept in
+memory per user (for the 32 most recently used users). It is reused until
+something it depends on changes, and there is no list of places that have to
+remember to clear it: every user row carries a `data_version` counter in the
+database, and each write that affects estimates increments it in the same
+transaction. That covers adding or deleting scans and readings (web, API,
+imports), the athlete default and method ranking, and the height. Because the
+counter lives in the database, a change made by another process or server
+sharing a Postgres database is seen at once as well. The cache is also tied to
+the date, since the series runs up to today, and starts empty after a restart or
+upgrade.
+
+`GET /api/v1/users/{id}/estimates` sends an `ETag`. A client that sends it back
+in `If-None-Match` gets `304 Not Modified` while nothing changed, without the
+server computing or sending anything, which suits dashboards that poll.
+
 ## JSON API
 
 All routes are under `/api/v1`. Bodies are JSON, and unknown request fields are
@@ -600,6 +653,15 @@ user's role is not enough. See [Authentication](#authentication).
 | GET    | `/audit`                        | The whole audit log. Administrators only.                                                                                                               |
 | GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                                                                                                       |
 | POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters.                                                                                    |
+
+The two list endpoints (`dexa-scans` and `scale-readings`) return the newest
+first and are paged. Query parameters: `limit` (default 1000, at most 10000),
+`before` (the cursor from the previous page), `since` and `until` (RFC 3339 or
+`YYYY-MM-DD`, inclusive; a plain date as `until` covers that whole day). When
+there are older items, the response has an `X-Next-Cursor` header; pass its
+value as `before` to get the next page. The body stays a plain JSON array. The
+scale page in the web interface shows 100 readings at a time. The export
+endpoints always return everything.
 
 Batch readings with an `external_id` are upserted on `source` and
 `external_id`, so repeated imports do not duplicate. Readings without a
@@ -696,6 +758,21 @@ zero.
   or not configured.
 - `POST /u/{id}/integrations/{provider}/disconnect` forgets the user's tokens.
 
+## CI and releases
+
+GitHub Actions runs lint (gofmt, `go vet`, `go mod tidy`), the tests with the
+race detector and coverage on SQLite and on Postgres, `govulncheck`, and a
+cross-compile of the release targets, on every push and pull request and once a
+week. Coverage is reported to Codecov. Pushing a tag such as `v1.0.0` publishes
+a GitHub release (archives, checksums, a cosign signature, SBOMs, build
+provenance, a grouped changelog) and a multi-arch container image at
+`ghcr.io/trueforge-org/dexa-fix`. See [docs/ci.md](docs/ci.md) for the details,
+the secrets to configure and how to cut a release.
+
+```bash
+docker run -p 8080:8080 -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:latest
+```
+
 ## Development
 
 ```bash
@@ -766,13 +843,18 @@ buttons there.
 
 ## Limitations and security
 
-- **Sign-in attempts are not rate limited.** On a public deployment, limit them
-  at a reverse proxy. See [Storage and rate limiting](#storage-and-rate-limiting).
+- **Rate limiting is basic and in memory.** Failed password sign-ins are limited
+  per login name and per address, but the counts reset when the server restarts
+  and are not shared between several servers. On a public deployment, limit
+  sign-in attempts at the reverse proxy too. See
+  [Storage and rate limiting](#storage-and-rate-limiting).
 - **Measurements, height and names are not encrypted.** Protect the database
   file or Postgres database and its backups with disk or database encryption.
   Losing the encryption key makes the encrypted values unreadable. See
   [Encryption](#encryption).
-- **Behind a proxy.** The OAuth state cookie is marked `Secure` only when the
-  app itself serves HTTPS, so the proxy should enforce HTTPS. The Withings
-  redirect URL must be the public URL.
-- Estimates are recalculated on every request. Nothing is cached.
+- **Behind a proxy**, set `--trusted-proxies`, or everyone shares the proxy's
+  address and the forwarding headers are ignored. See
+  [Running behind a reverse proxy](#running-behind-a-reverse-proxy).
+- **Estimates are cached in memory** per user, for the 32 most recently used
+  users, and recomputed when the data, the settings that matter or the date
+  change. See [Estimate cache](#estimate-cache).

@@ -117,6 +117,7 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email
 	}
 	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
 		Set("name = ?", name).Set("email = ?", enc).Set("email_lookup = ?", s.emailLookup(email)).Set("height_cm = ?", heightCm).
+		Set("data_version = data_version + 1").
 		Where("id = ?", userID).Exec(ctx)
 	if err != nil {
 		if isUnique(err) {

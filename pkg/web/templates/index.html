@@ -3,21 +3,21 @@
 <div class="login-stack">
   <div class="card welcome">
     <div>
-      <h1>Sign in</h1>
+      <h1>Sign in {{help "accounts"}}</h1>
       <small>{{if .FirstUser}}Create the first account below. It becomes the administrator.{{else}}Welcome back to dexa-fix.{{end}}</small>
     </div>
-    {{if .Providers}}<div class="provider-buttons">{{range .Providers}}<a class="button secondary" href="/auth/{{.Slug}}/login">Continue with {{.Label}}</a>{{end}}</div>{{end}}
+    {{if .Providers}}<div class="provider-buttons">{{range .Providers}}<a class="button secondary" href="/auth/{{.Slug}}/login">Continue with {{.Label}}</a>{{end}}{{help "providers"}}</div>{{end}}
     {{if .PasswordEnabled}}{{if not .FirstUser}}
     <form method="post" action="/login" class="fields">
       <label>E-mail <input type="text" inputmode="email" name="email" maxlength="254" required autocomplete="username"></label>
-      <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+      <label>Password {{help "password-login"}} <input type="password" name="password" required autocomplete="current-password"></label>
       <button type="submit">Sign in</button>
     </form>
     {{end}}{{else if not .Providers}}<p class="help">No sign-in method is available. Ask your administrator.</p>{{end}}
   </div>
   {{if and .PasswordEnabled .SignupOpen}}
   <form method="post" action="/signup" class="card fields">
-    <h2>Create an account</h2>
+    <h2>Create an account {{help "registration"}}</h2>
     <label>Name <input type="text" name="name" maxlength="64" required autocomplete="name"></label>
     <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="username"></label>
     <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>

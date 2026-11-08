@@ -60,6 +60,7 @@ type Server struct {
 	jobs      sync.WaitGroup
 
 	auditNoise      *auditNoise
+	estCache        *estimateCache
 	warnedUntrusted atomic.Bool
 	limiter         *failLimiter      // failed sign-in attempts
 	assetVer        map[string]string // content hash per static file, for cache-busting URLs
@@ -68,7 +69,7 @@ type Server struct {
 	oidcCache map[string]*oidc.Provider
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
@@ -77,6 +78,7 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
 
 		"initial": initial,
+		"help":    help,
 	}
 	static, _ := fs.Sub(assets, "static")
 	s := &Server{
@@ -85,6 +87,7 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		oidcCache:  map[string]*oidc.Provider{},
 		limiter:    newFailLimiter(),
 		auditNoise: newAuditNoise(),
+		estCache:   newEstimateCache(),
 		assetVer:   staticVersions(static),
 	}
 	funcs["asset"] = s.assetURL
@@ -130,6 +133,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /static/", staticHandler(static, s.assetVer))
 
 	mux.HandleFunc("GET /{$}", s.index)
+	mux.HandleFunc("GET /docs", s.docsPage)
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	mux.HandleFunc("GET /u/{id}", s.user(s.home))
@@ -204,6 +208,7 @@ type pageData struct {
 	EstRows     []estRow
 	Cals        []calRow
 	Overview    *overviewView // summary above the estimates table, nil without data
+	Pager       *pager        // scale page: links to older readings
 
 	Login *loginView // sign-in page
 

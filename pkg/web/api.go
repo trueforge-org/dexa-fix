@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -161,11 +163,16 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/dexa-scans", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		scans, err := s.store.ListDexaScans(r.Context(), u.ID)
+		f, ok := listFilter(w, r)
+		if !ok {
+			return
+		}
+		scans, next, err := s.store.ListDexaScansPage(r.Context(), u.ID, f)
 		if err != nil {
 			apiError(w, err)
 			return
 		}
+		setNextCursor(w, next)
 		writeJSON(w, http.StatusOK, orEmpty(scans))
 	}))
 	mux.HandleFunc("POST /api/v1/users/{id}/dexa-scans", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -186,11 +193,16 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/scale-readings", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		rs, err := s.store.ListScaleReadings(r.Context(), u.ID)
+		f, ok := listFilter(w, r)
+		if !ok {
+			return
+		}
+		rs, next, err := s.store.ListScaleReadingsPage(r.Context(), u.ID, f)
 		if err != nil {
 			apiError(w, err)
 			return
 		}
+		setNextCursor(w, next)
 		writeJSON(w, http.StatusOK, orEmpty(rs))
 	}))
 	// POST takes a batch. Readings with an external_id are upserted on (source, external_id),
@@ -248,6 +260,15 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/estimates", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		// The response only changes with the user's data and the day, so a client that kept an
+		// earlier copy can ask whether it is still good without the server computing anything.
+		etag := s.estimateETag(u.ID, u.DataVersion, time.Now().UTC().Format(dateLayout))
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "private, no-cache")
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		res, err := s.computeEstimates(r, u)
 		if err != nil {
 			apiError(w, err)
@@ -256,4 +277,76 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 		res.Days, res.Calibrations = orEmpty(res.Days), orEmpty(res.Calibrations)
 		writeJSON(w, http.StatusOK, res)
 	}))
+}
+
+const (
+	defaultListLimit = 1000
+	maxListLimit     = 10000
+)
+
+// listFilter reads the paging and window parameters of a list endpoint: limit (default 1000, at
+// most 10000), before (the cursor from the previous page's X-Next-Cursor header), and since and
+// until (RFC 3339 or YYYY-MM-DD, both inclusive; a plain date as until covers that whole day).
+func listFilter(w http.ResponseWriter, r *http.Request) (store.ListFilter, bool) {
+	q := r.URL.Query()
+	f := store.ListFilter{Limit: defaultListLimit}
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxListLimit {
+			badRequest(w, "limit must be between 1 and "+strconv.Itoa(maxListLimit))
+			return f, false
+		}
+		f.Limit = n
+	}
+	if raw := q.Get("before"); raw != "" {
+		c, err := store.ParseCursor(raw)
+		if err != nil {
+			badRequest(w, "before is not a cursor from an earlier response")
+			return f, false
+		}
+		f.After = &c
+	}
+	for _, p := range []struct {
+		name string
+		dst  *time.Time
+		end  bool
+	}{{"since", &f.Since, false}, {"until", &f.Until, true}} {
+		raw := q.Get(p.name)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			d, derr := time.Parse(dateLayout, raw)
+			if derr != nil {
+				badRequest(w, p.name+" must be an RFC 3339 time or a YYYY-MM-DD date")
+				return f, false
+			}
+			t = d
+			if p.end {
+				t = d.AddDate(0, 0, 1).Add(-time.Nanosecond)
+			}
+		}
+		*p.dst = t
+	}
+	return f, true
+}
+
+// setNextCursor tells the client how to fetch the next, older page. It is absent on the last page.
+func setNextCursor(w http.ResponseWriter, next *store.Cursor) {
+	if next != nil {
+		w.Header().Set("X-Next-Cursor", next.String())
+	}
+}
+
+// etagMatches reports whether an If-None-Match header lists the tag (or is "*"). The comparison is
+// weak, as the spec requires for this header.
+func etagMatches(header, etag string) bool {
+	weak := func(s string) string { return strings.TrimPrefix(strings.TrimSpace(s), "W/") }
+	for _, candidate := range strings.Split(header, ",") {
+		if c := strings.TrimSpace(candidate); c == "*" || weak(c) == weak(etag) {
+			return true
+		}
+	}
+	return false
 }

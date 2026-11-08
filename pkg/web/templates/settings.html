@@ -2,17 +2,17 @@
 <div class="page-head"><h1>Settings</h1></div>
 {{if .Saved}}<p class="notice" role="status">{{.Saved}}</p>{{end}}
 <form method="post" action="/u/{{.User.ID}}/profile" class="card" id="profile">
-  <h2>Profile</h2>
+  <h2>Profile {{help "profile-settings"}}</h2>
   <div class="form-row">
     <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="name"></label>
     <label>E-mail <small>(you sign in with this)</small> <input type="email" name="email" value="{{.User.Email}}" maxlength="254" required autocomplete="username"></label>
-    <label>Height (cm) <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
+    <label>Height (cm) {{help "profile-settings"}} <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
   </div>
   <div class="form-actions"><button type="submit">Save profile</button></div>
 </form>
 {{with .Security}}
 <section class="card" id="tokens">
-  <h2>Access tokens</h2>
+  <h2>Access tokens {{help "access-tokens"}}</h2>
   <p class="help">Use a personal access token to call the API from scripts, with the header <code>Authorization: Bearer &lt;token&gt;</code>. It works without signing in and acts as you, on the API only.</p>
   {{if .NewToken}}<div class="notice" role="status"><strong>Copy this token now.</strong> It will not be shown again.<br><code class="token">{{.NewToken}}</code></div>{{end}}
   {{if .Tokens}}<div class="scroll"><table>
@@ -21,14 +21,14 @@
       <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" data-confirm="Revoke this token? Anything using it stops working."><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
   </table></div>{{end}}
   <form method="post" action="/u/{{$.User.ID}}/tokens" class="form-row">
-    <label>Token name <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
+    <label>Token name {{help "access-tokens"}} <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
     <label>Expires <select name="expires"><option value="30">In 30 days</option><option value="90" selected>In 90 days</option><option value="365">In 1 year</option><option value="never">Never</option></select></label>
     <div><button type="submit">Create token</button></div>
   </form>
 </section>
 {{if .Linked}}
 <section class="card" id="linked">
-  <h2>Linked accounts</h2>
+  <h2>Linked accounts {{help "linked-accounts"}}</h2>
   <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
     {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="secondary" type="submit">Unlink</button></form>
     {{else}}<form method="post" action="/auth/{{.Slug}}/login"><button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
@@ -36,7 +36,7 @@
 {{end}}
 {{if .PasswordEnabled}}
 <form method="post" action="/u/{{$.User.ID}}/password" class="card" id="password">
-  <h2>Password</h2>
+  <h2>Password {{help "password"}}</h2>
   <div class="form-row">
     {{if .HasPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
     <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
@@ -49,7 +49,7 @@
 {{with .Withings}}
 <section class="card" id="withings">
   <div class="card-head">
-    <h2>Withings</h2>
+    <h2>Withings {{help "withings"}}</h2>
     {{if .Connected}}<span class="status on">Connected</span>{{else if .Configured}}<span class="status">Not connected</span>{{else}}<span class="status">Not set up</span>{{end}}
   </div>
   {{if .Connected}}
@@ -70,7 +70,7 @@
 {{with .StrengthLevel}}
 <section class="card" id="strengthlevel">
   <div class="card-head">
-    <h2>Strength Level</h2>
+    <h2>Strength Level {{help "strengthlevel"}}</h2>
     {{if .Saved}}<span class="status on">Login saved</span>{{else}}<span class="status">No login</span>{{end}}
   </div>
   {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
@@ -88,7 +88,7 @@
   <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync" class="stack">
     <div class="form-row">
       <label>Last <input type="number" name="days" value="90" min="1" max="3650" step="1" required style="width:5.5rem"> days</label>
-      <label class="check"><input type="checkbox" name="update" value="1"> Also update days that already exist</label>
+      <label class="check"><input type="checkbox" name="update" value="1"> Also update days that already exist</label> {{help "strengthlevel"}}
     </div>
     <div class="form-actions"><button type="submit"{{if .Job}}{{if .Job.Running}} disabled{{end}}{{end}}>Sync in the background</button></div>
   </form>
@@ -101,7 +101,7 @@
 </section>
 {{end}}
 <section class="card" id="export">
-  <h2>Your data</h2>
+  <h2>Your data {{help "data-export"}}</h2>
   <p class="help">Download a copy of what dexa-fix keeps about you, as JSON. Passwords, tokens and other credentials are not included; the files only say whether they exist.</p>
   <p class="form-actions">
     <a class="button secondary" href="/u/{{.User.ID}}/export/profile" download>Settings and personal details</a>
@@ -110,7 +110,7 @@
 </section>
 {{with .Security}}{{if .Activity}}
 <section class="card flush" id="activity">
-  <h2>Recent account activity</h2>
+  <h2>Recent account activity {{help "audit-log"}}</h2>
   <p class="help">The latest security events on your account. If you see something you do not recognise, change your password and revoke your access tokens.</p>
   <table>
     <thead><tr><th>Time (UTC)</th><th>Event</th><th>By</th><th>Detail</th><th>IP address</th></tr></thead>
@@ -120,12 +120,12 @@
 {{end}}{{end}}
 <form method="post" action="/u/{{.User.ID}}/settings" class="stack">
   <section class="card">
-    <h2>Athlete mode</h2>
+    <h2>Athlete mode {{help "athlete-mode"}}</h2>
     <label class="check"><input type="checkbox" name="athlete_default" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode by default</label>
     <p class="help">Presets the athlete-mode checkbox for new readings and is used for Withings imports. Each reading keeps its own flag, and DEXA calibration is kept separately for normal and athlete readings.</p>
   </section>
   <section class="card">
-    <h2>Method accuracy</h2>
+    <h2>Method accuracy {{help "method-accuracy"}}</h2>
     <p class="help">Put the most accurate method first. When several methods have a reading for the same day, the highest one in this list wins for each measurement. Methods that did not record a measurement are skipped for it.</p>
     <ol class="rank-list" data-rank-list>
       {{range .Ranking}}<li class="rank-item" data-rank-item data-label="{{.Label}}">

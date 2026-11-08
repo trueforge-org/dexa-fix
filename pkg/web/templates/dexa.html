@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-head"><h1>DEXA scans</h1></div>
+<div class="page-head"><h1>DEXA scans {{help "dexa-page"}}</h1></div>
 <form method="post" action="/u/{{.User.ID}}/dexa" class="measure card" data-calc
       hx-post="/u/{{.User.ID}}/dexa" hx-target="#content" hx-select="#content" hx-swap="outerHTML">
   <div class="section">
@@ -8,7 +8,7 @@
     </div>
   </div>
   <div class="section">
-    <h3>Measurements</h3>
+    <h3>Measurements {{help "auto-fill"}}</h3>
     <p class="help">Gray values are calculated from what you entered. They are saved unless you type your own.</p>
     <div class="grid">
       {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}

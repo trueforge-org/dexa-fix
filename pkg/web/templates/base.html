@@ -33,6 +33,7 @@
       </div>
     </details>
     {{end}}
+    <a class="docs-link{{if not .User}} solo{{end}}{{if eq .Tab "docs"}} active{{end}}" href="/docs"{{if eq .Tab "docs"}} aria-current="page"{{end}}>Docs</a>
   </div>
 </header>
 <main id="content">

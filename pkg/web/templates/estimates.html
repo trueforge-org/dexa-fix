@@ -1,12 +1,13 @@
 {{define "content"}}
 <div class="page-head">
-  <h1>Estimated results</h1>
+  <h1>Estimated results {{help "how-estimates-work"}}</h1>
   {{with .Withings}}<div class="integration">
   {{if .Connected}}
     <form method="post" action="/u/{{$.User.ID}}/import/withings"><button type="submit" title="Fetch all Withings measurements: fills days without readings first and leaves days with manual readings alone">Import from Withings</button></form>
     <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect"><button type="submit" class="secondary">Disconnect Withings</button></form>
   {{else if .Configured}}<a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a>
   {{else}}<a class="button secondary" href="/u/{{$.User.ID}}/settings#withings">Set up Withings</a>{{end}}
+  {{help "withings"}}
   </div>{{end}}
 </div>
 {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
@@ -14,14 +15,14 @@
 {{with .Overview}}{{template "overview" .}}{{end}}
 
 <section class="card flush">
-  <div class="card-head"><h2>Daily estimates</h2>{{if .EstRows}} <small>{{.EstRange}}</small>
+  <div class="card-head"><h2>Daily estimates {{help "how-estimates-work"}}</h2>{{if .EstRows}} <small>{{.EstRange}}</small>
     <details class="columns"><summary>Columns</summary>
       <form method="post" action="/u/{{.User.ID}}/estimates/columns" hx-post="/u/{{.User.ID}}/estimates/columns" hx-trigger="change" hx-target="#daily-table" hx-select="#daily-table" hx-swap="outerHTML">
         <input type="hidden" name="range" value="{{.EstRangeKey}}">
         {{range .EstColumns}}<label class="check"><input type="checkbox" name="column" value="{{.Key}}"{{if .Visible}} checked{{end}}> {{.Label}}</label>
         {{end}}<noscript><button type="submit">Save</button></noscript>
       </form>
-    </details>{{end}}</div>
+    </details>{{help "estimate-columns"}}{{end}}</div>
   <details class="help">
     <summary>How this is calculated</summary>
     <p>One row per day. Each day uses the most accurate reading (see <a href="/u/{{.User.ID}}/settings">Settings</a>); a day with at least 3 real readings within 3 days either side gets their average, and interpolated days never count towards it. Other days with a reading keep that reading, the rest are interpolated between those days, and the last result is held. A DEXA value is used when there is one; otherwise the series is corrected by the offset to DEXA scans for the same method and mode (blended smoothly between two scans; days before the first scan use that scan's offset). Only body fat % and bone mass have an offset. Fat mass is calculated from body fat % and the weight, and fat-free mass is the weight minus fat mass, so the two add up to the weight. Lean mass is the fat-free mass minus the bone mass. BMI, FMI and LMI are weight, fat mass and lean mass divided by height squared, and need your height in <a href="/u/{{.User.ID}}/settings">Settings</a>. The A/G ratio is android fat % divided by gynoid fat %, from DEXA scans; between scans the latest ratio is held. Weight itself is never corrected. Stored readings are never changed. Faded values are interpolated or held, and an <em>est</em> tag marks a row with values interpolated between two readings.</p>
@@ -29,7 +30,7 @@
   <div id="daily-table">
   {{if .EstRows}}
   <div class="scroll"><table>
-    <thead><tr><th>Date</th>{{range .EstFields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}{{if .Resync}}<th></th>{{end}}{{if .SLSend}}<th></th>{{end}}</tr></thead>
+    <thead><tr><th>Date {{help "estimate-badges"}}</th>{{range .EstFields}}<th>{{.Label}}{{if .Unit}} <small>{{.Unit}}</small>{{end}}</th>{{end}}{{if .Resync}}<th>{{help "resync-day"}}</th>{{end}}{{if .SLSend}}<th>{{help "strengthlevel"}}</th>{{end}}</tr></thead>
     <tbody>
     {{range .EstRows}}<tr><td>{{if .Interpolated}}<span class="badge" title="Has values interpolated between two readings">est</span> {{end}}{{.Date}}</td>
       {{range .Cells}}<td class="num {{.Class}}" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
@@ -44,7 +45,7 @@
 </div>
 
 <section class="card">
-  <h2>Calibrations in use</h2>
+  <h2>Calibrations in use {{help "calibration"}}</h2>
   {{if .Cals}}
   <p class="help">Offset = DEXA − the reading on the scan day, not the 7-day average. Each method and mode needs its own reading that day to get an offset.</p>
   <ul class="cal-list">{{range .Cals}}<li><strong>{{.Date}}</strong> ({{.Group}}): {{range $i, $it := .Items}}{{if $i}}; {{end}}{{$it}}{{end}}</li>{{end}}</ul>
@@ -65,7 +66,7 @@
   <div class="card">
     <div class="chart-controls" hx-target="#overview" hx-select="#overview" hx-swap="outerHTML" hx-push-url="true">
       <div class="pills" role="group" aria-label="Measurement">{{range .Metrics}}<a href="{{.Href}}" hx-get="{{.Href}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
-      <div class="pills" role="group" aria-label="Time range" hx-target="#estimates-data" hx-select="#estimates-data">{{range .Ranges}}<a href="{{.Href}}" hx-get="{{.Href}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
+      <div class="pills" role="group" aria-label="Time range" hx-target="#estimates-data" hx-select="#estimates-data">{{range .Ranges}}<a href="{{.Href}}" hx-get="{{.Href}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Label}}</a>{{end}}{{help "estimate-range"}}</div>
     </div>
     {{with .Chart}}
     <div class="chart">

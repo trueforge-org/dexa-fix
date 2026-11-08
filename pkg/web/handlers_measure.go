@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // ---- DEXA scans ----
@@ -62,10 +63,23 @@ func (s *Server) dexaDelete(w http.ResponseWriter, r *http.Request, u models.Use
 // ---- scale readings ----
 
 func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
-	readings, err := s.store.ListScaleReadings(r.Context(), u.ID)
+	f := store.ListFilter{Limit: scalePageSize}
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		c, err := store.ParseCursor(raw)
+		if err != nil {
+			http.Error(w, "invalid page", http.StatusBadRequest)
+			return
+		}
+		f.After = &c
+	}
+	readings, next, err := s.store.ListScaleReadingsPage(r.Context(), u.ID, f)
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	pager := &pager{Paged: f.After != nil}
+	if next != nil {
+		pager.Next = next.String()
 	}
 	rows := make([]row, 0, len(readings))
 	for i := range readings {
@@ -75,8 +89,17 @@ func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User
 	s.render(w, "scale.html", status, pageData{
 		Title: u.Name + " · scale readings", Tab: "scale", User: &u, Error: errMsg,
 		Fields: scaleFields, Rows: rows, Now: time.Now().UTC().Format(dateTimeLayout),
-		Methods: models.Methods, AthleteDefault: u.AthleteDefault,
+		Methods: models.Methods, AthleteDefault: u.AthleteDefault, Pager: pager,
 	})
+}
+
+// scalePageSize is how many readings the scale page shows at a time.
+const scalePageSize = 100
+
+// pager links the pages of a long list.
+type pager struct {
+	Next  string // cursor of the next (older) page; empty on the last page
+	Paged bool   // this is not the first page
 }
 
 func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -97,7 +120,6 @@ func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.Us
 		s.fail(w, err)
 		return
 	}
-	s.audit(r, u.ID, auditReadingDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
 }
 
@@ -111,5 +133,6 @@ func (s *Server) scaleDelete(w http.ResponseWriter, r *http.Request, u models.Us
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditReadingDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
 }

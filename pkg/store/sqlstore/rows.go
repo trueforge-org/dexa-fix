@@ -27,6 +27,7 @@ type userRow struct {
 	HiddenColumns     string    `bun:"hidden_columns"`
 	StrengthLevelAuto bool      `bun:"strengthlevel_auto"`
 	StrengthLevelBulk bool      `bun:"strengthlevel_bulk"`
+	DataVersion       int64     `bun:"data_version"`
 }
 
 func (r *userRow) toModel() models.User {
@@ -49,6 +50,7 @@ func (r *userRow) toModel() models.User {
 		HiddenColumns:     hidden,
 		StrengthLevelAuto: r.StrengthLevelAuto,
 		StrengthLevelBulk: r.StrengthLevelBulk,
+		DataVersion:       r.DataVersion,
 	}
 }
 

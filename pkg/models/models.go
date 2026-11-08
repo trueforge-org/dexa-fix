@@ -155,6 +155,9 @@ type User struct {
 	// StrengthLevelBulk additionally allows the multi-day sync on the settings page. It needs
 	// StrengthLevelAuto.
 	StrengthLevelBulk bool `json:"-"`
+	// DataVersion changes whenever the scans, readings or settings that estimates are computed
+	// from change, in any way and from any process. Cached results are valid for one version.
+	DataVersion int64 `json:"-"`
 }
 
 // ScaleReading is a single smart-scale measurement. Fields are aligned with Withings measure types.

@@ -35,6 +35,7 @@ const (
 	settingPasswordOn = "auth.password_login"
 	settingSignup     = "auth.signup"
 	valueDisabled     = "disabled"
+	valueEnabled      = "enabled"
 )
 
 // authenticator resolves a request to a user. It returns ok=false when the request does not carry
@@ -265,12 +266,14 @@ func (s *Server) passwordEnabled(ctx context.Context) bool {
 	return v != valueDisabled
 }
 
-// signupOpen reports whether new accounts can be created by people signing up. The first account
-// can always be created, or a new server could never get an administrator.
+// signupOpen reports whether new accounts can be created by people signing up. That is off until
+// an administrator turns it on, so a server that is reachable from the internet does not hand out
+// accounts. The first account can always be created, or a new server could never get an
+// administrator.
 func (s *Server) signupOpen(ctx context.Context) (bool, error) {
 	v, err := s.settingOrEmpty(ctx, settingSignup)
-	if err != nil || v != valueDisabled {
-		return true, err
+	if err != nil || v == valueEnabled {
+		return v == valueEnabled, err
 	}
 	users, err := s.store.ListUsers(ctx)
 	return len(users) == 0, err

@@ -1,0 +1,582 @@
+{{define "content"}}
+<div class="page-head"><h1>Documentation</h1></div>
+<div class="docs">
+<nav class="docs-toc" aria-label="Table of contents" id="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#getting-started">Getting started</a></li>
+    <li><a href="#accounts">Accounts and sign-in</a>
+      <ul>
+        <li><a href="#password-login">Password sign-in</a></li>
+        <li><a href="#registration">Signing up</a></li>
+        <li><a href="#providers">Sign-in providers</a></li>
+        <li><a href="#access-tokens">Access tokens</a></li>
+        <li><a href="#api-auth">API authentication</a></li>
+        <li><a href="#rate-limiting">Rate limiting</a></li>
+      </ul></li>
+    <li><a href="#dexa-page">DEXA scans</a></li>
+    <li><a href="#scale-page">Scale readings</a></li>
+    <li><a href="#estimates-page">Estimates</a>
+      <ul>
+        <li><a href="#how-estimates-work">How they are computed</a></li>
+        <li><a href="#method-accuracy">Method accuracy</a></li>
+        <li><a href="#athlete-mode">Athlete mode</a></li>
+        <li><a href="#calibration">Calibration</a></li>
+        <li><a href="#estimate-range">Range and columns</a></li>
+      </ul></li>
+    <li><a href="#settings-page">Settings</a></li>
+    <li><a href="#integrations">Integrations</a>
+      <ul>
+        <li><a href="#withings">Withings</a></li>
+        <li><a href="#strengthlevel">Strength Level</a></li>
+      </ul></li>
+    <li><a href="#admin-page">Admin</a>
+      <ul>
+        <li><a href="#admin-users">Users</a></li>
+        <li><a href="#admin-providers">Provider form</a></li>
+        <li><a href="#withings-app">Withings application</a></li>
+      </ul></li>
+    <li><a href="#server-config">Server configuration</a></li>
+    <li><a href="#reverse-proxy">Reverse proxy</a></li>
+    <li><a href="#database">Database</a></li>
+    <li><a href="#encryption">Encryption</a></li>
+    <li><a href="#data-export">Data export and GDPR</a></li>
+    <li><a href="#audit-log">Audit log</a></li>
+    <li><a href="#json-api">JSON API</a></li>
+    <li><a href="#security">Security notes</a></li>
+  </ol>
+</nav>
+
+<div class="docs-body">
+
+<section id="getting-started">
+<h2>Getting started</h2>
+<p>dexa-fix corrects smart-scale results with DEXA scan results. A smart scale is convenient but biased. A DEXA scan is accurate but rare. The app uses the difference between the two on the days you have both, and applies it to the scale readings in between. You get one estimated value per day.</p>
+<ol>
+  <li>Start the server with <code>dexa-fix serve</code> and open <code>http://localhost:8080</code>.</li>
+  <li><strong>Create the first account.</strong> It becomes the administrator. After that, new accounts are closed until an administrator allows sign-ups (see <a href="#registration">Signing up</a>).</li>
+  <li>Enter your height under <a href="#settings-page">Settings</a> (needed for BMI, FMI and LMI).</li>
+  <li>Add one or more <a href="#dexa-page">DEXA scans</a>.</li>
+  <li>Add <a href="#scale-page">scale readings</a> by hand, by <a href="#json-api">API</a>, or by importing them from <a href="#withings">Withings</a>. A DEXA scan only calibrates a scale if the scale has a reading on the same day.</li>
+  <li>Open <a href="#estimates-page">Estimates</a> to see the daily table, the chart and the calibrations in use.</li>
+</ol>
+<p>Stored readings are never changed. Every estimate is calculated from them, so you can change settings at any time and see the result at once.</p>
+<p>This page is the same for everyone and needs no sign-in. Small <span class="help-link" aria-hidden="true">?</span> badges throughout the app link to the matching section here.</p>
+</section>
+
+<section id="accounts">
+<h2>Accounts and sign-in</h2>
+<p>Each user has an account and sees only their own data. The e-mail address is the account's unique key and what you sign in with. It is compared case-insensitively and stored in lowercase. Names are display names: 1 to 64 characters, and they need not be unique. The <strong>first account becomes the administrator</strong>. Administrators can make other users administrators; the last administrator cannot be removed.</p>
+
+<h3 id="password-login">Password sign-in</h3>
+<ul>
+  <li><strong>What:</strong> sign in with e-mail address and password on the home page.</li>
+  <li><strong>Format:</strong> passwords have 8 characters or more and at most 72 bytes. They are stored as bcrypt hashes.</li>
+  <li><strong>Default:</strong> on.</li>
+  <li><strong>Effect of turning it off</strong> (Admin page): the sign-in form, the sign-up form and HTTP Basic authentication on the API all stop working. Providers and access tokens keep working. The administrator who turns it off must have a linked provider first, so they cannot lock themselves out.</li>
+  <li><strong>Recovery:</strong> start the server with <code>--force-password-login</code> (or <code>DEXAFIX_FORCE_PASSWORD_LOGIN=true</code>) to keep password sign-in on whatever the Admin page says, then fix the setting and restart without it.</li>
+  <li><strong>Sessions</strong> last 30 days. The cookie is <code>HttpOnly</code>, <code>SameSite=Lax</code>, and <code>Secure</code> when the visitor used HTTPS.</li>
+</ul>
+
+<h3 id="registration">Signing up</h3>
+<p>The very first account on an empty server can always be created. After that <strong>sign-up is closed by default</strong>. While it is closed nobody can create their own account, neither with a password nor on first sign-in through a provider. An administrator adds people from the Users list on the Admin page, or opens <strong>New accounts</strong> on the Admin page (the <em>Open new accounts</em> button). Existing accounts keep working either way.</p>
+<p class="docs-note">The sign-up form on the home page only appears when sign-up is open and password sign-in is on.</p>
+
+<h3 id="providers">Sign-in providers</h3>
+<p>Administrators add external providers on the <a href="#admin-providers">Admin page</a>. There are three types: OpenID Connect (for example Google), Sign in with Apple, and plain OAuth 2.0. Each provider has a short name, and you register this callback URL with the provider:</p>
+<pre><code>https://your-host/auth/&lt;short name&gt;/callback</code></pre>
+<p>The Admin page shows the exact callback URL for each provider. It is built from <code>--base-url</code>, or else from the request (see <a href="#reverse-proxy">reverse proxy</a>).</p>
+<ul>
+  <li><strong>Linking:</strong> users link a provider to their existing account under Settings, <a href="#linked-accounts">Linked accounts</a>.</li>
+  <li><strong>Matching:</strong> accounts are matched only by the provider's account id (the subject), never by e-mail address.</li>
+  <li><strong>Create accounts on first sign-in:</strong> if this is on for a provider (and sign-up is open), a login from an unknown account creates a new account. It takes the provider's e-mail address, unless the provider marks it unverified. If that address is already in use, sign-in is refused: sign in to the existing account and link the provider in Settings instead.</li>
+  <li><strong>Removing</strong> a provider also removes the links to it.</li>
+</ul>
+
+<h3 id="linked-accounts">Linked accounts</h3>
+<p>Settings lists every configured provider with a <strong>Link</strong> or <strong>Unlink</strong> button. Linking sends you to the provider and back. The card is hidden when no provider is configured.</p>
+
+<h3 id="access-tokens">Access tokens</h3>
+<ul>
+  <li><strong>What:</strong> a personal token for scripts. It acts as you, on the JSON API only (not on the website).</li>
+  <li><strong>Format:</strong> starts with <code>dxf_</code>. Send it as <code>Authorization: Bearer dxf_...</code>.</li>
+  <li><strong>Fields:</strong> a name (up to 64 characters) and an expiry: 30 days, 90 days (default), 1 year, or never.</li>
+  <li><strong>Gotchas:</strong> the token is shown once, right after you create it, and only a hash is stored. The list shows the first characters, when it was created, last used and when it expires. Revoke a token to stop it working at once.</li>
+</ul>
+<pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/1/estimates</code></pre>
+
+<h3 id="api-auth">API authentication</h3>
+<p>Every API request except <code>GET /healthz</code> must be authenticated, with one of:</p>
+<ul>
+  <li><code>Authorization: Bearer &lt;personal access token&gt;</code> (see above).</li>
+  <li><code>Authorization: Bearer &lt;ID token&gt;</code> from an OpenID Connect or Sign in with Apple provider, for an account linked to that provider. It must be a JWT signed by the provider and issued for this application's client ID. Opaque access tokens are not accepted.</li>
+  <li>HTTP Basic with the e-mail address and password, while password sign-in is on: <code>curl -u you@example.com:password ...</code>.</li>
+  <li>The browser session cookie.</li>
+</ul>
+<p>Responses are 401 when not authenticated and 403 when the role is not enough. A user can reach only their own <code>/users/{id}/...</code> routes; other ids answer 404.</p>
+
+<h3 id="rate-limiting">Rate limiting</h3>
+<p>Failed password sign-ins are counted in memory: <strong>10 per login name and 60 per client address in 15 minutes</strong>. After that sign-in answers 429. Successful sign-ins are never counted. Counters reset when the server restarts. Behind a reverse proxy set <code>--trusted-proxies</code>, or everyone shares the proxy's address and its count. On a public deployment also limit sign-in attempts at the proxy. Form posts are capped at 1 MiB.</p>
+</section>
+
+<section id="dexa-page">
+<h2>DEXA scans</h2>
+<p>Page: <code>/u/{id}/dexa</code>. A DEXA scan is your reference. A scan needs a date and at least one measurement. Numbers may use a decimal comma. Every field is optional.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Field</th><th>JSON key</th><th>Unit</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Date</td><td><code>measured_at</code></td><td>date (UTC)</td><td>Required. In the API an RFC 3339 timestamp. Scans are matched to scale readings by UTC day.</td></tr>
+    <tr><td>Weight</td><td><code>weight_kg</code></td><td>kg</td><td>Total body weight. Used as the estimate on the scan day but never corrected.</td></tr>
+    <tr><td>Body fat</td><td><code>fat_ratio_pct</code></td><td>%</td><td>Body fat percentage. Calibrates the scale's body fat %. If left out but fat mass and weight are known, it is calculated as fat mass / weight x 100.</td></tr>
+    <tr><td>Fat mass</td><td><code>fat_mass_kg</code></td><td>kg</td><td>Total fat mass.</td></tr>
+    <tr><td>Fat-free mass</td><td><code>fat_free_mass_kg</code></td><td>kg</td><td>Weight minus fat mass (includes bone).</td></tr>
+    <tr><td>Lean mass</td><td><code>lean_mass_kg</code></td><td>kg</td><td>Fat-free mass minus bone mass (lean soft tissue).</td></tr>
+    <tr><td>Bone mass (BMC)</td><td><code>bone_mass_kg</code></td><td>kg</td><td>Bone mineral content. Calibrates the scale's bone mass.</td></tr>
+    <tr><td>Visceral fat (VAT)</td><td><code>visceral_fat_mass_kg</code></td><td>kg</td><td>Visceral adipose tissue mass. Stored and exported; it is not used in estimates, because scale visceral fat is an index, not a mass.</td></tr>
+    <tr><td>BMD</td><td><code>bmd_g_cm2</code></td><td>g/cm&sup2;</td><td>Bone mineral density.</td></tr>
+    <tr><td>T-score</td><td><code>t_score</code></td><td>standard deviations</td><td>Bone density compared with a healthy young adult.</td></tr>
+    <tr><td>Z-score</td><td><code>z_score</code></td><td>standard deviations</td><td>Bone density compared with people of your age and sex.</td></tr>
+    <tr><td>Android fat</td><td><code>android_fat_pct</code></td><td>%</td><td>Fat percentage of the android (abdominal) region.</td></tr>
+    <tr><td>Gynoid fat</td><td><code>gynoid_fat_pct</code></td><td>%</td><td>Fat percentage of the gynoid (hip) region. With android fat it gives the A/G ratio.</td></tr>
+    <tr><td>Notes</td><td><code>notes</code></td><td>text</td><td>Up to 500 characters.</td></tr>
+  </tbody>
+</table></div>
+<h3 id="auto-fill">Gray values (calculated while typing)</h3>
+<p>While you fill in a form, an empty field shows a gray value when it can be calculated from what you typed. Weight, body fat %, fat mass and fat-free mass calculate from each other: any two give the rest. On the DEXA form, lean mass + bone mass gives fat-free mass. A typed value is never replaced. Gray values are saved with the form unless you type something else. This needs JavaScript; without it the fields stay empty.</p>
+<p class="docs-note"><strong>Gotcha:</strong> a scan only calibrates the scale when the scale has a reading of the same kind on the same day. Add your scale readings for the scan day (<a href="#calibration">Calibration</a>). Deleting a scan removes its calibration.</p>
+</section>
+
+<section id="scale-page">
+<h2>Scale readings</h2>
+<p>Page: <code>/u/{id}/scale</code>. A reading is one measurement from a scale or another method. The time is UTC. The page shows <strong>100 readings per page</strong>, newest first, with <strong>Older</strong> and <strong>Newer</strong> links. The links use the query parameter <code>before</code>, a cursor that marks where the next page starts.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Field</th><th>JSON key</th><th>Unit</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Date &amp; time</td><td><code>measured_at</code></td><td>UTC</td><td>Required. Several readings on one UTC day are averaged per method.</td></tr>
+    <tr><td>Method</td><td><code>method</code></td><td>see below</td><td>Default <code>scale</code>.</td></tr>
+    <tr><td>Athlete mode</td><td><code>athlete_mode</code></td><td>yes/no</td><td>Defaults to your Settings default when left out in the API.</td></tr>
+    <tr><td>Weight</td><td><code>weight_kg</code></td><td>kg</td><td></td></tr>
+    <tr><td>Body fat</td><td><code>fat_ratio_pct</code></td><td>%</td><td></td></tr>
+    <tr><td>Fat mass</td><td><code>fat_mass_kg</code></td><td>kg</td><td></td></tr>
+    <tr><td>Fat-free mass</td><td><code>fat_free_mass_kg</code></td><td>kg</td><td></td></tr>
+    <tr><td>Muscle mass</td><td><code>muscle_mass_kg</code></td><td>kg</td><td>Stored; estimates use fat-free and lean mass instead.</td></tr>
+    <tr><td>Hydration</td><td><code>hydration_kg</code></td><td>kg</td><td>Body water. Never corrected.</td></tr>
+    <tr><td>Bone mass</td><td><code>bone_mass_kg</code></td><td>kg</td><td>Calibrated against DEXA bone mass.</td></tr>
+    <tr><td>Visceral fat</td><td><code>visceral_fat_index</code></td><td>index</td><td>The scale's unitless index. Never corrected.</td></tr>
+    <tr><td>Notes</td><td><code>notes</code></td><td>text</td><td>Up to 500 characters.</td></tr>
+    <tr><td>Source</td><td><code>source</code></td><td>text</td><td>Where the reading came from: <code>manual</code> (default), <code>withings</code> or any text you send by API.</td></tr>
+    <tr><td>External id</td><td><code>external_id</code></td><td>text</td><td>Your own stable id. Readings with an external id are upserted on (source, external id), so repeated imports do not duplicate.</td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="measurement-method">Measurement method</h3>
+<p>Each reading records how it was measured. The key goes in the API <code>method</code> field.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Key</th><th>Label</th><th>Default rank</th></tr></thead>
+  <tbody>
+    <tr><td><code>hydrostatic</code></td><td>Hydrostatic weighing</td><td>1 (most accurate)</td></tr>
+    <tr><td><code>bodpod</code></td><td>BodPod</td><td>2</td></tr>
+    <tr><td><code>caliper</code></td><td>Skinfold caliper</td><td>3</td></tr>
+    <tr><td><code>scale</code></td><td>Smart scale (Withings, manual)</td><td>4</td></tr>
+    <tr><td><code>tape</code></td><td>Tape / Navy formula</td><td>5</td></tr>
+    <tr><td><code>visual-ai</code></td><td>Visual AI</td><td>6</td></tr>
+  </tbody>
+</table></div>
+<p>Readings of different methods are never mixed: each method (and athlete mode) is calibrated against DEXA on its own. See <a href="#method-accuracy">Method accuracy</a>. A re-import never changes the method or athlete mode of a stored reading.</p>
+
+<h3 id="scale-athlete">Athlete mode on a reading</h3>
+<p>Tick <strong>Athlete mode</strong> when the scale was set to its athlete setting (which changes how it estimates fat). The box starts out as your default from <a href="#athlete-mode">Settings</a>. See <a href="#athlete-mode">Athlete mode</a> for the effect.</p>
+<p class="docs-note"><strong>Gotcha:</strong> the gray calculated values (see <a href="#auto-fill">above</a>) work on this form too. Deleting a reading cannot be undone.</p>
+</section>
+
+<section id="estimates-page">
+<h2>Estimates</h2>
+<p>Page: <code>/u/{id}/estimates</code> (the page you land on after sign-in). It shows an overview of the latest values with a trend chart, the daily table, and the calibrations in use. The estimates are cached in memory per user and invalidated automatically when your data or settings change, so the page is fast but never stale.</p>
+
+<h3 id="how-estimates-work">How the daily estimates are computed</h3>
+<p>Each field is handled on its own. The estimated fields are weight, body fat, fat mass, fat-free mass, bone mass, lean mass, hydration, visceral fat index, BMI, FMI, LMI and the A/G ratio.</p>
+<ol>
+  <li><strong>Daily average.</strong> Readings are averaged per day, per field and per group (method plus athlete mode). Missing values are ignored.</li>
+  <li><strong>Most accurate reading.</strong> Each day uses the group whose method ranks highest for that field (<a href="#method-accuracy">Method accuracy</a>). A method without a value for the field is skipped, so a caliper reading with only body fat does not hide the scale weight.</li>
+  <li><strong>Rolling average.</strong> Each day is averaged over the real readings within 3 days before and after it (a 7-day window, shorter at the ends). Only real readings count, never filled-in days. With at least 3 days with a real reading in the window, that average is the day's value; otherwise a day with a reading keeps it.</li>
+  <li><strong>Missing days</strong> get a value on a straight line between the nearest days that have one (origin <code>interpolated</code>). After the last such day the value is repeated up to today (origin <code>held</code>).</li>
+  <li><strong>Calibration.</strong> On each DEXA day, the offset (DEXA minus the scale's reading that day) is recorded. See <a href="#calibration">Calibration</a>.</li>
+  <li><strong>Estimate.</strong> A DEXA value is used as it is (origin <code>dexa</code>). Other days are corrected by the offset: before the first calibration with its offset, between two calibrations blended with a smooth curve, after the last calibration with the last offset.</li>
+</ol>
+<p>Fat mass is calculated as weight x body fat % / 100 on every day with a weight, and fat-free mass as weight minus fat mass, so the two always add up to the weight. Lean mass is fat-free mass minus bone mass (only on days with both). BMI, FMI and LMI are weight, fat mass and lean mass divided by height squared; without a height in Settings they are left out. The A/G ratio is android fat % divided by gynoid fat %, from DEXA scans; after a scan the latest ratio is held until the next one.</p>
+<p>Only <strong>body fat % and bone mass</strong> are corrected with an offset. Weight is never corrected, nor are hydration and visceral fat index.</p>
+
+<h3 id="estimate-badges">Reading the table</h3>
+<ul>
+  <li>A <strong>DEXA</strong> badge marks a value from a DEXA scan; a <strong>corr.</strong> badge marks a corrected value.</li>
+  <li>Faded values are interpolated or held. A gray <strong>est</strong> tag in front of a date marks a row with a value interpolated between two readings.</li>
+  <li>Hover a value to see its origin (<code>measured</code>, <code>interpolated</code>, <code>held</code>, <code>dexa</code>), the method and mode it is based on, and the raw reading.</li>
+  <li>The overview tiles show the latest value with the change; the chart has a selector for the measurement and the time range.</li>
+</ul>
+
+<h3 id="method-accuracy">Method accuracy</h3>
+<ul>
+  <li><strong>What:</strong> a ranking of the measurement methods, most accurate first. Page: Settings.</li>
+  <li><strong>Default:</strong> hydrostatic, BodPod, caliper, smart scale, tape, visual AI.</li>
+  <li><strong>Effect:</strong> when several methods have a reading for the same field on a day, the highest-ranked wins.</li>
+  <li><strong>How to change:</strong> drag the rows (or use the up and down buttons); without JavaScript there are rank number inputs. In the API: <code>PUT /api/v1/users/{id}/settings</code> with <code>"method_ranking": ["bodpod", "scale"]</code>; methods you leave out follow in default order.</li>
+  <li><strong>Gotcha:</strong> a method only wins for fields it actually measured.</li>
+</ul>
+
+<h3 id="athlete-mode">Athlete mode</h3>
+<ul>
+  <li><strong>What:</strong> many scales have an athlete setting that changes their estimate. A reading in athlete mode is a different kind of reading from a normal one.</li>
+  <li><strong>Setting:</strong> <em>Athlete mode by default</em> in Settings. It presets the checkbox for new readings, is applied to API readings that leave <code>athlete_mode</code> out, and to Withings imports. Default: off.</li>
+  <li><strong>Effect:</strong> each reading keeps its own flag. DEXA calibration is kept separately for normal and athlete readings. If the normal and athlete group of one method both have a value on a day, the one matching your default wins.</li>
+  <li><strong>Gotcha:</strong> changing the default does not change stored readings.</li>
+</ul>
+
+<h3 id="calibration">Calibration</h3>
+<p>The offset is <code>DEXA - the reading on the scan day</code>, using the scale's own value that day, not the 7-day average. Every group (method and athlete mode) with a reading of that field on the scan day gets its own offset; several readings of one group on one day are averaged first. A group without a reading on the scan day gets no offset from that scan.</p>
+<p>Example: a DEXA scan on 2026-03-01 says body fat 18.0 %, while the scale says 20.0 %. The offset is -2.0 percentage points, so on 2026-03-02 a scale reading of 20.0 % becomes an estimate of 18.0 %.</p>
+<p>The <em>Calibrations in use</em> card on the estimates page lists each scan's offsets per method and mode. If it says none, add scale readings on the day of a DEXA scan.</p>
+
+<h3 id="estimate-range">Range and columns</h3>
+<ul>
+  <li><strong>Range:</strong> 30 days, 90 days (default), 1 year or all time. It applies to both the chart and the daily table. Query parameter <code>range</code> with the values <code>30</code>, <code>90</code>, <code>365</code> or <code>all</code>.</li>
+  <li id="estimate-columns"><strong>Columns:</strong> the <em>Columns</em> menu above the table shows and hides columns. The choice is remembered per account. Columns added later start out visible.</li>
+</ul>
+
+<h3 id="resync-day">Per-day Withings re-import and Strength Level</h3>
+<p>With Withings connected, an <strong>&#8635;</strong> button on each row re-imports that one day. It replaces that day's Withings data: adds its Withings readings (even when manual readings exist), updates changed ones, and removes stored Withings readings that Withings no longer returns. It never touches manual readings. With Strength Level enabled for you, a <strong>&#8682;</strong> button sends that day's weight and body fat to Strength Level (see <a href="#strengthlevel">Strength Level</a>).</p>
+</section>
+
+<section id="settings-page">
+<h2>Settings</h2>
+<p>Page: <code>/u/{id}/settings</code>, from the menu under your name in the header. It also has <strong>Sign out</strong>.</p>
+<dl>
+  <dt id="profile-settings">Profile</dt>
+  <dd>Name (1 to 64 characters), e-mail (required, it is how you sign in) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
+  <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
+  <dt>Linked accounts</dt><dd>See <a href="#linked-accounts">Linked accounts</a>.</dd>
+  <dt id="password">Password</dt><dd>Set or change your password (current password required when you have one). Shown only while password sign-in is on. Minimum 8 characters, at most 72 bytes.</dd>
+  <dt>Withings, Strength Level</dt><dd>See <a href="#integrations">Integrations</a>.</dd>
+  <dt>Your data</dt><dd>Download your data as JSON. See <a href="#data-export">Data export</a>.</dd>
+  <dt>Recent account activity</dt><dd>The latest security events on your account (time in UTC, event, who did it, detail, IP address). If you see something you do not recognise, change your password and revoke your access tokens. See <a href="#audit-log">Audit log</a>.</dd>
+  <dt>Athlete mode, Method accuracy</dt><dd>See <a href="#athlete-mode">Athlete mode</a> and <a href="#method-accuracy">Method accuracy</a>. Saved together with the <strong>Save</strong> button at the bottom.</dd>
+</dl>
+</section>
+
+<section id="integrations">
+<h2>Integrations</h2>
+
+<h3 id="withings">Withings</h3>
+<p>Each user links their own Withings account. Imported measurements are stored as scale readings with the source <code>withings</code> and the athlete-mode default from Settings.</p>
+<h4 id="withings-setup">Setup (administrator)</h4>
+<ol>
+  <li>In the Withings developer dashboard create an application and register the callback URL, for example <code>https://dexa.example.com/integrations/withings/callback</code>.</li>
+  <li>Give the server the credentials: either in the <a href="#withings-app">Withings application</a> card on the Admin page, or with <code>DEXAFIX_WITHINGS_CLIENT_ID</code>, <code>DEXAFIX_WITHINGS_CLIENT_SECRET</code> (or <code>--withings-client-secret-file</code>) and <code>DEXAFIX_WITHINGS_REDIRECT_URL</code>. Values saved on the Admin page override the environment.</li>
+</ol>
+<p>Connecting works only when client id, secret and redirect URL are all set. The redirect URL has a local default (<code>http://localhost:8080/...</code>), so set it to the public URL registered with Withings for any real deployment.</p>
+<h4 id="withings-import">Connecting and importing (user)</h4>
+<ol>
+  <li>On the Settings or Estimates page choose <strong>Connect Withings</strong> and grant access. Finish within 10 minutes.</li>
+  <li>Choose <strong>Import from Withings</strong>. It fetches the whole history.</li>
+</ol>
+<p>Imported: weight, fat ratio, fat mass, fat-free mass, muscle mass, hydration, bone mass and visceral fat. Measurements Withings marks as possibly belonging to someone else (a guest) are ignored. Days are UTC days. How each day is handled:</p>
+<div class="scroll"><table>
+  <thead><tr><th>Day has</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td>No readings</td><td>Imported.</td></tr>
+    <tr><td>Withings readings only</td><td>Changed ones are updated, identical ones left alone, new ones added. Nothing is deleted.</td></tr>
+    <tr><td>Manual readings</td><td>New Withings readings are skipped and the day is listed in the result. Earlier imports are refreshed.</td></tr>
+  </tbody>
+</table></div>
+<p>A manual entry is a deliberate value; averaging it with a Withings reading of the same weigh-in would distort the day. To import such a day anyway use the per-day <strong>&#8635;</strong> button (see <a href="#resync-day">above</a>) or <code>?day=</code> on the API. <strong>Disconnect Withings</strong> forgets your tokens; imported readings are kept.</p>
+
+<h3 id="strengthlevel">Strength Level</h3>
+<p>Sends your estimated weight and body fat to your <a href="https://strengthlevel.com" rel="noopener">Strength Level</a> account, so its strength standards use your real body weight.</p>
+<ul>
+  <li><strong>Permission:</strong> an administrator must enable <em>Strength Level sync</em> for you on the Admin page (<a href="#strengthlevel-permissions">Strength Level permissions</a>). Until then the card does not appear and the endpoints answer 403.</li>
+  <li><strong>Login:</strong> your Strength Level e-mail and password, stored encrypted. Only e-mail and password accounts work, not Google, Apple or Facebook sign-in. The login is tested when you save it, so a wrong password is reported at once. The password is never shown again. <strong>Remove login</strong> deletes it.</li>
+  <li><strong>Single day:</strong> the <strong>&#8682;</strong> button on a row of the Estimates page sends that day and replaces an entry that is already there.</li>
+  <li><strong>Multi-day sync</strong> (needs the extra <em>multi-day sync</em> permission): choose <em>Last N days</em> (default 90, 1 to 3650). Days missing on Strength Level are added. With <em>Also update days that already exist</em> ticked, days that exist there with other values are overwritten too. Nothing is ever deleted. It runs in the background, one day at a time with a short pause, so long periods take a while; the progress shows on the page. Only one sync per user runs at a time.</li>
+  <li><strong>What is sent:</strong> the daily estimate of weight and body fat, including interpolated and held days. Days without a weight estimate are left out.</li>
+</ul>
+</section>
+
+<section id="admin-page">
+<h2>Admin</h2>
+<p>Page: <code>/admin</code>, administrators only (menu under your name).</p>
+<dl>
+  <dt id="admin-status">Server status</dt>
+  <dd>Version, Go version, database driver and schema version, whether encryption is on, counts of users, scans, readings, active sessions and access tokens, and whether Withings is configured.</dd>
+</dl>
+
+<h3 id="admin-users">Users</h3>
+<ul>
+  <li><strong>Add user:</strong> name, e-mail and password. Works even when sign-up is closed.</li>
+  <li><strong>Make admin / Remove admin:</strong> the last administrator cannot be removed.</li>
+  <li><strong>Set password:</strong> sets a new password for a user (8 to 72 bytes). It does not revoke the user's access tokens.</li>
+  <li><strong>Delete:</strong> deletes the user with all their data, immediately and without undo. You cannot delete yourself.</li>
+  <li id="strengthlevel-permissions"><strong>Strength Level permissions:</strong> <em>Enable Strength Level sync</em> lets that user store a Strength Level login and send single days. Once enabled, <em>Allow multi-day sync</em> additionally lets them run the background sync of many days.</li>
+</ul>
+
+<h3 id="admin-signup">New accounts</h3>
+<p>See <a href="#registration">Signing up</a>. Default: closed. When closed, administrators still add users above.</p>
+
+<h3 id="admin-password-login">Password sign-in</h3>
+<p>See <a href="#password-login">Password sign-in</a>. Turn it off only after linking your own account to a provider.</p>
+
+<h3 id="admin-providers">Sign-in providers: the form field by field</h3>
+<p>Register this server with the provider first (callback URL in <a href="#providers">Sign-in providers</a>).</p>
+<dl>
+  <dt id="provider-type">Type</dt>
+  <dd><code>oidc</code> OpenID Connect with discovery (Google and others), <code>apple</code> Sign in with Apple, or <code>oauth2</code> plain OAuth 2.0. The form shows only the fields that apply.</dd>
+  <dt id="provider-slug">Short name</dt>
+  <dd>Lowercase letters, digits and dashes, up to 32 characters, starting with a letter or digit, for example <code>google</code>. It is part of the callback URL and cannot be changed after saving.</dd>
+  <dt>Display name</dt>
+  <dd>The text of the button: <em>Continue with Google</em>.</dd>
+  <dt id="provider-issuer">Issuer URL</dt>
+  <dd>OpenID Connect only. The base URL of the provider, which serves <code>/.well-known/openid-configuration</code>. Example: <code>https://accounts.google.com</code>. For Apple it is fixed.</dd>
+  <dt id="provider-client-id">Client ID</dt>
+  <dd>The id of the application you registered at the provider. For Apple, the <em>Services ID</em>.</dd>
+  <dt id="provider-client-secret">Client secret</dt>
+  <dd>The secret of that application, stored encrypted. When editing, leave it empty to keep the saved one. For Apple, paste the contents of the <code>.p8</code> key file.</dd>
+  <dt id="provider-apple">Apple team ID and key ID</dt>
+  <dd>Apple only. dexa-fix generates Apple's short-lived client secret from team id, key id, services id and the <code>.p8</code> key. Apple requires HTTPS.</dd>
+  <dt id="provider-oauth2">Authorisation, token and userinfo URL</dt>
+  <dd>Plain OAuth 2.0 only: the three endpoints of the provider. dexa-fix reads the account id and name from the userinfo response.</dd>
+  <dt id="provider-subject-claim">Account ID field</dt>
+  <dd>The field in the user information that uniquely and permanently identifies the account (the <em>subject</em>). Default <code>sub</code>. Change it for OAuth 2.0 providers that use another name, such as <code>id</code>. Never use something that can change, like an e-mail address.</dd>
+  <dt id="provider-scopes">Scopes</dt>
+  <dd>Space-separated. Default for OpenID Connect and Apple: <code>openid email profile</code>; for OAuth 2.0: <code>name email</code>. Leave empty for the default.</dd>
+  <dt id="provider-name-claim">Name field</dt>
+  <dd>The field to take the display name from. If empty or missing, <code>preferred_username</code>, <code>name</code> and <code>email</code> are tried in that order.</dd>
+  <dt id="provider-allow-signup">Create accounts on first sign-in</dt>
+  <dd>Default off. When on (and sign-up is open), an unknown person who signs in with this provider gets a new account. When off, only people who linked the provider from Settings can use it.</dd>
+</dl>
+
+<h3 id="withings-app">Withings application</h3>
+<p>Client ID, client secret and redirect URL of your Withings application. Values saved here override the environment. Leave a field empty to use the environment value (shown as placeholder). The secret is stored encrypted; leave it empty to keep it, or tick <em>Remove the saved secret</em>. Shown only when the Withings importer is available.</p>
+
+<h3 id="admin-audit">Audit log</h3>
+<p>The latest events on the page. See <a href="#audit-log">Audit log</a>.</p>
+</section>
+
+<section id="server-config">
+<h2>Server configuration</h2>
+<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+
+<h3 id="serve-flags"><code>serve</code></h3>
+<div class="scroll"><table>
+  <thead><tr><th>Flag</th><th>Environment variable</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>--listen</code></td><td><code>DEXAFIX_LISTEN</code></td><td><code>:8080</code></td><td>Address to listen on. Behind a proxy use <code>127.0.0.1:8080</code>.</td></tr>
+    <tr><td><code>--db-driver</code></td><td><code>DEXAFIX_DB_DRIVER</code></td><td><code>sqlite</code></td><td><code>sqlite</code> or <code>postgres</code>.</td></tr>
+    <tr><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Database connection string. A string that contains a password is rejected on the command line; use the environment variable or <code>--dsn-file</code>.</td></tr>
+    <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
+    <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
+    <tr><td><code>--withings-client-id</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_ID</code></td><td>empty</td><td>Withings application client id.</td></tr>
+    <tr><td>(no flag)</td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET</code></td><td>empty</td><td>Withings client secret. Secrets are never accepted as flags: <code>--withings-client-secret</code> no longer exists.</td></tr>
+    <tr><td><code>--withings-client-secret-file</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET_FILE</code></td><td>empty</td><td>File holding the Withings client secret.</td></tr>
+    <tr><td><code>--withings-redirect-url</code></td><td><code>DEXAFIX_WITHINGS_REDIRECT_URL</code></td><td><code>http://localhost:8080/integrations/withings/callback</code></td><td>Callback URL registered with Withings. Set it to the public URL.</td></tr>
+    <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever.</td></tr>
+    <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
+    <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
+    <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout.</td></tr>
+    <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing. Unused when the key variable is set.</td></tr>
+    <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
+  </tbody>
+</table></div>
+<p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
+<pre><code>dexa-fix serve --listen 127.0.0.1:8080 --trusted-proxies loopback --base-url https://dexa.example.com
+export DEXAFIX_DSN='postgres://user:secret@localhost/dexafix'
+dexa-fix serve --db-driver postgres</code></pre>
+
+<h3 id="db-flags"><code>db migrate</code> and <code>db copy</code></h3>
+<div class="scroll"><table>
+  <thead><tr><th>Command</th><th>Flag</th><th>Environment variable</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>db migrate</code></td><td><code>--db-driver</code></td><td><code>DEXAFIX_DB_DRIVER</code></td><td><code>sqlite</code></td><td>Database driver.</td></tr>
+    <tr><td><code>db migrate</code></td><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Connection string (no password on the command line).</td></tr>
+    <tr><td><code>db migrate</code></td><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string.</td></tr>
+    <tr><td><code>db migrate</code></td><td><code>--yes</code></td><td>(none)</td><td><code>false</code></td><td>Confirm a roll-back that drops tables and their data.</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--from-driver</code></td><td>(none)</td><td><code>sqlite</code></td><td>Source driver.</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--from-dsn</code></td><td><code>DEXAFIX_FROM_DSN</code> (falls back to <code>DEXAFIX_DSN</code>)</td><td>empty</td><td>Source connection string. Required (this or the file).</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--from-dsn-file</code></td><td><code>DEXAFIX_FROM_DSN_FILE</code></td><td>empty</td><td>File holding the source string.</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--to-driver</code></td><td><code>DEXAFIX_TO_DRIVER</code></td><td>empty</td><td>Target driver. Required.</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--to-dsn</code></td><td><code>DEXAFIX_TO_DSN</code></td><td>empty</td><td>Target connection string. Required (this or the file).</td></tr>
+    <tr><td><code>db copy</code></td><td><code>--to-dsn-file</code></td><td><code>DEXAFIX_TO_DSN_FILE</code></td><td>empty</td><td>File holding the target string.</td></tr>
+  </tbody>
+</table></div>
+<p class="docs-note">Database strings that contain a password are rejected on the command line, because other users on the machine can read command lines. Use the environment variable or the file variant. A plain <code>--dsn file:path.db</code> without a password still works.</p>
+</section>
+
+<section id="reverse-proxy">
+<h2>Running behind a reverse proxy</h2>
+<p>dexa-fix speaks plain HTTP. For HTTPS put a reverse proxy such as nginx, Caddy or Traefik in front, and bind dexa-fix to a private address so nobody can bypass the proxy: <code>--listen 127.0.0.1:8080</code>.</p>
+<p>A proxy hides who the visitor is and whether they used HTTPS. It passes both on in <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Anyone can send those headers, so dexa-fix only believes them on connections from the proxies in <code>--trusted-proxies</code>; from everyone else they are ignored, and a warning is logged once.</p>
+<ul>
+  <li><code>--trusted-proxies</code>: comma-separated addresses or CIDR ranges, for example <code>127.0.0.1,10.0.0.0/8</code>. The keyword <code>loopback</code> stands for <code>127.0.0.0/8</code> and <code>::1</code>; <code>private</code> adds the RFC 1918 ranges and <code>fc00::/7</code>. Empty trusts nobody.</li>
+  <li><code>--base-url</code>: the public address, scheme and host only (no path). Optional when the proxy forwards <code>Host</code> and <code>X-Forwarded-Proto</code> correctly; set it for a fixed address.</li>
+</ul>
+<p>What changes when the proxy is trusted:</p>
+<ul>
+  <li>Sign-in limits and the audit log use the visitor's address. Without it everyone shares the proxy's address.</li>
+  <li>Cookies are marked <code>Secure</code> and <code>Strict-Transport-Security</code> is sent, as soon as the visitor used HTTPS (as reported by the proxy) or the base URL is <code>https</code>.</li>
+  <li>Provider callback URLs are built from the base URL, or else from <code>X-Forwarded-Proto</code> and the host.</li>
+  <li>Form posts pass the same-origin check only if the browser's <code>Origin</code> matches the host it visited, so the proxy must pass the original host (as <code>Host</code> or <code>X-Forwarded-Host</code>), or you set <code>--base-url</code>.</li>
+</ul>
+<p>The address is read from <code>X-Forwarded-For</code> from the right: every address that belongs to a trusted proxy is skipped and the first one after that is the visitor. Make sure the proxy <em>appends</em> to this header instead of passing along what the client sent. Without <code>X-Forwarded-For</code>, <code>X-Real-IP</code> is used.</p>
+<pre><code># nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Caddy (forwards the headers by default)
+dexa.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+
+# Traefik (docker labels)
+traefik.http.routers.dexa.rule=Host(`dexa.example.com`)
+traefik.http.routers.dexa.tls=true
+traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
+<p class="docs-warn">dexa-fix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, <code>--withings-redirect-url</code> has to be the public callback address.</p>
+</section>
+
+<section id="database">
+<h2>Database</h2>
+<p>SQLite (default) or Postgres, through one query path. Schema changes are versioned migrations, embedded per backend.</p>
+<ul>
+  <li><strong>SQLite:</strong> default DSN <code>file:dexa-fix.db</code>. Connections always enforce foreign keys and wait up to 5 seconds for locks, and file databases run in <strong>WAL mode</strong>, so the DSN needs no pragmas. The database file is created with mode <code>0600</code>, and a warning is logged if an existing file is readable by group or others. WAL mode also creates <code>-wal</code> and <code>-shm</code> files next to the database; back up all of them together, or use a SQLite-aware backup.</li>
+  <li><strong>Postgres:</strong> supported version 18. Use <code>--db-driver postgres</code> and a DSN like <code>postgres://user:pass@host/dexafix</code>, given through <code>DEXAFIX_DSN</code> or <code>--dsn-file</code>.</li>
+  <li><strong>Migrations:</strong> <code>serve</code> applies pending migrations at startup unless <code>--auto-migrate=false</code>. It refuses to start if the database schema is newer than the binary, so upgrade dexa-fix first. Databases created by pre-1.0 builds carry a higher schema version and are refused; start from a fresh database.</li>
+</ul>
+<div class="scroll"><table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>db migrate [up]</code></td><td>Apply all pending migrations (the default action).</td></tr>
+    <tr><td><code>db migrate down --yes</code></td><td>Roll back the latest migration. Without <code>--yes</code> it refuses and prints what it would drop.</td></tr>
+    <tr><td><code>db migrate to N [--yes]</code></td><td>Migrate to version N. <code>0</code> empties the schema. Going below the current version needs <code>--yes</code>.</td></tr>
+    <tr><td><code>db migrate status</code></td><td>List every migration and whether it is applied.</td></tr>
+    <tr><td><code>db migrate version</code></td><td>Print the current schema version.</td></tr>
+    <tr><td><code>db copy</code></td><td>Copy all data to another database.</td></tr>
+  </tbody>
+</table></div>
+<p class="docs-warn">Rolling back drops tables and the data in them. Take a backup first.</p>
+<h3 id="db-copy">Moving from SQLite to Postgres</h3>
+<pre><code>export DEXAFIX_TO_DSN='postgres://user:secret@localhost/dexafix'
+dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
+dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></pre>
+<p>The target is migrated to the latest schema first and must be empty. Ids are kept and Postgres sequences are reset. The copy is a single transaction, so a failure leaves the target untouched. The source is not changed but must already be fully migrated (<code>db migrate up</code>). Encrypted values are copied unchanged: the server on the target needs the <strong>same encryption key</strong> (see <a href="#encryption">Encryption</a>).</p>
+</section>
+
+<section id="encryption">
+<h2>Encryption</h2>
+<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, and e-mail addresses. Each value is tied to its row, so copying it to another row makes it unreadable. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords and access tokens are stored only as hashes.</p>
+<p class="docs-warn">Names, measurements and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those.</p>
+<p>The key comes from, in this order:</p>
+<ol>
+  <li>The environment variable <code>DEXAFIX_ENCRYPTION_KEY</code>: 32 bytes as 64 hexadecimal characters or as base64. There is no command-line flag, because command lines are visible to other processes.</li>
+  <li>The key file (<code>--encryption-key-file</code> or <code>DEXAFIX_ENCRYPTION_KEY_FILE</code>, default <code>dexa-fix.key</code> in the working directory). If neither exists, dexa-fix creates the file with a new random key and mode <code>0600</code> and logs a warning.</li>
+</ol>
+<ul>
+  <li>In containers, put the key file on a persistent volume or set the variable.</li>
+  <li><strong>Back up the key separately from the database.</strong> Without it the encrypted values cannot be read and the server does not start. Keeping the key next to the database backup defeats the purpose.</li>
+  <li>A new key cannot read values encrypted with an old one. There is no built-in key rotation.</li>
+  <li>Values stored before encryption was on are encrypted automatically at startup.</li>
+</ul>
+</section>
+
+<section id="data-export">
+<h2>Data export and GDPR</h2>
+<p>Under <strong>Settings &rarr; Your data</strong> every user can download two JSON files. They serve a person's right of access and data portability (GDPR articles 15 and 20).</p>
+<ul>
+  <li><strong>Settings and personal details:</strong> name, e-mail, role, height, settings, permissions, sign-in methods (provider and account id), access token names and prefixes, whether Withings and Strength Level are connected (and the Strength Level e-mail address), and the audit events about the account.</li>
+  <li><strong>DEXA scans and scale readings:</strong> everything the user measured, including notes.</li>
+</ul>
+<p>Credentials are never included: the files say whether a password, token or integration exists, not what it is. The same files are available to scripts at <code>GET /api/v1/users/{id}/export/profile</code> and <code>/export/data</code>. Every export is recorded in the audit log. <strong>Erasure:</strong> an administrator deleting a user (Admin page) removes all their measurements and settings, clears the IP addresses in the events about them, and the events no longer refer to them.</p>
+</section>
+
+<section id="audit-log">
+<h2>Audit log and retention</h2>
+<p>Security-relevant events are recorded in the database: sign-ins (successful, failed and blocked), sign-outs, account creation, profile, password, token and sign-in method changes, imports, integration connects, data deletions, exports, and every administrator action (users, roles, permissions, providers, server settings). Each event has a time, who did it, whom it concerned, a short detail and the client's IP address. Details never hold passwords, tokens, e-mail addresses or login names.</p>
+<ul>
+  <li><strong>Who sees it:</strong> administrators see the latest 100 events on the Admin page and the whole log at <code>GET /api/v1/audit</code>. Everyone sees the latest events about their own account in Settings (<em>Recent account activity</em>) and at <code>GET /api/v1/users/{id}/audit</code>.</li>
+  <li><strong>Retention:</strong> events are deleted after <code>--audit-retention-days</code> (default 365; <code>0</code> keeps them forever). The purge runs at startup and then every few hours.</li>
+  <li><strong>Noise:</strong> failed and blocked sign-ins are recorded at most once per client address and minute, with a count of the ones left out, so a flood cannot fill the database.</li>
+  <li>Recording an event never fails the request that caused it; a failed write is logged.</li>
+  <li>API: <code>limit</code>, <code>before_id</code> and, for administrators, <code>user_id</code> query parameters.</li>
+</ul>
+</section>
+
+<section id="json-api">
+<h2>JSON API</h2>
+<p>All routes are under <code>/api/v1</code>. Bodies are JSON and unknown request fields are rejected. Errors look like <code>{"error": "..."}</code>. Authentication: see <a href="#api-auth">API authentication</a>. Request bodies are limited to 4 MiB.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>GET</td><td><code>/users</code></td><td>List users. Administrators only.</td></tr>
+    <tr><td>POST</td><td><code>/users</code></td><td>Create a user. Administrators only. Body <code>{"name","email","password"}</code>; <code>email</code> required and unique, <code>password</code> optional.</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/dexa-scans</code></td><td>List DEXA scans (paginated, see below).</td></tr>
+    <tr><td>POST</td><td><code>/users/{id}/dexa-scans</code></td><td>Add a scan. <code>measured_at</code> required (RFC 3339).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/scale-readings</code></td><td>List scale readings (paginated).</td></tr>
+    <tr><td>POST</td><td><code>/users/{id}/scale-readings</code></td><td>Add a batch: a JSON array of up to 5000 readings. Upserted on <code>source</code> and <code>external_id</code>.</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/settings</code></td><td>Athlete-mode default and method ranking.</td></tr>
+    <tr><td>PUT</td><td><code>/users/{id}/settings</code></td><td>Replace them: <code>{"athlete_default": true, "method_ranking": [...]}</code>.</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/estimates</code></td><td>Daily estimates and calibrations. Supports <code>ETag</code> / <code>If-None-Match</code> (304 when unchanged).</td></tr>
+    <tr><td>POST</td><td><code>/users/{id}/import/{provider}</code></td><td>Import from a provider (<code>withings</code>). Optional <code>since</code> (RFC 3339) and <code>day</code> (<code>YYYY-MM-DD</code>; wins over <code>since</code>).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/export/profile</code></td><td>Download settings and personal details (JSON file).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/export/data</code></td><td>Download all scans and readings (JSON file).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/audit</code></td><td>Events about your account, newest first.</td></tr>
+    <tr><td>GET</td><td><code>/audit</code></td><td>The whole audit log. Administrators only.</td></tr>
+  </tbody>
+</table></div>
+<p>Also: <code>GET /healthz</code> returns <code>ok</code> without authentication.</p>
+<h3 id="api-pagination">Pagination and filters</h3>
+<p>List endpoints (<code>dexa-scans</code>, <code>scale-readings</code>) take:</p>
+<ul>
+  <li><code>limit</code>: page size. Default 1000, maximum 10000.</li>
+  <li><code>before</code>: cursor from the previous page.</li>
+  <li><code>since</code>, <code>until</code>: only items in that time range. RFC 3339 (<code>2026-03-01T00:00:00Z</code>) or <code>YYYY-MM-DD</code>.</li>
+</ul>
+<p>The response header <code>X-Next-Cursor</code> holds the cursor for the next page. It is absent on the last page. Pass it unchanged as <code>before</code>.</p>
+<pre><code>curl -si -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01'
+# ... X-Next-Cursor: 1767254400000000000.42
+curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01&amp;before=1767254400000000000.42'</code></pre>
+<p>The audit endpoints use <code>limit</code>, <code>before_id</code> and (administrators) <code>user_id</code>.</p>
+<h3>Examples</h3>
+<pre><code>export DEXAFIX_TOKEN=dxf_...   # from Settings
+
+curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
+  -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"measured_at": "2026-03-01T08:00:00Z", "weight_kg": 80.0, "fat_ratio_pct": 18.0}'
+
+curl -s -X POST localhost:8080/api/v1/users/1/scale-readings \
+  -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
+  -d '[{"measured_at": "2026-03-01T07:00:00Z", "weight_kg": 82.0, "fat_ratio_pct": 20.0, "method": "scale", "athlete_mode": false}]'
+
+curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'</code></pre>
+<p>An import returns counts: <code>{"provider":"withings","imported":3,"updated":0,"unchanged":12,"removed":0,"skipped":0}</code>, plus <code>skipped_days</code> when something was skipped. Status codes: 400 malformed <code>since</code> or <code>day</code>, 404 unknown provider or user, 409 the user has not connected the provider, 501 the server has no credentials for the provider.</p>
+</section>
+
+<section id="security">
+<h2>Security notes and limitations</h2>
+<ul>
+  <li><strong>Encryption is partial.</strong> Measurements, height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
+  <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
+  <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
+  <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>
+  <li><strong>Behind a proxy</strong> the proxy should enforce HTTPS, and <code>--withings-redirect-url</code> must be the public URL. Only trust proxy ranges that nothing else can send from.</li>
+  <li><strong>The database file</strong> is created with mode <code>0600</code>; a warning is logged if an existing one is group or world readable. Keep the key file at <code>0600</code> as well.</li>
+  <li><strong>Tokens</strong> are shown once and stored hashed; revoke any you no longer use. Prefer expiring tokens.</li>
+  <li>This is a measurement tool, not a medical device. Estimates correct a scale by a DEXA offset and say nothing about health.</li>
+</ul>
+</section>
+
+</div>
+</div>
+{{end}}

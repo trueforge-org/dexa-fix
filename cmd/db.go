@@ -12,15 +12,17 @@ import (
 
 const defaultSQLiteDSN = "file:dexa-fix.db"
 
-// addDBFlags registers --db-driver and --dsn (with their DEXAFIX_* environment defaults) on c.
+// addDBFlags registers --db-driver, --dsn and --dsn-file (with their DEXAFIX_* environment
+// defaults) on c. A connection string with a password is refused on the command line.
 func addDBFlags(c *cobra.Command) {
 	c.Flags().String("db-driver", envOr("DEXAFIX_DB_DRIVER", sqlstore.DriverSQLite), "database driver: sqlite or postgres")
-	c.Flags().String("dsn", envOr("DEXAFIX_DSN", defaultSQLiteDSN), "database connection string")
+	c.Flags().String("dsn", envOr("DEXAFIX_DSN", defaultSQLiteDSN), "database connection string (without a password: use DEXAFIX_DSN or --dsn-file for those)")
+	c.Flags().String("dsn-file", envOr("DEXAFIX_DSN_FILE", ""), "file holding the database connection string, for strings with a password")
 }
 
-func dbFlags(c *cobra.Command) (driver, dsn string) {
+func dbFlags(c *cobra.Command) (driver, dsn string, err error) {
 	driver, _ = c.Flags().GetString("db-driver")
-	dsn, _ = c.Flags().GetString("dsn")
+	dsn, err = dsnFlag(c, "dsn")
 	return
 }
 
@@ -34,12 +36,19 @@ var dbMigrateCmd = &cobra.Command{
 	Short: "Apply, roll back or inspect schema migrations",
 	Long: `Manage schema migrations. "up" applies all pending migrations (the default), "down" rolls back the
 latest one, "to N" migrates up or down to version N (0 = empty), "status" lists all migrations and
-"version" prints the current schema version.`,
+"version" prints the current schema version.
+
+Rolling back ("down", or "to" a lower version) drops the tables and columns those migrations created,
+and the data in them. It only runs with --yes, after showing what it would roll back.`,
 	Example: `dexa-fix db migrate status
-dexa-fix db migrate up --db-driver postgres --dsn postgres://user:pass@localhost/dexafix`,
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix db migrate up --db-driver postgres
+dexa-fix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		driver, dsn := dbFlags(cmd)
+		driver, dsn, err := dbFlags(cmd)
+		if err != nil {
+			return err
+		}
 		ctx := cmd.Context()
 		if ctx == nil {
 			ctx = context.Background()
@@ -68,6 +77,13 @@ dexa-fix db migrate up --db-driver postgres --dsn postgres://user:pass@localhost
 				fmt.Fprintf(out, "applied %s\n", r.Source.Path)
 			}
 		case "down":
+			cur, err := st.SchemaVersion(ctx)
+			if err != nil {
+				return err
+			}
+			if err := confirmRollback(ctx, cmd, st, max(cur-1, 0)); err != nil {
+				return err
+			}
 			r, err := st.MigrateDown(ctx)
 			if err != nil {
 				return err
@@ -80,6 +96,9 @@ dexa-fix db migrate up --db-driver postgres --dsn postgres://user:pass@localhost
 			v, err := strconv.ParseInt(args[1], 10, 64)
 			if err != nil || v < 0 {
 				return fmt.Errorf("invalid version %q", args[1])
+			}
+			if err := confirmRollback(ctx, cmd, st, v); err != nil {
+				return err
 			}
 			if _, err := st.MigrateTo(ctx, v); err != nil {
 				return err
@@ -110,21 +129,56 @@ dexa-fix db migrate up --db-driver postgres --dsn postgres://user:pass@localhost
 	},
 }
 
+// confirmRollback refuses to roll the schema back to target unless --yes was given, and says what
+// would be dropped. Moving up, or staying put, needs no confirmation.
+func confirmRollback(ctx context.Context, cmd *cobra.Command, st *sqlstore.Store, target int64) error {
+	cur, err := st.SchemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if target >= cur {
+		return nil
+	}
+	if yes, _ := cmd.Flags().GetBool("yes"); yes {
+		return nil
+	}
+	sts, err := st.MigrationStatus(ctx)
+	if err != nil {
+		return err
+	}
+	out := cmd.ErrOrStderr()
+	fmt.Fprintf(out, "This would roll the schema back from version %d to %d, undoing:\n", cur, target)
+	for _, s := range sts {
+		if s.State == "applied" && s.Source.Version > target {
+			fmt.Fprintf(out, "  %s\n", s.Source.Path)
+		}
+	}
+	fmt.Fprintln(out, "That drops the tables and columns those migrations created, together with their data.")
+	return fmt.Errorf("refusing to roll back without --yes (make a backup first)")
+}
+
 var dbCopyCmd = &cobra.Command{
 	Use:   "copy",
 	Short: "Copy all data from one database to another (e.g. SQLite to Postgres)",
 	Long: `Copy every row from the source database to the target database, keeping ids. The target is migrated to
 the latest schema first and must be empty. The copy is a single transaction on the target.`,
-	Example: `dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db \
-  --to-driver postgres --to-dsn postgres://user:pass@localhost/dexafix`,
+	Example: `DEXAFIX_TO_DSN=postgres://user:pass@localhost/dexafix \
+  dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
+dexa-fix db copy --from-dsn file:dexa-fix.db --to-driver postgres --to-dsn-file /run/secrets/target_dsn`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fromDriver, _ := cmd.Flags().GetString("from-driver")
-		fromDSN, _ := cmd.Flags().GetString("from-dsn")
+		fromDSN, err := dsnFlag(cmd, "from-dsn")
+		if err != nil {
+			return err
+		}
 		toDriver, _ := cmd.Flags().GetString("to-driver")
-		toDSN, _ := cmd.Flags().GetString("to-dsn")
+		toDSN, err := dsnFlag(cmd, "to-dsn")
+		if err != nil {
+			return err
+		}
 		if fromDSN == "" || toDSN == "" || toDriver == "" {
-			return fmt.Errorf("--from-dsn, --to-driver and --to-dsn are required")
+			return fmt.Errorf("a source and target connection string and --to-driver are required (--from-dsn / DEXAFIX_FROM_DSN, --to-dsn / DEXAFIX_TO_DSN)")
 		}
 		ctx := cmd.Context()
 		if ctx == nil {
@@ -163,9 +217,12 @@ the latest schema first and must be empty. The copy is a single transaction on t
 func init() {
 	addDBFlags(dbMigrateCmd)
 	dbCopyCmd.Flags().String("from-driver", sqlstore.DriverSQLite, "source database driver: sqlite or postgres")
-	dbCopyCmd.Flags().String("from-dsn", envOr("DEXAFIX_DSN", ""), "source connection string")
-	dbCopyCmd.Flags().String("to-driver", "", "target database driver: sqlite or postgres")
-	dbCopyCmd.Flags().String("to-dsn", "", "target connection string")
+	dbMigrateCmd.Flags().Bool("yes", false, "confirm rolling the schema back, which drops tables and their data")
+	dbCopyCmd.Flags().String("from-dsn", envOr("DEXAFIX_FROM_DSN", envOr("DEXAFIX_DSN", "")), "source connection string (without a password: use DEXAFIX_FROM_DSN or --from-dsn-file for those)")
+	dbCopyCmd.Flags().String("from-dsn-file", envOr("DEXAFIX_FROM_DSN_FILE", ""), "file holding the source connection string")
+	dbCopyCmd.Flags().String("to-driver", envOr("DEXAFIX_TO_DRIVER", ""), "target database driver: sqlite or postgres")
+	dbCopyCmd.Flags().String("to-dsn", envOr("DEXAFIX_TO_DSN", ""), "target connection string (without a password: use DEXAFIX_TO_DSN or --to-dsn-file for those)")
+	dbCopyCmd.Flags().String("to-dsn-file", envOr("DEXAFIX_TO_DSN_FILE", ""), "file holding the target connection string")
 	dbCmd.AddCommand(dbMigrateCmd, dbCopyCmd)
 	RootCmd.AddCommand(dbCmd)
 }

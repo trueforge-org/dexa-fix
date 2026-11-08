@@ -225,7 +225,7 @@ func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.U
 func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
 	ctx := r.Context()
 	if r.PostFormValue("enabled") == "1" {
-		if err := s.store.DeleteSetting(ctx, settingSignup); err != nil {
+		if err := s.store.PutSetting(ctx, settingSignup, valueEnabled); err != nil {
 			s.fail(w, err)
 			return
 		}
@@ -233,7 +233,7 @@ func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.Us
 		adminRedirect(w, r, "New accounts are open.")
 		return
 	}
-	if err := s.store.PutSetting(ctx, settingSignup, valueDisabled); err != nil {
+	if err := s.store.DeleteSetting(ctx, settingSignup); err != nil {
 		s.fail(w, err)
 		return
 	}
