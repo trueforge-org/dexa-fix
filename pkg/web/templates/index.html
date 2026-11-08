@@ -11,21 +11,10 @@
     <form method="post" action="/login" class="fields">
       <label>E-mail <input type="text" inputmode="email" name="email" maxlength="254" required autocomplete="username"></label>
       <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
-      {{if .LegacyAccounts}}<small>Older accounts without an e-mail address can enter their name instead, once.</small>{{end}}
       <button type="submit">Sign in</button>
     </form>
     {{end}}{{else if not .Providers}}<p class="help">No sign-in method is available. Ask your administrator.</p>{{end}}
   </div>
-  {{if .ClaimName}}
-  <form method="post" action="/claim" class="card fields">
-    <h2>Set up the administrator</h2>
-    <p class="help">This database has an administrator without a password: <strong>{{.ClaimName}}</strong>. Whoever sets a password here takes over that account.</p>
-    <label>Your e-mail <input type="email" name="email" maxlength="254" required autocomplete="username"></label>
-    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-    <label>Repeat password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-    <button type="submit">Claim {{.ClaimName}}</button>
-  </form>
-  {{end}}
   {{if and .PasswordEnabled .SignupOpen}}
   <form method="post" action="/signup" class="card fields">
     <h2>Create an account</h2>

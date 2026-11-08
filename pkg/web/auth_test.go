@@ -144,30 +144,6 @@ func TestCrossOriginFormRefused(t *testing.T) {
 	}
 }
 
-func TestClaimExistingAdmin(t *testing.T) {
-	ts, c, st := newAuthServer(t)
-	ctx := context.Background()
-	if _, err := st.CreateUser(ctx, "old"); err != nil { // an account from before logins existed
-		t.Fatal(err)
-	}
-	if _, err := st.CreateUser(ctx, "other"); err != nil {
-		t.Fatal(err)
-	}
-	if _, b := body(t, c, ts.URL+"/"); !strings.Contains(b, "Claim old") {
-		t.Fatalf("no claim form:\n%s", b)
-	}
-	r := post(t, c, ts.URL+"/claim", url.Values{"email": {"old@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
-	if r.StatusCode != 303 || r.Header.Get("Location") != "/u/1" {
-		t.Fatalf("claim: %d %s", r.StatusCode, r.Header.Get("Location"))
-	}
-	if r := post(t, noRedirectClient(), ts.URL+"/claim", url.Values{"email": {"old@example.com"}, "password": {"another password"}, "confirm": {"another password"}}); r.StatusCode != 403 {
-		t.Fatalf("second claim: %d", r.StatusCode)
-	}
-	if r := post(t, noRedirectClient(), ts.URL+"/login", url.Values{"email": {"other"}, "password": {testPassword}}); r.StatusCode != 401 {
-		t.Fatalf("passwordless user login: %d", r.StatusCode)
-	}
-}
-
 var patRe = regexp.MustCompile(`dxf_[0-9a-f]{64}`)
 
 func createPAT(t *testing.T, ts *httptest.Server, c *http.Client, id int, form url.Values) string {
@@ -309,39 +285,14 @@ func TestProfile(t *testing.T) {
 	}
 }
 
-func TestLegacyAccountAddsEmail(t *testing.T) {
-	ts, c, st := newAuthServer(t)
-	ctx := context.Background()
-	signup(t, ts, c, "root")
-	old, err := st.CreateUser(ctx, "oldie") // an account from before e-mail sign-in
-	if err != nil {
-		t.Fatal(err)
-	}
-	post(t, c, fmt.Sprintf("%s/admin/users/%d/password", ts.URL, old.ID), url.Values{"password": {testPassword}})
-	if _, b := body(t, noRedirectClient(), ts.URL+"/"); !strings.Contains(b, "Older accounts") {
-		t.Fatal("no hint for older accounts")
-	}
-	legacy := noRedirectClient()
-	r := post(t, legacy, ts.URL+"/login", url.Values{"email": {"oldie"}, "password": {testPassword}})
-	if r.StatusCode != 303 || !strings.Contains(r.Header.Get("Location"), "/settings?msg=") {
-		t.Fatalf("legacy login: %d %s", r.StatusCode, r.Header.Get("Location"))
-	}
-	useSession(t, legacy, r)
-	post(t, legacy, fmt.Sprintf("%s/u/%d/profile", ts.URL, old.ID), url.Values{"name": {"oldie"}, "email": {"oldie@example.com"}})
-	if r := post(t, noRedirectClient(), ts.URL+"/login", url.Values{"email": {"oldie"}, "password": {testPassword}}); r.StatusCode != 401 {
-		t.Fatalf("name after adding an address: %d", r.StatusCode)
-	}
-	if r := post(t, noRedirectClient(), ts.URL+"/login", url.Values{"email": {"oldie@example.com"}, "password": {testPassword}}); r.StatusCode != 303 {
-		t.Fatalf("login by address: %d", r.StatusCode)
-	}
-}
-
 func TestVerifiedEmail(t *testing.T) {
 	for _, tt := range []struct {
 		claims map[string]any
 		want   string
 	}{
-		{map[string]any{"email": "A@Example.com"}, "a@example.com"},
+		{map[string]any{"email": "A@Example.com", "email_verified": true}, "a@example.com"},
+		{map[string]any{"email": "a@example.com"}, ""}, // a provider that does not say is not trusted
+		{map[string]any{"email": "a@example.com", "email_verified": "yes"}, ""},
 		{map[string]any{"email": "a@example.com", "email_verified": true}, "a@example.com"},
 		{map[string]any{"email": "a@example.com", "email_verified": "true"}, "a@example.com"},
 		{map[string]any{"email": "a@example.com", "email_verified": false}, ""},
@@ -524,7 +475,7 @@ func (idp *fakeIdP) token(t *testing.T, aud, sub, nonce string) string {
 	t.Helper()
 	enc := base64.RawURLEncoding
 	header, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": "k1", "typ": "JWT"})
-	claims, _ := json.Marshal(map[string]any{"iss": idp.URL, "aud": aud, "sub": sub, "nonce": nonce, "email": sub + "@example.com",
+	claims, _ := json.Marshal(map[string]any{"iss": idp.URL, "aud": aud, "sub": sub, "nonce": nonce, "email": sub + "@example.com", "email_verified": true,
 		"name": "User " + sub, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix()})
 	signing := enc.EncodeToString(header) + "." + enc.EncodeToString(claims)
 	sum := sha256.Sum256([]byte(signing))
@@ -538,7 +489,7 @@ func (idp *fakeIdP) token(t *testing.T, aud, sub, nonce string) string {
 // signInVia runs the browser side of the provider flow and returns the callback response.
 func (idp *fakeIdP) signInVia(t *testing.T, ts *httptest.Server, c *http.Client, slug string) *http.Response {
 	t.Helper()
-	resp, err := c.Get(ts.URL + "/auth/" + slug + "/login")
+	resp, err := c.Post(ts.URL+"/auth/"+slug+"/login", "application/x-www-form-urlencoded", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

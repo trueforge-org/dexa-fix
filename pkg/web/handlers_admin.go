@@ -36,6 +36,7 @@ type adminView struct {
 	Form            adminProvider // the add or edit form
 	Editing         bool
 	Withings        adminWithings
+	Audit           []auditLine // the latest security events
 }
 
 type adminUser struct {
@@ -150,6 +151,21 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 		}
 		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto, x.StrengthLevelBulk})
 	}
+	events, err := s.store.ListAuditEvents(ctx, store.AuditFilter{Limit: auditPageSize})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	names := make(map[int64]string, len(users))
+	for _, x := range users {
+		names[x.ID] = x.Name
+	}
+	view.Audit = auditLines(events, func(id int64) string {
+		if n, ok := names[id]; ok {
+			return n
+		}
+		return "deleted user"
+	})
 	edit := r.URL.Query().Get("edit")
 	for _, p := range providers {
 		ap := adminProvider{AuthProvider: p, CallbackURL: externalURL(r, "/auth/"+p.Slug+"/callback"), HasSecret: p.ClientSecret != ""}
@@ -201,6 +217,7 @@ func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.U
 	case err != nil:
 		s.fail(w, err)
 	default:
+		s.audit(r, u.ID, auditUserAdded, "")
 		adminRedirect(w, r, u.Name+" was added.")
 	}
 }
@@ -212,6 +229,7 @@ func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.Us
 			s.fail(w, err)
 			return
 		}
+		s.audit(r, 0, auditSettingChanged, "signup=open")
 		adminRedirect(w, r, "New accounts are open.")
 		return
 	}
@@ -219,6 +237,7 @@ func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.Us
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, 0, auditSettingChanged, "signup=closed")
 	adminRedirect(w, r, "New accounts are closed. Add people from the Users list.")
 }
 
@@ -237,6 +256,7 @@ func (s *Server) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.U
 	case err != nil:
 		s.fail(w, err)
 	default:
+		s.audit(r, t.ID, auditRoleChanged, role)
 		adminRedirect(w, r, t.Name+" is now "+role+".")
 	}
 }
@@ -251,6 +271,7 @@ func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, t.ID, auditStrengthLevel, onOff(on))
 	if on {
 		adminRedirect(w, r, t.Name+" may now store a Strength Level login and send single days.")
 		return
@@ -273,6 +294,7 @@ func (s *Server) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Reques
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, t.ID, auditStrengthLevelBlk, onOff(on))
 	if on {
 		adminRedirect(w, r, t.Name+" may now run the multi-day Strength Level sync from Settings.")
 		return
@@ -299,6 +321,7 @@ func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ mode
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, t.ID, auditPasswordSet, "")
 	adminRedirect(w, r, "Password set for "+t.Name+".")
 }
 
@@ -317,6 +340,7 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request, u model
 	case err != nil:
 		s.fail(w, err)
 	default:
+		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
 		adminRedirect(w, r, t.Name+" and their data were deleted.")
 	}
 }
@@ -333,6 +357,7 @@ func (s *Server) adminPasswordLogin(w http.ResponseWriter, r *http.Request, u mo
 			s.fail(w, err)
 			return
 		}
+		s.audit(r, 0, auditSettingChanged, "password_login=on")
 		adminRedirect(w, r, "Password sign-in is on.")
 		return
 	}
@@ -349,6 +374,7 @@ func (s *Server) adminPasswordLogin(w http.ResponseWriter, r *http.Request, u mo
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, 0, auditSettingChanged, "password_login=off")
 	adminRedirect(w, r, "Password sign-in is off. People sign in through a provider, and scripts use access tokens.")
 }
 
@@ -397,6 +423,7 @@ func (s *Server) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ mod
 		return
 	}
 	s.forgetOIDCProvider(old.Issuer)
+	s.audit(r, 0, auditProviderSaved, p.Slug)
 	adminRedirect(w, r, p.Label+" saved.")
 }
 
@@ -470,6 +497,7 @@ func (s *Server) adminDeleteProvider(w http.ResponseWriter, r *http.Request, u m
 		return
 	}
 	s.forgetOIDCProvider(p.Issuer)
+	s.audit(r, 0, auditProviderRemoved, slug)
 	adminRedirect(w, r, p.Label+" removed.")
 }
 
@@ -565,5 +593,13 @@ func (s *Server) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ mod
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, 0, auditSettingChanged, "withings")
 	adminRedirect(w, r, "Withings settings saved.")
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }

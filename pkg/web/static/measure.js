@@ -90,4 +90,13 @@
       }
     });
   }, true);
+
+  // Forms that carry data-confirm ask first. (Inline onsubmit handlers are blocked by the CSP.)
+  document.addEventListener("submit", function (e) {
+    var message = e.target.getAttribute && e.target.getAttribute("data-confirm");
+    if (message && !window.confirm(message)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
 })();

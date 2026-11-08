@@ -1,11 +1,23 @@
 -- +goose Up
 CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL,
   athlete_default INTEGER NOT NULL DEFAULT 0,
-  method_ranking TEXT NOT NULL DEFAULT ''
+  method_ranking TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'user',
+  email TEXT NOT NULL DEFAULT '',
+  -- Keyed hash of the e-mail address, so it can be looked up while the address itself is encrypted.
+  email_lookup TEXT,
+  height_cm REAL,
+  -- Comma-separated keys of the daily table columns the user has hidden.
+  hidden_columns TEXT NOT NULL DEFAULT '',
+  -- Set by an administrator: the user may store Strength Level credentials and sync automatically.
+  strengthlevel_auto INTEGER NOT NULL DEFAULT 0,
+  -- Set by an administrator: the user may also run the multi-day Strength Level sync from Settings.
+  strengthlevel_bulk INTEGER NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE TABLE scale_readings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -39,8 +51,82 @@ CREATE TABLE user_integrations (
   updated_at TIMESTAMP NOT NULL,
   PRIMARY KEY (user_id, provider)
 );
+-- One row per way of signing in. A password is the provider 'local'; external providers use their
+-- slug and the provider's subject, so accounts do not depend on any one sign-in method.
+CREATE TABLE user_identities (
+  provider TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  secret TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL,
+  PRIMARY KEY (provider, subject)
+);
+CREATE INDEX idx_identities_user ON user_identities(user_id);
+CREATE TABLE sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  method TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  expires_at TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+-- Logging in deletes expired sessions and the admin page counts them; both filter on expires_at.
+CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+CREATE TABLE access_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL,
+  last_used_at TIMESTAMP,
+  expires_at TIMESTAMP
+);
+CREATE INDEX idx_access_tokens_user ON access_tokens(user_id);
+CREATE TABLE app_settings (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+);
+CREATE TABLE auth_providers (
+  slug TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  issuer TEXT NOT NULL DEFAULT '',
+  auth_url TEXT NOT NULL DEFAULT '',
+  token_url TEXT NOT NULL DEFAULT '',
+  userinfo_url TEXT NOT NULL DEFAULT '',
+  client_id TEXT NOT NULL,
+  client_secret TEXT NOT NULL DEFAULT '',
+  apple_team_id TEXT NOT NULL DEFAULT '',
+  apple_key_id TEXT NOT NULL DEFAULT '',
+  scopes TEXT NOT NULL DEFAULT '',
+  subject_claim TEXT NOT NULL DEFAULT '',
+  name_claim TEXT NOT NULL DEFAULT '',
+  allow_signup INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL
+);
+-- Security-relevant events. The people involved are kept as nullable references, so deleting a
+-- user keeps the event but not who it was about.
+CREATE TABLE audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TIMESTAMP NOT NULL,
+  actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  target_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  ip TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_audit_created ON audit_log(created_at);
+CREATE INDEX idx_audit_actor ON audit_log(actor_id);
+CREATE INDEX idx_audit_target ON audit_log(target_id);
 
 -- +goose Down
+DROP TABLE audit_log;DROP TABLE auth_providers;
+DROP TABLE app_settings;
+DROP TABLE access_tokens;
+DROP TABLE sessions;
+DROP TABLE user_identities;
 DROP TABLE user_integrations;
 DROP TABLE dexa_scans;
 DROP TABLE scale_readings;

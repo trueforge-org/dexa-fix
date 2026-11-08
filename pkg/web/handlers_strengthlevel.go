@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,11 +48,12 @@ type slLogin struct {
 
 // slView is the Strength Level card of the settings page.
 type slView struct {
-	Saved bool
-	Email string // the saved login's e-mail address; the password is never sent back
-	Msg   string
-	Bulk  bool       // the multi-day sync is allowed
-	Job   *slJobView // the latest multi-day sync, if any
+	UserID int64
+	Saved  bool
+	Email  string // the saved login's e-mail address; the password is never sent back
+	Msg    string
+	Bulk   bool       // the multi-day sync is allowed
+	Job    *slJobView // the latest multi-day sync, if any
 }
 
 // strengthLevelView returns the settings card, or nil when an administrator has not enabled
@@ -60,7 +62,7 @@ func (s *Server) strengthLevelView(r *http.Request, u models.User) *slView {
 	if !u.StrengthLevelAuto {
 		return nil
 	}
-	v := &slView{Msg: flashParam(r)}
+	v := &slView{UserID: u.ID, Msg: flashParam(r)}
 	login, err := s.strengthLevelLogin(r, u)
 	if err == nil {
 		v.Saved, v.Email = true, login.Email
@@ -160,15 +162,35 @@ func (s *Server) strengthLevelSync(w http.ResponseWriter, r *http.Request, u mod
 
 	// Every written day is one request, so allow time for as many as were asked for. The job does
 	// not belong to this request: it carries on after the response.
-	ctx, cancel := context.WithTimeout(context.Background(), strengthLevelTimeout+time.Duration(days)*2*time.Second)
+	ctx, cancel := context.WithTimeout(s.jobCtx, strengthLevelTimeout+time.Duration(days)*2*time.Second)
 	job, ok := s.sl.begin(u.ID, days, update, cancel)
 	if !ok {
 		cancel()
 		settingsFlash(w, r, u, "A sync is already running.")
 		return
 	}
-	go s.runStrengthLevelSync(ctx, job, login, entries, since, update)
+	s.jobs.Add(1)
+	go func() {
+		defer s.jobs.Done()
+		s.runStrengthLevelSync(ctx, job, login, entries, since, update)
+	}()
 	settingsFlash(w, r, u, "Sync started in the background.")
+}
+
+// strengthLevelStatus renders only the progress block of a running sync. The settings page polls
+// it, which is far cheaper than rendering the whole page every two seconds.
+func (s *Server) strengthLevelStatus(w http.ResponseWriter, r *http.Request, u models.User) {
+	if !u.StrengthLevelAuto || !u.StrengthLevelBulk {
+		http.NotFound(w, r)
+		return
+	}
+	var buf bytes.Buffer
+	if err := s.tmpl["settings.html"].ExecuteTemplate(&buf, "slstatus", slView{UserID: u.ID, Job: s.sl.view(u.ID)}); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(buf.Bytes())
 }
 
 func (s *Server) runStrengthLevelSync(ctx context.Context, job *slJob, login slLogin, entries []strengthlevel.Entry, since string, update bool) {

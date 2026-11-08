@@ -33,6 +33,13 @@ type Stats struct {
 	AccessTokens  int
 }
 
+// AuditFilter selects audit events. The zero value lists the latest ones.
+type AuditFilter struct {
+	UserID   int64 // only events this user did or that concern them; 0 for all
+	BeforeID int64 // only events older than this id, for paging; 0 for the newest
+	Limit    int   // at most this many; 0 means 100
+}
+
 // Store persists users, DEXA scans, scale readings and per-user integration data.
 type Store interface {
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
@@ -43,8 +50,6 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]models.User, error)
 	GetUser(ctx context.Context, id int64) (models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (models.User, error)
-	// GetUserWithoutEmailByName finds an account from before e-mail sign-in.
-	GetUserWithoutEmailByName(ctx context.Context, name string) (models.User, error)
 	// UpdateUserProfile stores the name, e-mail address and height (nil clears it). An e-mail
 	// address already in use returns ErrExists.
 	UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error
@@ -85,6 +90,8 @@ type Store interface {
 	// PutIdentity adds an identity, or updates the secret of an existing one.
 	PutIdentity(ctx context.Context, id models.Identity) error
 	DeleteIdentity(ctx context.Context, userID int64, provider string) error
+	// ListUserIdentities returns one user's identities, oldest first. Secret is always empty.
+	ListUserIdentities(ctx context.Context, userID int64) ([]models.Identity, error)
 	// IdentityProviders returns the provider names of every user's identities.
 	IdentityProviders(ctx context.Context) (map[int64][]string, error)
 
@@ -111,6 +118,13 @@ type Store interface {
 	// DeleteAuthProvider also removes the identities of that provider, so a later provider with
 	// the same slug cannot inherit them.
 	DeleteAuthProvider(ctx context.Context, slug string) error
+
+	// AddAuditEvent records an event; ID and At are set.
+	AddAuditEvent(ctx context.Context, e *models.AuditEvent) error
+	// ListAuditEvents returns events newest first.
+	ListAuditEvents(ctx context.Context, f AuditFilter) ([]models.AuditEvent, error)
+	// PurgeAuditEvents deletes events older than the cutoff and returns how many.
+	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)
 
 	Stats(ctx context.Context) (Stats, error)
 

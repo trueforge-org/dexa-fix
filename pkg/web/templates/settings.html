@@ -18,7 +18,7 @@
   {{if .Tokens}}<div class="scroll"><table>
     <thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
     <tbody>{{range .Tokens}}<tr><td>{{.Name}}</td><td><code>{{.Prefix}}…</code></td><td>{{.Created}}</td><td>{{.LastUsed}}</td><td>{{.Expires}}</td>
-      <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this token? Anything using it stops working.')"><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
+      <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" data-confirm="Revoke this token? Anything using it stops working."><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
   </table></div>{{end}}
   <form method="post" action="/u/{{$.User.ID}}/tokens" class="form-row">
     <label>Token name <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
@@ -31,7 +31,7 @@
   <h2>Linked accounts</h2>
   <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
     {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="secondary" type="submit">Unlink</button></form>
-    {{else}}<a class="button secondary" href="/auth/{{.Slug}}/login">Link</a>{{end}}</li>{{end}}</ul>
+    {{else}}<form method="post" action="/auth/{{.Slug}}/login"><button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
 </section>
 {{end}}
 {{if .PasswordEnabled}}
@@ -84,9 +84,7 @@
   </form>
   {{if .Saved}}
   {{if .Bulk}}
-  <div id="sl-status"{{if .Job}}{{if .Job.Running}} hx-get="/u/{{$.User.ID}}/settings" hx-trigger="every 2s" hx-select="#sl-status" hx-target="#sl-status" hx-swap="outerHTML"{{end}}{{end}}>
-    {{with .Job}}{{if .Running}}<progress value="{{.Done}}" max="{{if .Total}}{{.Total}}{{else}}1{{end}}"></progress>{{end}}<p class="notice" role="status">{{.Text}}</p>{{end}}
-  </div>
+  {{template "slstatus" .}}
   <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync" class="stack">
     <div class="form-row">
       <label>Last <input type="number" name="days" value="90" min="1" max="3650" step="1" required style="width:5.5rem"> days</label>
@@ -102,6 +100,24 @@
   {{end}}
 </section>
 {{end}}
+<section class="card" id="export">
+  <h2>Your data</h2>
+  <p class="help">Download a copy of what dexa-fix keeps about you, as JSON. Passwords, tokens and other credentials are not included; the files only say whether they exist.</p>
+  <p class="form-actions">
+    <a class="button secondary" href="/u/{{.User.ID}}/export/profile" download>Settings and personal details</a>
+    <a class="button secondary" href="/u/{{.User.ID}}/export/data" download>DEXA scans and scale readings</a>
+  </p>
+</section>
+{{with .Security}}{{if .Activity}}
+<section class="card flush" id="activity">
+  <h2>Recent account activity</h2>
+  <p class="help">The latest security events on your account. If you see something you do not recognise, change your password and revoke your access tokens.</p>
+  <table>
+    <thead><tr><th>Time (UTC)</th><th>Event</th><th>By</th><th>Detail</th><th>IP address</th></tr></thead>
+    <tbody>{{range .Activity}}<tr><td>{{.When}}</td><td>{{.Action}}</td><td>{{.Actor}}</td><td>{{.Detail}}</td><td>{{.IP}}</td></tr>{{end}}</tbody>
+  </table>
+</section>
+{{end}}{{end}}
 <form method="post" action="/u/{{.User.ID}}/settings" class="stack">
   <section class="card">
     <h2>Athlete mode</h2>
@@ -126,5 +142,9 @@
   </section>
   <div class="form-actions"><button type="submit">Save</button></div>
 </form>
-<script src="/static/rank.js" defer></script>
+<script src="{{asset "rank.js"}}" defer></script>
 {{end}}
+
+{{define "slstatus"}}<div id="sl-status"{{if .Job}}{{if .Job.Running}} hx-get="/u/{{.UserID}}/strengthlevel/status" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"{{end}}{{end}}>
+    {{with .Job}}{{if .Running}}<progress value="{{.Done}}" max="{{if .Total}}{{.Total}}{{else}}1{{end}}"></progress>{{end}}<p class="notice" role="status">{{.Text}}</p>{{end}}
+  </div>{{end}}

@@ -6,10 +6,10 @@
 <meta name="color-scheme" content="light dark">
 <title>{{.Title}}</title>
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
-<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/htmx.min.js" defer></script>
-<script src="/static/measure.js" defer></script>
+<link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "htmx.min.js"}}" defer></script>
+<script src="{{asset "measure.js"}}" defer></script>
 </head>
 <body>
 <header>

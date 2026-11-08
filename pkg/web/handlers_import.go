@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
@@ -76,7 +78,8 @@ func importError(provider string, err error) string {
 	case errors.Is(err, importer.ErrNotConfigured):
 		return provider + " is not configured on this server."
 	}
-	return provider + " import failed: " + err.Error()
+	log.Error().Err(err).Str("provider", provider).Msg("import failed")
+	return provider + " import failed. Try again later; the details are in the server log."
 }
 
 func flashRedirect(w http.ResponseWriter, r *http.Request, userID int64, msg string) {
@@ -115,6 +118,7 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 			apiError(w, err)
 			return
 		}
+		s.audit(r, u.ID, auditImport, imp.Name())
 		writeJSON(w, http.StatusOK, struct {
 			Provider string `json:"provider"`
 			importer.Result
@@ -139,6 +143,7 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 			flashRedirect(w, r, u.ID, importError(label(imp.Name()), err))
 			return
 		}
+		s.audit(r, u.ID, auditImport, imp.Name())
 		flashRedirect(w, r, u.ID, summary(label(imp.Name()), res, day))
 	}))
 
@@ -159,7 +164,7 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 		state := hex.EncodeToString(b)
 		http.SetCookie(w, &http.Cookie{
 			Name: oauthCookiePrefix + name, Value: strconv.FormatInt(u.ID, 10) + "." + state, Path: "/",
-			MaxAge: int(oauthStateTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil,
+			MaxAge: int(oauthStateTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r),
 		})
 		http.Redirect(w, r, p.AuthURL(state), http.StatusSeeOther)
 	}))
@@ -204,9 +209,11 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 			return
 		}
 		if err := p.Connect(r.Context(), s.store, u.ID, code); err != nil {
-			flashRedirect(w, r, u.ID, "Could not connect "+label(name)+": "+err.Error())
+			log.Error().Err(err).Str("provider", name).Msg("connect failed")
+			flashRedirect(w, r, u.ID, "Could not connect "+label(name)+". The details are in the server log.")
 			return
 		}
+		s.audit(r, u.ID, auditConnect, name)
 		flashRedirect(w, r, u.ID, label(name)+" connected. Use “Import” to fetch your measurements.")
 	})
 
@@ -221,6 +228,7 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 			s.fail(w, err)
 			return
 		}
+		s.audit(r, u.ID, auditDisconnect, name)
 		flashRedirect(w, r, u.ID, label(name)+" disconnected. Imported readings were kept.")
 	}))
 }

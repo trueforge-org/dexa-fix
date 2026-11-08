@@ -34,7 +34,7 @@
         <form method="post" action="/admin/users/{{.ID}}/strengthlevel"><input type="hidden" name="enabled" value="{{if .StrengthLevel}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user store their Strength Level login and sync body readings to it automatically">{{if .StrengthLevel}}Disable Strength Level sync{{else}}Enable Strength Level sync{{end}}</button></form>
         {{if .StrengthLevel}}<form method="post" action="/admin/users/{{.ID}}/strengthlevel-bulk"><input type="hidden" name="enabled" value="{{if .StrengthLevelBulk}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user run the sync of many days (adding and optionally updating) from their Settings page">{{if .StrengthLevelBulk}}Disallow multi-day sync{{else}}Allow multi-day sync{{end}}</button></form>{{end}}
         <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Name}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
-        {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Delete {{.Name}} and all their data? This cannot be undone.')"><button class="link" type="submit">Delete</button></form>{{end}}
+        {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Name}} and all their data? This cannot be undone."><button class="link" type="submit">Delete</button></form>{{end}}
       </div></td>
     </tr>{{end}}</tbody>
   </table></div>
@@ -46,6 +46,15 @@
       <div><button type="submit">Add user</button></div>
     </div>
   </form>
+</section>
+
+<section class="card flush" id="audit">
+  <div class="card-head"><h2>Audit log</h2></div>
+  <p class="help">The latest {{len .Audit}} security events: sign-ins, account and permission changes, exports and administrator actions. Older events are removed after the retention period. The full log is available at <code>/api/v1/audit</code>.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Time (UTC)</th><th>Event</th><th>By</th><th>About</th><th>Detail</th><th>IP address</th></tr></thead>
+    <tbody>{{range .Audit}}<tr><td>{{.When}}</td><td>{{.Action}}</td><td>{{.Actor}}</td><td>{{.Target}}</td><td>{{.Detail}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="6">Nothing recorded yet.</td></tr>{{end}}</tbody>
+  </table></div>
 </section>
 
 <section class="card" id="registration">
@@ -72,7 +81,7 @@
   {{if .Providers}}<ul class="link-list">{{range .Providers}}<li>
     <span><strong>{{.Label}}</strong> <small>{{.Kind}}{{if .AllowSignup}}, new accounts allowed{{end}}</small><br><small>Callback: <code>{{.CallbackURL}}</code></small></span>
     <div class="row-actions"><a class="button secondary" href="/admin?edit={{.Slug}}#providers">Edit</a>
-    <form method="post" action="/admin/providers/{{.Slug}}/delete" onsubmit="return confirm('Remove {{.Label}}? Accounts lose this way of signing in.')"><button class="link" type="submit">Remove</button></form></div>
+    <form method="post" action="/admin/providers/{{.Slug}}/delete" data-confirm="Remove {{.Label}}? Accounts lose this way of signing in."><button class="link" type="submit">Remove</button></form></div>
   </li>{{end}}</ul>{{end}}
   <form method="post" action="/admin/providers" class="provider-form section">
     <h3>{{if .Editing}}Edit {{.Form.Label}}{{else}}Add a provider{{end}}</h3>

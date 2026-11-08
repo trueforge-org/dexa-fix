@@ -25,6 +25,7 @@ const (
 
 // securityView is the settings page's sign-in section.
 type securityView struct {
+	Activity        []auditLine // the latest events about this account
 	PasswordEnabled bool
 	HasPassword     bool
 	Tokens          []tokenView
@@ -115,6 +116,7 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	case err != nil:
 		s.fail(w, err)
 	default:
+		s.audit(r, u.ID, auditProfile, "")
 		settingsRedirect(w, r, u.ID, "Profile saved.")
 	}
 }
@@ -159,6 +161,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditPasswordChanged, "")
 	s.settingsPage(w, r, u, "", "Password saved.", http.StatusOK)
 }
 
@@ -189,6 +192,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request, u models.Us
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditTokenCreated, t.Prefix)
 	// Rendered directly, never redirected, so the token does not end up in a URL.
 	s.renderSettings(w, r, u, "", "Token created.", token, http.StatusOK)
 }
@@ -203,6 +207,7 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, u models.Us
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditTokenRevoked, "")
 	settingsRedirect(w, r, u.ID, "Token revoked.")
 }
 
@@ -222,6 +227,7 @@ func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u models
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditIdentityUnlinked, provider)
 	settingsRedirect(w, r, u.ID, "Account unlinked.")
 }
 

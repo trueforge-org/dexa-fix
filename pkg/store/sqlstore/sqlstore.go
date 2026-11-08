@@ -84,8 +84,18 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 	if err != nil {
 		return nil, err
 	}
-	if driver == DriverSQLite {
-		sqlDB.SetMaxOpenConns(1) // sqlite allows a single writer; avoids "database is locked"
+	switch {
+	case driver == DriverSQLite && sqliteInMemory(dsn):
+		sqlDB.SetMaxOpenConns(1) // every connection to an in-memory database would be a separate database
+	case driver == DriverSQLite:
+		// WAL lets readers run next to the single writer, so a long import no longer blocks page
+		// loads. Writers queue on busy_timeout; transactions start with BEGIN IMMEDIATE (see
+		// sqliteDSN) so they never fail while upgrading from reader to writer.
+		sqlDB.SetMaxOpenConns(sqliteMaxConns)
+	case driver == DriverPostgres:
+		sqlDB.SetMaxOpenConns(postgresMaxConns)
+		sqlDB.SetMaxIdleConns(postgresMaxConns)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
@@ -124,19 +134,38 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 	return s, nil
 }
 
+const (
+	sqliteMaxConns   = 4
+	postgresMaxConns = 20
+)
+
+func sqliteInMemory(dsn string) bool {
+	return strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory")
+}
+
 // sqliteDSN makes sure foreign keys are enforced (they are off by default in SQLite and only
-// switchable per connection) and that writers wait for locks instead of failing immediately.
+// switchable per connection), that writers wait for locks instead of failing immediately and, for
+// files, that the database runs in WAL mode with transactions that take the write lock up front.
 func sqliteDSN(dsn string) string {
-	for _, pragma := range []string{"foreign_keys(1)", "busy_timeout(5000)"} {
-		name := pragma[:strings.IndexByte(pragma, '(')]
-		if strings.Contains(dsn, name+"(") {
-			continue
-		}
+	pragmas := []string{"foreign_keys(1)", "busy_timeout(5000)"}
+	if !sqliteInMemory(dsn) {
+		pragmas = append(pragmas, "journal_mode(WAL)", "synchronous(NORMAL)")
+	}
+	add := func(kv string) {
 		sep := "?"
 		if strings.Contains(dsn, "?") {
 			sep = "&"
 		}
-		dsn += sep + "_pragma=" + pragma
+		dsn += sep + kv
+	}
+	for _, pragma := range pragmas {
+		name := pragma[:strings.IndexByte(pragma, '(')]
+		if !strings.Contains(dsn, name+"(") {
+			add("_pragma=" + pragma)
+		}
+	}
+	if !sqliteInMemory(dsn) && !strings.Contains(dsn, "_txlock=") {
+		add("_txlock=immediate")
 	}
 	return dsn
 }

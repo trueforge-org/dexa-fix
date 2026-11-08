@@ -21,6 +21,17 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
+func mustGet(t *testing.T, c *http.Client, u string) []byte {
+	t.Helper()
+	resp, err := c.Get(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return b
+}
+
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
 	return newServerWith(t, withings.New(withings.Config{}, nil))

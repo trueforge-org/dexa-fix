@@ -88,6 +88,7 @@ overrides the variable.
 | `--withings-client-id`     | `DEXAFIX_WITHINGS_CLIENT_ID`     | empty                                                                 | Withings application client id.                        |
 | `--withings-client-secret` | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret.                    |
 | `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
+| `--audit-retention-days`   | `DEXAFIX_AUDIT_RETENTION_DAYS`   | `365`                                                                 | Delete audit log events, and the IP addresses in them, after this many days. `0` keeps them forever. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
 | `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing.     |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
@@ -117,7 +118,12 @@ migrations, embedded per backend in `pkg/store/sqlstore/migrations/{sqlite,postg
 database schema is newer than the binary, so upgrade dexa-fix first.
 
 SQLite connections always enforce foreign keys and wait up to 5 seconds for
-locks, so the DSN needs no pragmas. The default DSN is `file:dexa-fix.db`.
+locks, and file databases run in WAL mode, so the DSN needs no pragmas. The
+default DSN is `file:dexa-fix.db`.
+
+The schema starts at a single `00001_init` migration for 1.0.0. Databases
+created by pre-1.0 builds carry a higher schema version, so 1.0 refuses them
+instead of guessing. Start from a fresh database.
 
 | Command                  | Description                                                   |
 | ------------------------ | ------------------------------------------------------------- |
@@ -232,19 +238,44 @@ provider, and an administrator adds people from the Users list on the Admin
 page. Existing accounts keep working. The very first account on an empty
 server can always be created.
 
-### Upgrading an existing database
+### Your data
 
-Upgrading makes the oldest user in the database the administrator. The sign-in
-page then offers to set that account's first password (**Claim**). The claim
-also asks for an e-mail address. The offer stays until an administrator can
-sign in, so do this straight after upgrading. Other existing users have no
-password until an administrator sets one on the Admin page.
+Under **Settings → Your data** every user can download two JSON files, which
+serve a person's right of access and data portability (GDPR articles 15 and 20):
 
-Accounts from before e-mail sign-in have no address yet. Until they add one,
-they can enter their name instead of an address on the sign-in page. Right
-after signing in, they are sent to Settings to add an address. If two existing
-accounts share an address, the oldest keeps it. The other account has it
-cleared and adds a new one the same way.
+- **Settings and personal details**: name, e-mail address, role, height,
+  settings, permissions, sign-in methods (provider and account id), access
+  token names and prefixes, whether Withings and Strength Level are connected
+  (and the Strength Level e-mail address), and the audit events about the
+  account.
+- **DEXA scans and scale readings**: everything the user measured, including
+  notes.
+
+Credentials are never included: the files say whether a password, token or
+integration exists, not what it is. The same files are available to scripts at
+`/api/v1/users/{id}/export/profile` and `/api/v1/users/{id}/export/data`.
+Every export is itself recorded in the audit log. Deleting a user (Admin page)
+removes all their measurements and settings.
+
+### Audit log
+
+Security-relevant events are recorded in the database: sign-ins (successful,
+failed and blocked), sign-outs, account creation, profile, password, token and
+sign-in method changes, imports, integration connects, data deletions, exports,
+and every administrator action (users, roles, permissions, providers, server
+settings). Each event has a time, who did it, whom it concerned, a short detail
+and the client's IP address. Details never hold passwords, tokens, e-mail
+addresses or login names.
+
+Administrators see the latest 100 events on the Admin page and can read the
+whole log at `GET /api/v1/audit` (`limit`, `before_id` and `user_id` query
+parameters). Everyone sees the latest events about their own account in
+Settings, and at `GET /api/v1/users/{id}/audit`.
+
+Events are deleted after `--audit-retention-days` (365 by default). When a user
+is deleted, the IP addresses in the events about them are cleared and the
+events no longer refer to them. Recording an event never fails the request
+that caused it; a failed write is logged.
 
 ### Sign-in providers
 
@@ -330,8 +361,13 @@ There is no built-in key rotation.
 ### Storage and rate limiting
 
 Some values are encrypted in the database. See [Encryption](#encryption) for
-which ones and how to manage the key. Sign-in attempts are not rate limited.
-On a public deployment, limit them at a reverse proxy.
+which ones and how to manage the key.
+
+Failed password sign-ins are counted in memory: 10 per login name and 60 per
+client address in 15 minutes, after which sign-in answers 429. The address is
+the connection's, not `X-Forwarded-For`, so behind a reverse proxy everyone
+shares one address count. Limit sign-in attempts at the proxy as well on a
+public deployment. Form posts are capped at 1 MiB.
 
 ## Withings import
 
@@ -481,6 +517,10 @@ user's role is not enough. See [Authentication](#authentication).
 | POST   | `/users/{id}/scale-readings`    | Add a batch: a JSON array of up to 5000 readings.                                                                                                       |
 | GET    | `/users/{id}/settings`          | Athlete-mode default and method ranking.                                                                                                                |
 | PUT    | `/users/{id}/settings`          | Replace them. Body: `{"athlete_default": true, "method_ranking": [...]}`.                                                                               |
+| GET    | `/users/{id}/export/profile`    | Download settings and personal details (JSON file). See [Your data](#your-data).                                                                        |
+| GET    | `/users/{id}/export/data`       | Download all scans and readings (JSON file).                                                                                                            |
+| GET    | `/users/{id}/audit`             | Events about your account, newest first.                                                                                                                |
+| GET    | `/audit`                        | The whole audit log. Administrators only.                                                                                                               |
 | GET    | `/users/{id}/estimates`         | Daily estimates and calibrations.                                                                                                                       |
 | POST   | `/users/{id}/import/{provider}` | Import from a provider. Optional `since` and `day` query parameters.                                                                                    |
 

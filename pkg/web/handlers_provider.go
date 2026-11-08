@@ -175,7 +175,9 @@ func appleClientSecret(p models.AuthProvider, now time.Time) (string, error) {
 
 func fixed32(n *big.Int) []byte { return n.FillBytes(make([]byte, 32)) }
 
-// providerStart redirects to the provider, to sign in or, when already signed in, to link it.
+// providerStart redirects to the provider, to sign in or, for a signed-in POST, to link it. Linking
+// is POST-only (and so same-origin checked): a link anyone could put on a web page must not be able
+// to attach someone else's provider account to the visitor's session.
 func (s *Server) providerStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p, err := s.store.GetAuthProvider(ctx, r.PathValue("provider"))
@@ -197,7 +199,7 @@ func (s *Server) providerStart(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if u := currentUser(r); u != nil {
+	if u := currentUser(r); u != nil && r.Method == http.MethodPost {
 		st.Link = u.ID
 	}
 	sealed, err := s.sealState(st)
@@ -276,6 +278,9 @@ func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.store.CreateUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
+	if err == nil {
+		s.auditAs(r, u.ID, u.ID, auditSignup, slug)
+	}
 	if errors.Is(err, store.ErrExists) { // never linked automatically: the provider may not own that address
 		s.renderLogin(w, r, "An account with that e-mail address already exists. Sign in and link "+p.Label+" in Settings.", http.StatusConflict)
 		return
@@ -305,6 +310,7 @@ func (s *Server) linkIdentity(w http.ResponseWriter, r *http.Request, p models.A
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, userID, auditIdentityLinked, p.Slug)
 	settingsRedirect(w, r, userID, p.Label+" linked.")
 }
 
@@ -409,7 +415,7 @@ func truncateRunes(s string, n int) string {
 	return b.String()
 }
 
-// verifiedEmail returns the provider's e-mail claim, unless the provider says it is unverified.
+// verifiedEmail returns the provider's e-mail claim, but only when the provider says it is verified.
 func verifiedEmail(claims map[string]any) string {
 	switch v := claims["email_verified"].(type) {
 	case bool:
@@ -417,9 +423,11 @@ func verifiedEmail(claims map[string]any) string {
 			return ""
 		}
 	case string: // Apple sends booleans as strings
-		if v == "false" {
+		if v != "true" {
 			return ""
 		}
+	default: // a provider that does not say is not trusted: the address becomes a login name
+		return ""
 	}
 	email, ok := parseEmail(claimString(claims, "email"))
 	if !ok {

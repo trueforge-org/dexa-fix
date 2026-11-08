@@ -33,7 +33,7 @@
     <tbody>
     {{range .EstRows}}<tr><td>{{if .Interpolated}}<span class="badge" title="Has values interpolated between two readings">est</span> {{end}}{{.Date}}</td>
       {{range .Cells}}<td class="num {{.Class}}" title="{{.Title}}">{{.Text}}{{if .Badge}} <span class="badge {{.Class}}">{{.Badge}}</span>{{end}}</td>{{end}}
-      {{if $.Resync}}<td><form method="post" action="/u/{{$.User.ID}}/import/withings" onsubmit="return confirm('Re-import {{.Date}} from Withings? Withings readings for this day are replaced.')"><input type="hidden" name="day" value="{{.Date}}"><button class="icon" type="submit" title="Re-import this day from Withings" aria-label="Re-import {{.Date}} from Withings">↻</button></form></td>{{end}}
+      {{if $.Resync}}<td><form method="post" action="/u/{{$.User.ID}}/import/withings" data-confirm="Re-import {{.Date}} from Withings? Withings readings for this day are replaced."><input type="hidden" name="day" value="{{.Date}}"><button class="icon" type="submit" title="Re-import this day from Withings" aria-label="Re-import {{.Date}} from Withings">↻</button></form></td>{{end}}
       {{if $.SLSend}}<td><form method="post" action="/u/{{$.User.ID}}/strengthlevel/day"><input type="hidden" name="day" value="{{.Date}}"><button class="icon" type="submit" title="Send this day to Strength Level (replaces an entry that is already there)" aria-label="Send {{.Date}} to Strength Level">⇪</button></form></td>{{end}}
     </tr>{{end}}
     </tbody>

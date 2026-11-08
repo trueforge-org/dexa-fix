@@ -138,8 +138,9 @@ type User struct {
 	Name      string    `json:"name"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
-	// Email signs the user in and identifies them, unique per user. Accounts from before e-mail
-	// sign-in may not have one yet. External providers never match accounts by it.
+	// Email signs the user in and identifies them, unique per user. It is empty for accounts that
+	// only sign in through a provider that did not vouch for an address. External providers never
+	// match accounts by it.
 	Email    string   `json:"email"`
 	HeightCm *float64 `json:"height_cm,omitempty"`
 	// AthleteDefault presets athlete mode for new readings and imports.
@@ -197,6 +198,18 @@ type DexaScan struct {
 	GynoidFatPct      *float64  `json:"gynoid_fat_pct,omitempty"`
 	Notes             string    `json:"notes,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
+}
+
+// AuditEvent records something security-relevant that happened: a sign-in, a change to an account,
+// an export or an administrator's action. Detail never holds credentials or other personal data.
+type AuditEvent struct {
+	ID       int64     `json:"id"`
+	At       time.Time `json:"at"`
+	ActorID  *int64    `json:"actor_id"`  // who did it; nil for anonymous requests and deleted users
+	TargetID *int64    `json:"target_id"` // whose account it concerns; nil when none or deleted
+	Action   string    `json:"action"`
+	Detail   string    `json:"detail,omitempty"`
+	IP       string    `json:"ip,omitempty"` // cleared when the user is deleted, dropped after the retention period
 }
 
 // NormalizeEmail returns the canonical form of an e-mail address, used to compare addresses.

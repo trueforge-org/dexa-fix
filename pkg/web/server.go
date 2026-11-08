@@ -36,6 +36,8 @@ type Server struct {
 
 	// Version is shown on the admin page.
 	Version string
+	// AuditRetention is how long audit events are kept; zero keeps them for good.
+	AuditRetention time.Duration
 	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
 	// from a lockout.
 	ForcePasswordLogin bool
@@ -45,6 +47,14 @@ type Server struct {
 	httpClient *http.Client
 
 	sl slJobs // background Strength Level syncs
+
+	jobCtx    context.Context // parent of background jobs; cancelled by Close
+	cancelJob context.CancelFunc
+	jobs      sync.WaitGroup
+
+	auditNoise *auditNoise
+	limiter    *failLimiter      // failed sign-in attempts
+	assetVer   map[string]string // content hash per static file, for cache-busting URLs
 
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
@@ -60,11 +70,17 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 
 		"initial": initial,
 	}
+	static, _ := fs.Sub(assets, "static")
 	s := &Server{
 		store: st, importers: importers, tmpl: map[string]*template.Template{},
 		httpClient: &http.Client{Timeout: providerTimeout},
 		oidcCache:  map[string]*oidc.Provider{},
+		limiter:    newFailLimiter(),
+		auditNoise: newAuditNoise(),
+		assetVer:   staticVersions(static),
 	}
+	funcs["asset"] = s.assetURL
+	s.jobCtx, s.cancelJob = context.WithCancel(context.Background())
 	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
@@ -84,11 +100,26 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 	return s, nil
 }
 
+// Close cancels the background jobs and waits for them to stop. Call it after the HTTP server has
+// been shut down.
+func (s *Server) Close() {
+	s.cancelJob()
+	s.jobs.Wait()
+}
+
+// assetURL returns the cache-busting URL of an embedded static file.
+func (s *Server) assetURL(name string) string {
+	if v, ok := s.assetVer[name]; ok {
+		return "/static/" + name + "?v=" + v
+	}
+	return "/static/" + name
+}
+
 // Handler returns the root HTTP handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(assets, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.Handle("GET /static/", staticHandler(static, s.assetVer))
 
 	mux.HandleFunc("GET /{$}", s.index)
 	s.authRoutes(mux)
@@ -110,17 +141,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/login", s.user(s.strengthLevelSaveLogin))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/sync", s.user(s.strengthLevelSync))
+	mux.HandleFunc("GET /u/{id}/strengthlevel/status", s.user(s.strengthLevelStatus))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/day", s.user(s.strengthLevelDay))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/login/delete", s.user(s.strengthLevelDeleteLogin))
 
 	s.apiRoutes(mux)
 	s.integrationRoutes(mux)
+	s.exportRoutes(mux)
+	s.auditRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.
 	cop := http.NewCrossOriginProtection()
 	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
-	return logRequests(cop.Handler(s.withAuth(mux)))
+	return logRequests(secureHeaders(compress(limitBody(cop.Handler(s.withAuth(mux))))))
 }
 
 // integrationView is the state of an OAuth integration for the current user.

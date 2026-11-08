@@ -30,6 +30,10 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models
 		s.fail(w, err)
 		return
 	}
+	if sec.Activity, err = s.activityFor(r.Context(), u); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,

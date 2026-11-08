@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -71,6 +72,14 @@ func envOr(key, def string) string {
 	return def
 }
 
+// envInt reads an integer from the environment, falling back to def when it is unset or invalid.
+func envInt(key string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(key)); err == nil && n >= 0 {
+		return n
+	}
+	return def
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run the web application",
@@ -125,8 +134,12 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 			return err
 		}
 		srv.Version = Version
+		days, _ := cmd.Flags().GetInt("audit-retention-days")
+		srv.AuditRetention = time.Duration(days) * 24 * time.Hour
+		srv.StartMaintenance()
 		srv.ForcePasswordLogin, _ = cmd.Flags().GetBool("force-password-login")
-		httpSrv := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+		httpSrv := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 64 << 10}
 
 		errCh := make(chan error, 1)
 		go func() { errCh <- httpSrv.ListenAndServe() }()
@@ -138,7 +151,9 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if err := httpSrv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			err := httpSrv.Shutdown(shutdownCtx)
+			srv.Close() // stop background syncs
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
 			return nil
@@ -153,6 +168,7 @@ func init() {
 	serveCmd.Flags().String("withings-client-id", envOr("DEXAFIX_WITHINGS_CLIENT_ID", ""), "Withings OAuth client id")
 	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "Withings OAuth client secret")
 	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")
+	serveCmd.Flags().Int("audit-retention-days", envInt("DEXAFIX_AUDIT_RETENTION_DAYS", 365), "delete audit log events (and the IP addresses in them) after this many days; 0 keeps them forever")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
 	serveCmd.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing, unused when "+encryptionKeyEnv+" is set")
 	RootCmd.AddCommand(serveCmd)

@@ -21,6 +21,7 @@ type CopyStats struct {
 	AccessTokens int
 	Settings     int
 	Providers    int
+	AuditEvents  int
 }
 
 // Copy transfers every row from src to dst, preserving ids. It works between any pair of backends.
@@ -40,7 +41,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 	if sv != dv {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
-	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil)} {
+	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
 		n, err := dst.db.NewSelect().Model(m).Count(ctx)
 		if err != nil {
 			return stats, fmt.Errorf("target: %w", err)
@@ -77,9 +78,12 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		if stats.Providers, err = copyTable[providerRow](ctx, src, tx, "slug"); err != nil {
 			return fmt.Errorf("auth_providers: %w", err)
 		}
+		if stats.AuditEvents, err = copyTable[auditRow](ctx, src, tx, "id"); err != nil {
+			return fmt.Errorf("audit_log: %w", err)
+		}
 		if dst.driver == DriverPostgres {
 			// Explicit ids do not advance the serial sequences; align them so new inserts do not collide.
-			for _, table := range []string{"users", "dexa_scans", "scale_readings", "access_tokens"} {
+			for _, table := range []string{"users", "dexa_scans", "scale_readings", "access_tokens", "audit_log"} {
 				q := fmt.Sprintf(`SELECT setval(pg_get_serial_sequence('%[1]s', 'id'), COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM %[1]s`, table)
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return fmt.Errorf("reset sequence %s: %w", table, err)

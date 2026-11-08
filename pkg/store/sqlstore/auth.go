@@ -105,15 +105,6 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, 
 	return s.userModel(&row)
 }
 
-func (s *Store) GetUserWithoutEmailByName(ctx context.Context, name string) (models.User, error) {
-	var row userRow
-	err := s.db.NewSelect().Model(&row).Where("name = ?", name).Where("email_lookup IS NULL").OrderExpr("id").Limit(1).Scan(ctx)
-	if err != nil {
-		return models.User{}, notFound(err)
-	}
-	return s.userModel(&row)
-}
-
 func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 64 {
@@ -165,8 +156,30 @@ func (s *Store) SetUserRole(ctx context.Context, userID int64, role string) erro
 	return s.guarded(ctx, userID, `UPDATE users SET role = ? WHERE id = ? AND `+moreThanOneAdmin, role, userID)
 }
 
+// DeleteUser removes the user and, with them, the IP addresses in the audit events about them. The
+// events themselves stay, without a reference to the person (ON DELETE SET NULL).
 func (s *Store) DeleteUser(ctx context.Context, userID int64) error {
-	return s.guarded(ctx, userID, `DELETE FROM users WHERE id = ? AND `+moreThanOneAdmin, userID)
+	refused := errors.New("delete refused")
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE audit_log SET ip = '' WHERE actor_id = ? OR target_id = ?`, userID, userID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ? AND `+moreThanOneAdmin, userID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return refused // roll back the IP clearing too
+		}
+		return nil
+	})
+	if errors.Is(err, refused) {
+		if _, err := s.GetUser(ctx, userID); err != nil {
+			return err
+		}
+		return store.ErrLastAdmin
+	}
+	return err
 }
 
 // ---- identities ----
@@ -177,6 +190,18 @@ func (s *Store) GetIdentity(ctx context.Context, provider, subject string) (mode
 		return models.Identity{}, notFound(err)
 	}
 	return models.Identity{UserID: r.UserID, Provider: r.Provider, Subject: r.Subject, Secret: r.Secret, CreatedAt: r.CreatedAt}, nil
+}
+
+func (s *Store) ListUserIdentities(ctx context.Context, userID int64) ([]models.Identity, error) {
+	var rows []identityRow
+	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).OrderExpr("created_at, provider").Scan(ctx); err != nil {
+		return nil, err
+	}
+	out := make([]models.Identity, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, models.Identity{UserID: r.UserID, Provider: r.Provider, Subject: r.Subject, CreatedAt: r.CreatedAt}) // the secret stays behind
+	}
+	return out, nil
 }
 
 func (s *Store) PutIdentity(ctx context.Context, id models.Identity) error {

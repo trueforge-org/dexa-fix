@@ -55,6 +55,7 @@ func (s *Server) dexaDelete(w http.ResponseWriter, r *http.Request, u models.Use
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditScanDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "dexa"), http.StatusSeeOther)
 }
 
@@ -96,6 +97,7 @@ func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.Us
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditReadingDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
 }
 

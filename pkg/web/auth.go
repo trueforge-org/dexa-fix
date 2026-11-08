@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,7 +101,11 @@ func (s *Server) authBasic(r *http.Request) (models.User, bool, error) {
 	if !found || !strings.HasPrefix(r.URL.Path, "/api/") || !s.passwordEnabled(r.Context()) {
 		return models.User{}, false, nil
 	}
-	return s.verifyPassword(r.Context(), login, password)
+	u, ok, err := s.throttledVerify(r, login, password)
+	if errors.Is(err, errThrottled) {
+		return models.User{}, false, nil
+	}
+	return u, ok, err
 }
 
 // authProviderToken verifies a JWT issued by a configured provider. The issuer picks the provider,
@@ -196,24 +199,33 @@ func validatePassword(password, confirm string) string {
 
 func localSubject(id int64) string { return strconv.FormatInt(id, 10) }
 
-// userForLogin finds an account by e-mail address. Accounts from before e-mail sign-in have none
-// yet and can use their name, once, to add one.
-func (s *Server) userForLogin(ctx context.Context, login string) (models.User, error) {
-	login = strings.TrimSpace(login)
-	if strings.Contains(login, "@") {
-		return s.store.GetUserByEmail(ctx, login)
-	}
-	return s.store.GetUserWithoutEmailByName(ctx, login)
-}
-
 // verifyPassword checks a login and password. Unknown logins cost the same time as wrong
 // passwords, so response times do not reveal which accounts exist.
+var errThrottled = errors.New("too many failed sign-in attempts")
+
+// throttledVerify checks a password after the failure limiter let the attempt through. A blocked
+// client does not even cost a bcrypt run.
+func (s *Server) throttledVerify(r *http.Request, login, password string) (models.User, bool, error) {
+	if s.throttled(r, login) {
+		return models.User{}, false, errThrottled
+	}
+	u, ok, err := s.verifyPassword(r.Context(), login, password)
+	switch {
+	case err != nil:
+	case ok:
+		s.limiter.reset(loginKey(login))
+	default:
+		s.recordFailure(r, login)
+	}
+	return u, ok, err
+}
+
 func (s *Server) verifyPassword(ctx context.Context, login, password string) (models.User, bool, error) {
 	fail := func() (models.User, bool, error) {
 		bcrypt.CompareHashAndPassword(dummyHash(), []byte(password))
 		return models.User{}, false, nil
 	}
-	u, err := s.userForLogin(ctx, login)
+	u, err := s.store.GetUserByEmail(ctx, strings.TrimSpace(login))
 	if errors.Is(err, store.ErrNotFound) {
 		return fail()
 	}
@@ -356,17 +368,15 @@ type loginView struct {
 	PasswordEnabled bool
 	SignupOpen      bool
 	FirstUser       bool
-	LegacyAccounts  bool   // some accounts have no e-mail address yet
-	ClaimName       string // existing administrator that can set a first password
 	Providers       []loginProvider
 }
 
 func (s *Server) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /signup", s.signup)
-	mux.HandleFunc("POST /claim", s.claim)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("GET /auth/{provider}/login", s.providerStart)
+	mux.HandleFunc("POST /auth/{provider}/login", s.providerStart)
 	mux.HandleFunc("GET /auth/{provider}/callback", s.providerCallback)
 	mux.HandleFunc("POST /auth/{provider}/callback", s.providerCallback)
 	mux.HandleFunc("POST /u/{id}/profile", s.user(s.saveProfile))
@@ -397,7 +407,6 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		return
 	}
 	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: len(users) == 0}
-	view.LegacyAccounts = slices.ContainsFunc(users, func(u models.User) bool { return u.Email == "" })
 	for _, p := range providers {
 		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
 	}
@@ -405,37 +414,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		s.fail(w, err)
 		return
 	}
-	if view.PasswordEnabled {
-		if claim, err := s.claimableAdmin(ctx, users); err != nil {
-			s.fail(w, err)
-			return
-		} else if claim != nil {
-			view.ClaimName = claim.Name
-		}
-	}
 	s.render(w, "index.html", status, pageData{Title: "Sign in · dexa-fix", Error: errMsg, Login: view})
-}
-
-// claimableAdmin returns the administrator of a database from before accounts existed. It stops
-// being claimable as soon as any administrator can sign in.
-func (s *Server) claimableAdmin(ctx context.Context, users []models.User) (*models.User, error) {
-	ids, err := s.store.IdentityProviders(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var first *models.User
-	for i := range users {
-		if !users[i].IsAdmin() {
-			continue
-		}
-		if len(ids[users[i].ID]) > 0 {
-			return nil, nil
-		}
-		if first == nil || users[i].ID < first.ID {
-			first = &users[i]
-		}
-	}
-	return first, nil
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -443,12 +422,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, "Signing in with a password is turned off.", http.StatusForbidden)
 		return
 	}
-	u, ok, err := s.verifyPassword(r.Context(), r.PostFormValue("email"), r.PostFormValue("password"))
+	u, ok, err := s.throttledVerify(r, r.PostFormValue("email"), r.PostFormValue("password"))
+	if errors.Is(err, errThrottled) {
+		s.auditAs(r, 0, 0, auditLoginThrottled, "")
+		s.renderLogin(w, r, "Too many failed attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
+		return
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	if !ok {
+		s.auditAs(r, 0, 0, auditLoginFailed, "")
 		s.renderLogin(w, r, "Wrong e-mail address or password.", http.StatusUnauthorized)
 		return
 	}
@@ -460,6 +445,7 @@ func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, u models.U
 		s.fail(w, err)
 		return
 	}
+	s.auditAs(r, u.ID, u.ID, auditLogin, method)
 	if u.Email == "" {
 		settingsRedirect(w, r, u.ID, "Please add your e-mail address: it is how you sign in from now on.")
 		return
@@ -468,6 +454,10 @@ func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, u models.U
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
+	if s.limiter.blocked(ipKey(r), maxIPFail) {
+		s.renderLogin(w, r, "Too many attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
+		return
+	}
 	if !s.passwordEnabled(r.Context()) {
 		s.renderLogin(w, r, "Creating an account with a password is turned off.", http.StatusForbidden)
 		return
@@ -497,55 +487,22 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
+		s.limiter.fail(ipKey(r)) // repeated probing for registered addresses is throttled
 		s.renderLogin(w, r, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
 		s.renderLogin(w, r, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
 	case err != nil:
 		s.fail(w, err)
 	default:
+		s.auditAs(r, u.ID, u.ID, auditSignup, models.ProviderLocal)
 		s.finishSignIn(w, r, u, models.ProviderLocal)
 	}
 }
 
-func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	users, err := s.store.ListUsers(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	u, err := s.claimableAdmin(ctx, users)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if u == nil || !s.passwordEnabled(ctx) {
-		s.renderLogin(w, r, "This account already has a sign-in method.", http.StatusForbidden)
-		return
-	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, r.PostFormValue("confirm")); msg != "" {
-		s.renderLogin(w, r, msg, http.StatusUnprocessableEntity)
-		return
-	}
-	email, ok := parseEmail(r.PostFormValue("email"))
-	if !ok {
-		s.renderLogin(w, r, "Please enter a valid e-mail address.", http.StatusUnprocessableEntity)
-		return
-	}
-	if err := s.store.UpdateUserProfile(ctx, u.ID, u.Name, email, u.HeightCm); err != nil {
-		s.fail(w, err)
-		return
-	}
-	u.Email = email
-	if err := s.setPassword(ctx, u.ID, password); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.finishSignIn(w, r, *u, models.ProviderLocal)
-}
-
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if u := currentUser(r); u != nil {
+		s.audit(r, u.ID, auditLogout, "")
+	}
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if err := s.store.DeleteSession(r.Context(), hashToken(c.Value)); err != nil {
 			s.fail(w, err)

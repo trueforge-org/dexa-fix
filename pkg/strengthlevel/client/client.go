@@ -318,7 +318,10 @@ func (c *Client) Sync(ctx context.Context, local []strengthlevel.Entry, since st
 			res.Skipped++
 		}
 		if out == Added || out == Updated {
-			time.Sleep(c.Delay)
+			select { // a cancelled sync stops now instead of after the pause
+			case <-ctx.Done():
+			case <-time.After(c.Delay):
+			}
 		}
 		if opt.Progress != nil {
 			opt.Progress(i+1, len(todo))
