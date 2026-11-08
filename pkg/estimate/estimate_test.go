@@ -596,3 +596,47 @@ func TestBodyIndicesUseEstimatedValues(t *testing.T) {
 		}
 	}
 }
+
+// A window that mixes methods applies each reading's own method offset, not the offset of one
+// group to the whole average.
+func TestMixedMethodWindowUsesEachGroupsOffset(t *testing.T) {
+	cal := func(m string, v float64) models.ScaleReading {
+		r := scaleF(d(1, 1), v)
+		r.Method = m
+		return r
+	}
+	rs := []models.ScaleReading{cal(models.MethodScale, 20), cal(models.MethodCaliper, 24)}
+	for _, day := range []int{8, 9} {
+		rs = append(rs, scaleF(d(1, day), 20))
+	}
+	for _, day := range []int{11, 12} {
+		r := scaleF(d(1, day), 24)
+		r.Method = models.MethodCaliper
+		rs = append(rs, r)
+	}
+	// DEXA says 25: the scale is 5 low, the calipers 1 low.
+	r := Compute([]models.DexaScan{{ID: 1, MeasuredAt: d(1, 1), FatRatioPct: f(25)}}, rs, Options{})
+	got := find(t, r, d(1, 10)).Values["fat_ratio_pct"]
+	if !got.Corrected || !near(got.V, 25) {
+		t.Errorf("mixed window: %+v, want 25 (mean 22 + mean offset 3)", got)
+	}
+}
+
+func TestCorrectedValuesStayInRange(t *testing.T) {
+	rs := []models.ScaleReading{scaleF(d(1, 1), 20)}
+	for day := 5; day <= 9; day++ {
+		rs = append(rs, scaleF(d(1, day), 10))
+	}
+	r := Compute([]models.DexaScan{{ID: 1, MeasuredAt: d(1, 1), FatRatioPct: f(5)}}, rs, Options{}) // offset -15
+	if got := find(t, r, d(1, 7)).Values["fat_ratio_pct"]; got.V != 0 {
+		t.Errorf("negative body fat not clamped: %+v", got)
+	}
+	rs = []models.ScaleReading{scaleF(d(1, 1), 20)}
+	for day := 5; day <= 9; day++ {
+		rs = append(rs, scaleF(d(1, day), 95))
+	}
+	r = Compute([]models.DexaScan{{ID: 1, MeasuredAt: d(1, 1), FatRatioPct: f(30)}}, rs, Options{}) // offset +10
+	if got := find(t, r, d(1, 7)).Values["fat_ratio_pct"]; got.V != 100 {
+		t.Errorf("body fat above 100 not clamped: %+v", got)
+	}
+}

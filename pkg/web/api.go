@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -184,6 +185,10 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			badRequest(w, "measured_at is required (RFC 3339)")
 			return
 		}
+		if err := validDexaScan(&scan); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
 		scan.ID, scan.UserID = 0, u.ID
 		if err := s.store.CreateDexaScan(r.Context(), &scan); err != nil {
 			apiError(w, err)
@@ -223,6 +228,10 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 		batch := make([]models.ScaleReading, len(in))
 		for i := range in {
 			batch[i] = in[i].ScaleReading
+			if err := validScaleReading(&batch[i]); err != nil {
+				badRequest(w, fmt.Sprintf("item %d: %s", i, err))
+				return
+			}
 			batch[i].AthleteMode = u.AthleteDefault
 			if in[i].AthleteMode != nil {
 				batch[i].AthleteMode = *in[i].AthleteMode

@@ -269,6 +269,9 @@ type seriesDay struct {
 	raw    float64 // selected raw daily reading, valid when origin == OriginMeasured
 	smooth float64 // average of the real readings in the window, or interpolated between such days
 	grp    group   // group the value is based on (window group for non-measured days)
+	// mix counts the groups of the real readings in the window, when more than one group is in
+	// it. The offset then is the average of those groups' own offsets, not that of grp alone.
+	mix map[group]int
 }
 
 // series is a field's per-day series from first up to the end day.
@@ -370,14 +373,23 @@ func buildSeries(byDay map[time.Time]map[group]float64, rk ranker, today time.Ti
 	// Window group for filled days: most common measured group within the window, ties to the more
 	// accurate one; with no measured day in the window, the group of the nearest measured day.
 	for i := range s.days {
-		if s.days[i].origin == OriginMeasured {
-			continue
-		}
 		counts := map[group]int{}
+		total := 0
 		for j := max(0, i-WindowDays); j <= min(n-1, i+WindowDays); j++ {
 			if s.days[j].origin == OriginMeasured {
 				counts[s.days[j].grp]++
+				total++
 			}
+		}
+		if s.days[i].origin == OriginMeasured {
+			// A measured day below the window minimum keeps its own reading, so no mix.
+			if total >= MinWindowReadings && len(counts) > 1 {
+				s.days[i].mix = counts
+			}
+			continue
+		}
+		if len(counts) > 1 {
+			s.days[i].mix = counts
 		}
 		var best group
 		bestN := 0
@@ -590,6 +602,23 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 		return (1-w)*c1.offset + w*c2.offset, true
 	}
 
+	// offsetMix averages the offsets of the groups behind a day's value, so a window that mixes
+	// methods applies each reading's own method offset. Groups without a calibration count as 0.
+	offsetMix := func(f Field, sd *seriesDay, d time.Time) (float64, bool) {
+		if len(sd.mix) < 2 {
+			return offsetAt(f, sd.grp, d)
+		}
+		sum, n, any := 0.0, 0, false
+		for g, c := range sd.mix {
+			if off, ok := offsetAt(f, g, d); ok {
+				sum += float64(c) * off
+				any = true
+			}
+			n += c
+		}
+		return sum / float64(n), any
+	}
+
 	days := map[time.Time]bool{}
 	for _, s := range all {
 		if s == nil {
@@ -619,9 +648,14 @@ func Compute(scans []models.DexaScan, readings []models.ScaleReading, o Options)
 				raw := sd.raw
 				v.Raw = &raw
 			}
-			if off, ok := offsetAt(f, sd.grp, d); ok {
+			if off, ok := offsetMix(f, sd, d); ok {
 				v.V += off
 				v.Corrected = true
+				// An offset must not push a value outside what is physically possible.
+				v.V = max(v.V, 0)
+				if f.Unit == "%" {
+					v.V = min(v.V, 100)
+				}
 			}
 			est.Values[f.Key] = v
 		}

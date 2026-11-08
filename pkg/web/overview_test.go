@@ -175,6 +175,24 @@ func TestNiceTicksCoverRange(t *testing.T) {
 	}
 }
 
+// A range a few ULPs wide (identical readings averaged over different window sizes) used to make
+// niceTicks loop forever.
+func TestNiceTicksTinyRange(t *testing.T) {
+	lo := 2.9999999999999996
+	for _, r := range [][2]float64{{lo, 3.0}, {0.1 + 0.1 + 0.1, 0.3}, {1e-12, 2e-12}} {
+		done := make(chan []float64, 1)
+		go func() { ticks, _ := niceTicks(r[0], r[1], chartYTickCount); done <- ticks }()
+		select {
+		case ticks := <-done:
+			if len(ticks) < 2 || len(ticks) > 50 {
+				t.Errorf("niceTicks(%v) = %v", r, ticks)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("niceTicks(%v) did not finish", r)
+		}
+	}
+}
+
 func TestInitial(t *testing.T) {
 	for in, want := range map[string]string{"bob": "B", "  ann": "A", "élan": "É", "": "?"} {
 		if got := initial(in); got != want {

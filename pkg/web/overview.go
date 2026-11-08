@@ -436,8 +436,11 @@ func pointOrigin(v estimate.Value) string {
 
 // niceTicks returns round tick values covering lo..hi and the decimals needed to print them.
 func niceTicks(lo, hi float64, count int) ([]float64, int) {
-	if hi <= lo {
-		lo, hi = lo-1, hi+1
+	// A range that is only a few float ULPs wide (identical readings averaged in different
+	// window sizes) would give a step near 1e-16 and a tick count that never finishes.
+	if hi-lo < 1e-9*math.Max(1, math.Max(math.Abs(lo), math.Abs(hi))) {
+		mid := (lo + hi) / 2
+		lo, hi = mid-1, mid+1
 	}
 	pad := (hi - lo) * 0.05
 	if lo >= 0 {
@@ -452,9 +455,10 @@ func niceTicks(lo, hi float64, count int) ([]float64, int) {
 	end := math.Ceil(hi/step - 1e-9)
 	decimals := max(0, -int(math.Floor(math.Log10(step)+1e-9)))
 	scale := math.Pow(10, float64(decimals))
-	ticks := make([]float64, 0, int(end-start)+1)
-	for n := start; n <= end; n++ {
-		ticks = append(ticks, math.Round(n*step*scale)/scale)
+	count = min(int(end-start)+1, 50)
+	ticks := make([]float64, 0, count)
+	for i := 0; i < count; i++ {
+		ticks = append(ticks, math.Round((start+float64(i))*step*scale)/scale)
 	}
 	return ticks, decimals
 }
