@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +64,8 @@ const (
 	failWindow   = 15 * time.Minute
 	maxLoginFail = 10 // per login name
 	maxIPFail    = 60 // per client address: generous, because a proxy makes many users share one
+
+	maxLimiterKeys = 50000
 )
 
 // failLimiter counts failed attempts per key in a sliding window. It only counts failures, so
@@ -103,16 +107,40 @@ func (l *failLimiter) blocked(key string, max int) bool {
 func (l *failLimiter) fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.fails) > 50000 { // bound memory under a flood of distinct keys
-		for k := range l.fails {
-			l.prune(k)
-		}
-		if len(l.fails) > 50000 {
-			clear(l.fails)
-		}
+	if len(l.fails) > maxLimiterKeys { // bound memory under a flood of distinct keys
+		l.evict()
 	}
 	l.prune(key)
 	l.fails[key] = append(l.fails[key], l.now())
+}
+
+// evict makes room by dropping the keys with the fewest recent failures (ties: the oldest), so
+// the counters of keys that are close to being blocked survive a flood of one-off keys. Callers
+// hold the lock.
+func (l *failLimiter) evict() {
+	type entry struct {
+		key  string
+		n    int
+		last time.Time
+	}
+	entries := make([]entry, 0, len(l.fails))
+	for k := range l.fails {
+		if list := l.prune(k); list != nil {
+			entries = append(entries, entry{k, len(list), list[len(list)-1]})
+		}
+	}
+	if len(entries) <= maxLimiterKeys {
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].n != entries[j].n {
+			return entries[i].n < entries[j].n
+		}
+		return entries[i].last.Before(entries[j].last)
+	})
+	for _, e := range entries[:len(entries)-maxLimiterKeys*4/5] {
+		delete(l.fails, e.key)
+	}
 }
 
 func (l *failLimiter) reset(key string) {
@@ -130,7 +158,18 @@ func clientIP(r *http.Request) string {
 }
 
 func loginKey(login string) string { return "login:" + strings.ToLower(strings.TrimSpace(login)) }
-func ipKey(r *http.Request) string { return "ip:" + clientIP(r) }
+
+// ipKey identifies the client for rate limiting. An IPv6 client is counted by its /64, because a
+// single subscriber usually controls the whole prefix and could otherwise rotate addresses freely.
+func ipKey(r *http.Request) string {
+	ip := clientIP(r)
+	if addr, err := netip.ParseAddr(ip); err == nil && addr.Is6() && !addr.Is4In6() {
+		if p, err := addr.Prefix(64); err == nil {
+			return "ip:" + p.String()
+		}
+	}
+	return "ip:" + ip
+}
 
 // throttled reports whether this client or this login name made too many failed attempts.
 func (s *Server) throttled(r *http.Request, login string) bool {

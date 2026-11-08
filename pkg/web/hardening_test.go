@@ -2,8 +2,10 @@ package web
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -108,5 +110,39 @@ func TestStrengthLevelStatusNeedsBulkAccess(t *testing.T) {
 	signup(t, ts, c, "root")
 	if code, _ := body(t, c, ts.URL+"/u/1/strengthlevel/status"); code != http.StatusNotFound {
 		t.Errorf("status %d", code)
+	}
+}
+
+func TestLimiterEvictionKeepsNearlyBlockedKeys(t *testing.T) {
+	l := newFailLimiter()
+	for range maxLoginFail - 1 {
+		l.fail("login:victim")
+	}
+	for i := range maxLimiterKeys + 100 {
+		l.fail(fmt.Sprintf("login:flood%d", i))
+	}
+	if len(l.fails) > maxLimiterKeys {
+		t.Fatalf("%d keys, want at most %d", len(l.fails), maxLimiterKeys)
+	}
+	l.fail("login:victim")
+	if !l.blocked("login:victim", maxLoginFail) {
+		t.Fatal("a flood of other keys reset the victim's counter")
+	}
+}
+
+func TestIPv6ClientsShareTheirSlash64(t *testing.T) {
+	key := func(addr string) string {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = addr
+		return ipKey(r)
+	}
+	if key("[2001:db8:1:2::1]:1") != key("[2001:db8:1:2:ffff::9]:2") {
+		t.Error("addresses in one /64 got different keys")
+	}
+	if key("[2001:db8:1:2::1]:1") == key("[2001:db8:1:3::1]:1") {
+		t.Error("different /64 prefixes share a key")
+	}
+	if key("192.0.2.7:80") != "ip:192.0.2.7" {
+		t.Errorf("IPv4 key: %s", key("192.0.2.7:80"))
 	}
 }
