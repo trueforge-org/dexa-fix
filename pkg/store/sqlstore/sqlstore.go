@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,12 +139,43 @@ func now() time.Time { return time.Now().UTC() }
 // ---- users ----
 
 func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
+	return s.createUser(ctx, name, nil)
+}
+
+// CreateUserWithIdentity creates a user together with a way to sign in.
+func (s *Store) CreateUserWithIdentity(ctx context.Context, name string, id models.Identity) (models.User, error) {
+	return s.createUser(ctx, name, &id)
+}
+
+func (s *Store) createUser(ctx context.Context, name string, id *models.Identity) (models.User, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 64 {
 		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
-	row := userRow{Name: name, CreatedAt: now()}
-	if _, err := s.db.NewInsert().Model(&row).Exec(ctx); err != nil {
+	var row userRow
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		n, err := tx.NewSelect().Model((*userRow)(nil)).Count(ctx)
+		if err != nil {
+			return err
+		}
+		row = userRow{Name: name, Role: models.RoleUser, CreatedAt: now()}
+		if n == 0 {
+			row.Role = models.RoleAdmin
+		}
+		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
+			return err
+		}
+		if id == nil {
+			return nil
+		}
+		ir := identityRow{Provider: id.Provider, Subject: id.Subject, UserID: row.ID, Secret: id.Secret, CreatedAt: now()}
+		if ir.Subject == "" {
+			ir.Subject = strconv.FormatInt(row.ID, 10)
+		}
+		_, err = tx.NewInsert().Model(&ir).Exec(ctx)
+		return err
+	})
+	if err != nil {
 		if isUnique(err) {
 			return models.User{}, store.ErrExists
 		}

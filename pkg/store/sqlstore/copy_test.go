@@ -2,12 +2,14 @@ package sqlstore
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 func TestCopyPreservesData(t *testing.T) {
@@ -88,5 +90,78 @@ func TestCopyRefusesNonEmptyTarget(t *testing.T) {
 	}
 	if _, err := Copy(ctx, src, dst); err == nil {
 		t.Fatal("expected error for non-empty target")
+	}
+}
+
+func TestCopyIncludesAccounts(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(ctx, DriverSQLite, "file:"+filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	dst := newStore(t)
+
+	height := 180.5
+	u, err := src.CreateUserWithIdentity(ctx, "alice", models.Identity{Provider: models.ProviderLocal, Secret: "hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.UpdateUserProfile(ctx, u.ID, "alice", "a@example.com", &height); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.CreateAccessToken(ctx, &models.AccessToken{UserID: u.ID, Name: "t", Prefix: "p", Hash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutSetting(ctx, "k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutAuthProvider(ctx, models.AuthProvider{Slug: "g", Label: "G", Kind: models.ProviderKindOIDC, ClientID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Copy(ctx, src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dst.GetUser(ctx, u.ID)
+	if err != nil || !got.IsAdmin() || got.Email != "a@example.com" || got.HeightCm == nil || *got.HeightCm != height {
+		t.Fatalf("user: %+v %v", got, err)
+	}
+	if id, err := dst.GetIdentity(ctx, models.ProviderLocal, "1"); err != nil || id.Secret != "hash" {
+		t.Fatalf("identity: %+v %v", id, err)
+	}
+	if _, err := dst.UserByTokenHash(ctx, "h"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if v, err := dst.GetSetting(ctx, "k"); err != nil || v != "v" {
+		t.Fatalf("setting: %q %v", v, err)
+	}
+	if p, err := dst.GetAuthProvider(ctx, "g"); err != nil || p.Label != "G" {
+		t.Fatalf("provider: %+v %v", p, err)
+	}
+}
+
+func TestLastAdminGuards(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	a, _ := s.CreateUser(ctx, "a")
+	b, _ := s.CreateUser(ctx, "b")
+	if !a.IsAdmin() || b.IsAdmin() {
+		t.Fatalf("roles: %s %s", a.Role, b.Role)
+	}
+	if err := s.SetUserRole(ctx, a.ID, models.RoleUser); !errors.Is(err, store.ErrLastAdmin) {
+		t.Fatalf("demote last: %v", err)
+	}
+	if err := s.DeleteUser(ctx, a.ID); !errors.Is(err, store.ErrLastAdmin) {
+		t.Fatalf("delete last: %v", err)
+	}
+	if err := s.SetUserRole(ctx, 99, models.RoleUser); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+	if err := s.SetUserRole(ctx, b.ID, models.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, a.ID); err != nil {
+		t.Fatalf("delete with another admin: %v", err)
 	}
 }

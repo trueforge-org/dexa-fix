@@ -17,6 +17,9 @@ type userRow struct {
 
 	ID             int64     `bun:"id,pk,autoincrement"`
 	Name           string    `bun:"name"`
+	Role           string    `bun:"role"`
+	Email          string    `bun:"email"`
+	HeightCm       *float64  `bun:"height_cm"`
 	CreatedAt      time.Time `bun:"created_at"`
 	AthleteDefault bool      `bun:"athlete_default"`
 	MethodRanking  string    `bun:"method_ranking"`
@@ -30,6 +33,9 @@ func (r *userRow) toModel() models.User {
 	return models.User{
 		ID:             r.ID,
 		Name:           r.Name,
+		Role:           r.Role,
+		Email:          r.Email,
+		HeightCm:       r.HeightCm,
 		CreatedAt:      r.CreatedAt,
 		AthleteDefault: r.AthleteDefault,
 		MethodRanking:  models.NormalizeRanking(keys),

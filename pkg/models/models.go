@@ -70,11 +70,74 @@ func NormalizeRanking(in []string) []string {
 	return out
 }
 
-// User is a person whose measurements are tracked. There is no authentication.
+// User roles.
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+)
+
+// ProviderLocal is the identity provider of username and password sign-in.
+const ProviderLocal = "local"
+
+// Kinds of external sign-in provider.
+const (
+	ProviderKindOIDC   = "oidc"   // OpenID Connect with discovery, e.g. Google
+	ProviderKindApple  = "apple"  // Sign in with Apple: OIDC with a generated client secret
+	ProviderKindOAuth2 = "oauth2" // plain OAuth 2.0 with a userinfo endpoint
+)
+
+// Identity is one way a user can sign in, independent of the user record itself.
+type Identity struct {
+	UserID   int64
+	Provider string
+	// Subject identifies the account at the provider. For ProviderLocal it is the user id.
+	Subject string
+	// Secret holds the password hash for ProviderLocal and is empty otherwise.
+	Secret    string
+	CreatedAt time.Time
+}
+
+// AccessToken is a personal access token. Only a hash of the token is stored.
+type AccessToken struct {
+	ID         int64
+	UserID     int64
+	Name       string
+	Prefix     string // the first characters of the token, to recognise it in lists
+	Hash       string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	ExpiresAt  *time.Time
+}
+
+// AuthProvider is an external sign-in provider added by an administrator.
+type AuthProvider struct {
+	Slug         string
+	Label        string
+	Kind         string
+	Issuer       string // OIDC issuer URL
+	AuthURL      string // plain OAuth 2.0 endpoints
+	TokenURL     string
+	UserinfoURL  string
+	ClientID     string
+	ClientSecret string // for Apple: the PEM private key the client secret is signed with
+	AppleTeamID  string
+	AppleKeyID   string
+	Scopes       string // space separated
+	SubjectClaim string // plain OAuth 2.0: the userinfo field that identifies the account
+	NameClaim    string // preferred claim for naming new users
+	AllowSignup  bool   // create an account on the first sign-in
+	CreatedAt    time.Time
+}
+
+// User is a person whose measurements are tracked.
 type User struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
+	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+	// Email is contact information only: it is never used to match sign-ins to accounts.
+	Email    string   `json:"email"`
+	HeightCm *float64 `json:"height_cm,omitempty"`
 	// AthleteDefault presets athlete mode for new readings and imports.
 	AthleteDefault bool `json:"athlete_default"`
 	// MethodRanking lists methods most accurate first. Always contains every method.
@@ -123,3 +186,6 @@ type DexaScan struct {
 	Notes             string    `json:"notes,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 }
+
+// IsAdmin reports whether the user has the administrator role.
+func (u User) IsAdmin() bool { return u.Role == RoleAdmin }

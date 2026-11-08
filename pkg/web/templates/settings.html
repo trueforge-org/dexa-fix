@@ -1,6 +1,51 @@
 {{define "content"}}
 <div class="page-head"><h1>Settings</h1></div>
 {{if .Saved}}<p class="notice" role="status">{{.Saved}}</p>{{end}}
+<form method="post" action="/u/{{.User.ID}}/profile" class="card" id="profile">
+  <h2>Profile</h2>
+  <div class="form-row">
+    <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="username"></label>
+    <label>E-mail <input type="email" name="email" value="{{.User.Email}}" maxlength="254" autocomplete="email"></label>
+    <label>Height (cm) <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
+  </div>
+  <div class="form-actions"><button type="submit">Save profile</button></div>
+</form>
+{{with .Security}}
+<section class="card" id="tokens">
+  <h2>Access tokens</h2>
+  <p class="help">Use a personal access token to call the API from scripts, with the header <code>Authorization: Bearer &lt;token&gt;</code>. It works without signing in and acts as you, on the API only.</p>
+  {{if .NewToken}}<div class="notice" role="status"><strong>Copy this token now.</strong> It will not be shown again.<br><code class="token">{{.NewToken}}</code></div>{{end}}
+  {{if .Tokens}}<div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+    <tbody>{{range .Tokens}}<tr><td>{{.Name}}</td><td><code>{{.Prefix}}…</code></td><td>{{.Created}}</td><td>{{.LastUsed}}</td><td>{{.Expires}}</td>
+      <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" onsubmit="return confirm('Revoke this token? Anything using it stops working.')"><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+  <form method="post" action="/u/{{$.User.ID}}/tokens" class="form-row">
+    <label>Token name <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
+    <label>Expires <select name="expires"><option value="30">In 30 days</option><option value="90" selected>In 90 days</option><option value="365">In 1 year</option><option value="never">Never</option></select></label>
+    <div><button type="submit">Create token</button></div>
+  </form>
+</section>
+{{if .Linked}}
+<section class="card" id="linked">
+  <h2>Linked accounts</h2>
+  <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
+    {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="secondary" type="submit">Unlink</button></form>
+    {{else}}<a class="button secondary" href="/auth/{{.Slug}}/login">Link</a>{{end}}</li>{{end}}</ul>
+</section>
+{{end}}
+{{if .PasswordEnabled}}
+<form method="post" action="/u/{{$.User.ID}}/password" class="card" id="password">
+  <h2>Password</h2>
+  <div class="form-row">
+    {{if .HasPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>Repeat new password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+  </div>
+  <div class="form-actions"><button type="submit">{{if .HasPassword}}Change password{{else}}Set password{{end}}</button></div>
+</form>
+{{end}}
+{{end}}
 {{with .Withings}}
 <section class="card" id="withings">
   <div class="card-head">
@@ -17,7 +62,7 @@
   <p class="help">Link your Withings account to import your scale measurements instead of typing them in. You will be sent to Withings to grant access.</p>
   <div class="integration"><a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a></div>
   {{else}}
-  <p class="help">Withings import is not set up on this server yet. An administrator needs to create a Withings application, set <code>DEXAFIX_WITHINGS_CLIENT_ID</code> and <code>DEXAFIX_WITHINGS_CLIENT_SECRET</code> (and <code>DEXAFIX_WITHINGS_REDIRECT_URL</code> when not running on localhost), then restart dexa-fix.</p>
+  <p class="help">Withings import is not set up on this server yet. An administrator needs to create a Withings application and add its credentials on the {{if $.User.IsAdmin}}<a href="/admin#withings">Admin page</a>{{else}}Admin page{{end}}, or set <code>DEXAFIX_WITHINGS_CLIENT_ID</code> and <code>DEXAFIX_WITHINGS_CLIENT_SECRET</code> on the server.</p>
   <div class="integration"><button type="button" disabled>Connect Withings</button></div>
   {{end}}
 </section>

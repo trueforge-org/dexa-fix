@@ -151,6 +151,10 @@ the latest schema first and must be empty. The copy is a single transaction on t
 		fmt.Fprintf(out, "dexa scans:      %d\n", stats.DexaScans)
 		fmt.Fprintf(out, "scale readings:  %d\n", stats.ScaleReads)
 		fmt.Fprintf(out, "integrations:    %d\n", stats.Integrations)
+		fmt.Fprintf(out, "identities:      %d\n", stats.Identities)
+		fmt.Fprintf(out, "access tokens:   %d\n", stats.AccessTokens)
+		fmt.Fprintf(out, "settings:        %d\n", stats.Settings)
+		fmt.Fprintf(out, "auth providers:  %d\n", stats.Providers)
 		return nil
 	},
 }

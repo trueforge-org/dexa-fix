@@ -18,6 +18,9 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/web"
 )
 
+// Version is the application version, set by main.
+var Version = "dev"
+
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -66,6 +69,8 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 		if err != nil {
 			return err
 		}
+		srv.Version = Version
+		srv.ForcePasswordLogin, _ = cmd.Flags().GetBool("force-password-login")
 		httpSrv := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 		errCh := make(chan error, 1)
@@ -93,5 +98,6 @@ func init() {
 	serveCmd.Flags().String("withings-client-id", envOr("DEXAFIX_WITHINGS_CLIENT_ID", ""), "Withings OAuth client id")
 	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "Withings OAuth client secret")
 	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")
+	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
 	RootCmd.AddCommand(serveCmd)
 }

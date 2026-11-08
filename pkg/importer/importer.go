@@ -48,6 +48,21 @@ type Importer interface {
 	Import(ctx context.Context, st store.Store, userID int64, o Options) (Result, error)
 }
 
+// Credentials are a provider's server-wide application settings.
+type Credentials struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+}
+
+// Configurable is implemented by providers whose credentials can be changed while running.
+type Configurable interface {
+	// BaseCredentials returns the credentials from the server configuration.
+	BaseCredentials() Credentials
+	// SetCredentials applies overrides; an empty field falls back to the server configuration.
+	SetCredentials(Credentials)
+}
+
 // OAuthProvider is implemented by importers that need the user to authorise access first.
 type OAuthProvider interface {
 	// Configured reports whether the server has the credentials to talk to the provider.

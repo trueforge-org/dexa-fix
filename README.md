@@ -3,9 +3,9 @@
 Corrects smart-scale results using DEXA scan results. A Go web app that stores
 per-user DEXA scans and scale readings, and shows one estimated value per day.
 
-There is no authentication. The front page lists users as buttons, and anyone
-can add a name. Read [Limitations and security](#limitations-and-security)
-before you expose it.
+Each user has an account and sees only their own data. Users sign in with a
+password or with an external provider. Read
+[Limitations and security](#limitations-and-security) before you expose it.
 
 ## How it works
 
@@ -33,6 +33,8 @@ The full rules are in [Estimation details](#estimation-details).
 
 ## Features
 
+- Accounts with password sign-in, plus OpenID Connect, Sign in with Apple and
+  OAuth 2.0 providers. See [Accounts and sign-in](#accounts-and-sign-in).
 - Per-user DEXA scans and scale readings, entered in the browser or by JSON API.
 - Each reading records its measurement method (smart scale, caliper, BodPod,
   hydrostatic, tape, visual AI) and whether athlete mode was on.
@@ -50,8 +52,9 @@ Requires the Go version in `go.mod`.
 go run . serve
 ```
 
-Open <http://localhost:8080>, add a user and enter some data. By default the
-SQLite database is `dexa-fix.db` in the current directory.
+Open <http://localhost:8080>, create an account and enter some data. The first
+account becomes the administrator. By default the SQLite database is
+`dexa-fix.db` in the current directory.
 
 To build a binary:
 
@@ -77,6 +80,7 @@ overrides the variable.
 | `--withings-client-id`     | `DEXAFIX_WITHINGS_CLIENT_ID`     | empty                                                                 | Withings application client id.                        |
 | `--withings-client-secret` | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret.                    |
 | `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
+| `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
 
 Other environment variables:
 
@@ -142,8 +146,8 @@ changed, but it must already be fully migrated (`db migrate up`).
 
 ## Using the app
 
-- `/`: list users, add one, or open one by name. Names have 1 to 64
-  characters. Entering an existing name opens that user.
+- `/`: the sign-in page. Sign in with a name and password, create an account,
+  or use a provider button. Names are unique and have 1 to 64 characters.
 - `/u/{id}`: redirects to the estimates page.
 - `/u/{id}/estimates`: one row per day with the estimated values, an overview
   with the latest values and a trend chart, the calibrations in use, and the
@@ -154,7 +158,22 @@ changed, but it must already be fully migrated (`db migrate up`).
   measurement method in the drop-down and tick **Athlete mode** if it applies.
 - `/u/{id}/settings`: the athlete-mode default and the accuracy rank of each
   method. A Withings section connects, imports from and disconnects the user's
-  Withings account. It says so when the server is not set up for Withings.
+  Withings account. It says so when Withings credentials are missing, either
+  on the Admin page or in the environment. Also:
+  - **Profile**: name, e-mail and height in cm. The e-mail is contact
+    information only. It is never used to match sign-ins.
+  - **Access tokens**: create personal access tokens for the API.
+  - **Linked accounts**: link or unlink sign-in providers.
+  - **Password**: set or change the account's password.
+- `/admin`: administrators only. Administrators can add users and open or
+  close new accounts. The page shows the server status and has these
+  sections:
+  - **Users**: grant or remove administrator, set a password, or delete a user
+    with all their data. The last administrator cannot be removed.
+  - **Password sign-in**: turn it on or off.
+  - **Sign-in providers**: add, edit and remove providers.
+  - **Withings application**: the client ID, client secret and redirect URL.
+    Values saved here override the environment variables.
 
 Numbers may use a decimal comma. Notes are limited to 500 characters.
 
@@ -163,6 +182,74 @@ On the estimates page, a `DEXA` badge marks a value from a DEXA scan, and a
 Hovering a value shows its origin, the method and mode it is based on, and the
 raw reading. The calibrations section lists each scan's offsets (DEXA minus
 series) per method and mode. Days with only a DEXA scan appear too.
+
+## Accounts and sign-in
+
+Each user has an account and sees only their own data. The first account
+created becomes the administrator. Passwords are hashed with bcrypt. They must
+be 8 characters or more, and at most 72 bytes.
+
+Administrators can close new accounts on the Admin page. While closed, nobody
+can create their own account, with a password or on first sign-in through a
+provider, and an administrator adds people from the Users list on the Admin
+page. Existing accounts keep working. The very first account on an empty
+server can always be created.
+
+### Upgrading an existing database
+
+Upgrading makes the oldest user in the database the administrator. The sign-in
+page then offers to set that account's first password (**Claim**). The offer
+stays until an administrator can sign in, so do this straight after upgrading.
+Other existing users have no password until an administrator sets one on the
+Admin page.
+
+### Sign-in providers
+
+Administrators add providers on the Admin page. There are three types:
+
+- **OpenID Connect**, for example Google, with the issuer
+  `https://accounts.google.com`.
+- **Sign in with Apple**. Enter the Services ID as the client ID, then the team
+  ID, the key ID, and the contents of the `.p8` key file as the secret. dexa-fix
+  generates Apple's short-lived client secret from these. Apple requires HTTPS.
+- **OAuth 2.0**, with the authorisation, token and userinfo URLs.
+
+Register this callback URL with the provider:
+
+```text
+https://your-host/auth/<short name>/callback
+```
+
+The Admin page shows the callback URL for each provider. Replace `<short name>`
+with the provider's short name.
+
+Behind a reverse proxy, forward the `Host` header and set `X-Forwarded-Proto`.
+The callback URL is built from them.
+
+Users link a provider in Settings. With **Create accounts on first sign-in**
+turned on, a login from an unknown account creates a new account. Accounts are
+matched only by the provider's subject, never by name or e-mail. Removing a
+provider also removes its links.
+
+### Password sign-in
+
+Password sign-in can be turned off on the Admin page. Providers and access
+tokens keep working. The administrator who turns it off must have a linked
+provider first.
+
+To recover from a lockout, start the server with password sign-in forced on:
+
+```bash
+go run . serve --force-password-login
+```
+
+The same is set with `DEXAFIX_FORCE_PASSWORD_LOGIN=true`.
+
+### Storage and rate limiting
+
+Provider secrets and Withings credentials are stored unencrypted in the
+database. Protect the database and its backups. Sign-in attempts are not rate
+limited. On a public deployment, limit them at a reverse proxy.
 
 ## Withings import
 
@@ -174,7 +261,9 @@ as scale readings with the source `withings`.
 1. In the Withings developer dashboard, create an application and register the
    callback URL, for example
    `https://dexa.example.com/integrations/withings/callback`.
-2. Start the server with the application's credentials:
+2. Give the server the application's credentials. Either enter them in the
+   Withings application section of the Admin page, or start the server with
+   environment variables:
 
    ```bash
    export DEXAFIX_WITHINGS_CLIENT_ID=...
@@ -182,10 +271,10 @@ as scale readings with the source `withings`.
    export DEXAFIX_WITHINGS_REDIRECT_URL=https://dexa.example.com/integrations/withings/callback
    ```
 
-   Connecting is possible only when all three are set. Until then, the Settings
-   page shows Withings as not set up and lists these variables. The redirect URL
-   has a local default, so set it explicitly for any public deployment, to the
-   URL registered with Withings.
+   Values saved on the Admin page override the environment variables. Connecting
+   is possible only when all three are set. Until then, the Settings page shows
+   Withings as not set up. The redirect URL has a local default, so set it
+   explicitly for any public deployment, to the URL registered with Withings.
 3. On the estimates or Settings page, choose **Connect Withings** and grant
    access. Finish within 10 minutes, the lifetime of the connection state.
 4. Choose **Import from Withings**.
@@ -264,10 +353,14 @@ and stored readings are never changed. Each field is handled on its own.
 All routes are under `/api/v1`. Bodies are JSON, and unknown request fields are
 rejected. Errors have the form `{"error": "..."}`.
 
+Every request must be authenticated, except `GET /healthz` and static files.
+Responses are 401 when the request is not authenticated, and 403 when the
+user's role is not enough. See [Authentication](#authentication).
+
 | Method | Path                            | Description                                                          |
 | ------ | ------------------------------- | -------------------------------------------------------------------- |
-| GET    | `/users`                        | List users.                                                          |
-| POST   | `/users`                        | Create a user. Body: `{"name": "..."}`.                              |
+| GET    | `/users`                        | List users. Administrators only.                                     |
+| POST   | `/users`                        | Create a user. Administrators only. Body: `{"name": "...", "password": "..."}`, where `password` is optional. |
 | GET    | `/users/{id}/dexa-scans`        | List DEXA scans.                                                     |
 | POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                    |
 | GET    | `/users/{id}/scale-readings`    | List scale readings.                                                 |
@@ -288,25 +381,56 @@ mode of a stored reading. In `method_ranking`, methods you leave out follow in
 the default order.
 
 ```bash
+export DEXAFIX_TOKEN=dxf_...   # personal access token from Settings
+
 curl -s -X POST localhost:8080/api/v1/users \
+  -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' -d '{"name": "Alice"}'
 
 curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
+  -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"measured_at": "2026-03-01T08:00:00Z", "weight_kg": 80.0}'
 
 curl -s -X POST localhost:8080/api/v1/users/1/scale-readings \
+  -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '[{"measured_at": "2026-03-01T07:00:00Z", "weight_kg": 82.0}]'
 
-curl -s localhost:8080/api/v1/users/1/estimates
+curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  localhost:8080/api/v1/users/1/estimates
 ```
+
+### Authentication
+
+Send one of these with each request:
+
+- `Authorization: Bearer <personal access token>`. Tokens start with `dxf_`.
+  Create them in Settings. A token is shown once and stored only as a hash.
+  It works for the API only.
+- `Authorization: Bearer <ID token>` from an OpenID Connect or Sign in with
+  Apple provider, for an account linked to that provider. The token must be a
+  JWT signed by the provider and issued for this application's client ID.
+  Opaque access tokens are not accepted.
+- HTTP Basic with the account name and password, while password sign-in is
+  on:
+
+  ```bash
+  curl -s -u name:password localhost:8080/api/v1/users/1/estimates
+  ```
+
+- The browser session cookie, set when you sign in on the website.
+
+A user can reach only their own `/users/{id}/...` routes. Other ids answer 404.
+`GET /users` and `POST /users` are for administrators only.
 
 ### Import endpoint
 
 ```bash
-curl -s -X POST 'localhost:8080/api/v1/users/1/import/withings?since=2026-01-01T00:00:00Z'
-curl -s -X POST 'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'
+curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  'localhost:8080/api/v1/users/1/import/withings?since=2026-01-01T00:00:00Z'
+curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
+  'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'
 ```
 
 - `since` is an RFC 3339 timestamp. It limits a bulk import to measurements at
@@ -410,11 +534,11 @@ buttons there.
 
 ## Limitations and security
 
-- **No authentication.** Anyone who can reach the app can view and change any
-  user's data, add users, and trigger imports or disconnect Withings. Put it
-  behind a reverse proxy that handles authentication. Do not expose it directly.
-- **Withings tokens are stored unencrypted** in the `user_integrations` table.
-  Protect the database file or Postgres database.
+- **Sign-in attempts are not rate limited.** On a public deployment, limit them
+  at a reverse proxy. See [Storage and rate limiting](#storage-and-rate-limiting).
+- **Secrets are stored unencrypted.** Withings tokens (in the `user_integrations`
+  table), provider secrets and Withings credentials are not encrypted. Protect
+  the database file or Postgres database and its backups.
 - **Behind a proxy.** The OAuth state cookie is marked `Secure` only when the
   app itself serves HTTPS, so the proxy should enforce HTTPS. The Withings
   redirect URL must be the public URL.

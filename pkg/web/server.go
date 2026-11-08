@@ -3,6 +3,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -11,9 +12,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
@@ -30,9 +33,22 @@ type Server struct {
 	store     store.Store
 	importers *importer.Registry
 	tmpl      map[string]*template.Template
+
+	// Version is shown on the admin page.
+	Version string
+	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
+	// from a lockout.
+	ForcePasswordLogin bool
+
+	authChain  []authenticator
+	cookieKey  []byte
+	httpClient *http.Client
+
+	oidcMu    sync.Mutex
+	oidcCache map[string]*oidc.Provider
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
@@ -42,13 +58,26 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 
 		"initial": initial,
 	}
-	s := &Server{store: st, importers: importers, tmpl: map[string]*template.Template{}}
+	s := &Server{
+		store: st, importers: importers, tmpl: map[string]*template.Template{},
+		httpClient: &http.Client{Timeout: providerTimeout},
+		oidcCache:  map[string]*oidc.Provider{},
+	}
+	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		s.tmpl[p] = t
+	}
+	ctx := context.Background()
+	var err error
+	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.applyWithingsCredentials(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -60,7 +89,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 
 	mux.HandleFunc("GET /{$}", s.index)
-	mux.HandleFunc("POST /users", s.createUser)
+	s.authRoutes(mux)
+	s.adminRoutes(mux)
 	mux.HandleFunc("GET /u/{id}", s.user(s.home))
 
 	mux.HandleFunc("GET /u/{id}/dexa", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) { s.dexaPage(w, r, u, "", http.StatusOK) }))
@@ -72,14 +102,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/scale/{item}/delete", s.user(s.scaleDelete))
 	mux.HandleFunc("GET /u/{id}/estimates", s.user(s.estimatesPage))
 	mux.HandleFunc("GET /u/{id}/settings", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		s.settingsPage(w, r, u, "", "", http.StatusOK)
+		s.settingsPage(w, r, u, "", flashParam(r), http.StatusOK)
 	}))
 	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
 
 	s.apiRoutes(mux)
 	s.integrationRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	return logRequests(mux)
+	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
+	// cross-site POST and is protected by its signed state instead.
+	cop := http.NewCrossOriginProtection()
+	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
+	return logRequests(cop.Handler(s.withAuth(mux)))
 }
 
 // integrationView is the state of an OAuth integration for the current user.
@@ -113,6 +147,11 @@ type pageData struct {
 	EstRows   []estRow
 	Cals      []calRow
 	Overview  *overviewView // summary above the estimates table, nil without data
+
+	Login *loginView // sign-in page
+
+	Security *securityView // settings page: password, tokens and linked accounts
+	Admin    *adminView    // admin page
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, status int, data pageData) {
@@ -139,23 +178,6 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// user resolves {id} to a user (404 if unknown) before calling h.
-func (s *Server) user(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		u, err := s.store.GetUser(r.Context(), id)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		h(w, r, u)
-	}
-}
-
 func itemID(r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("item"), 10, 64)
 	return id, err == nil
@@ -167,48 +189,6 @@ func logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Debug().Str("method", r.Method).Str("path", r.URL.Path).Dur("took", time.Since(start)).Msg("request")
 	})
-}
-
-// ---- users ----
-
-func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	s.renderIndex(w, r, "", http.StatusOK)
-}
-
-func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request, errMsg string, status int) {
-	users, err := s.store.ListUsers(r.Context())
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.render(w, "index.html", status, pageData{Title: "dexa-fix", Users: users, Error: errMsg})
-}
-
-func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	name := r.PostFormValue("name")
-	u, err := s.store.CreateUser(r.Context(), name)
-	switch {
-	case errors.Is(err, store.ErrExists):
-		// no auth: entering an existing name simply opens that user
-		users, lerr := s.store.ListUsers(r.Context())
-		if lerr != nil {
-			s.fail(w, lerr)
-			return
-		}
-		for _, existing := range users {
-			if existing.Name == name {
-				http.Redirect(w, r, userPath(existing.ID, ""), http.StatusSeeOther)
-				return
-			}
-		}
-		s.fail(w, err)
-	case errors.Is(err, store.ErrInvalid):
-		s.renderIndex(w, r, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
-	case err != nil:
-		s.fail(w, err)
-	default:
-		http.Redirect(w, r, userPath(u.ID, ""), http.StatusSeeOther)
-	}
 }
 
 // initial returns the upper-cased first character of a name, for avatars.

@@ -98,7 +98,7 @@ func (c Config) authURL(state string) string {
 
 // call POSTs a form to the Withings API and decodes the "body" of a status-0 response into out.
 func (i *Importer) call(ctx context.Context, path, bearer string, form url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.cfg.apiBase()+path, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.config().apiBase()+path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -131,8 +131,8 @@ func (i *Importer) call(ctx context.Context, path, bearer string, form url.Value
 // requestToken exchanges an authorisation code or refresh token for a new token set.
 func (i *Importer) requestToken(ctx context.Context, form url.Values) (tokens, error) {
 	form.Set("action", "requesttoken")
-	form.Set("client_id", i.cfg.ClientID)
-	form.Set("client_secret", i.cfg.ClientSecret)
+	form.Set("client_id", i.config().ClientID)
+	form.Set("client_secret", i.config().ClientSecret)
 	var b tokenBody
 	if err := i.call(ctx, "/v2/oauth2", "", form, &b); err != nil {
 		return tokens{}, err

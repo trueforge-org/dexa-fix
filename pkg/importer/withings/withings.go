@@ -31,7 +31,11 @@ const refreshMargin = time.Minute
 
 // Importer imports Withings measurements.
 type Importer struct {
-	cfg  Config
+	base Config // from the server configuration
+
+	cfgMu sync.RWMutex
+	cfg   Config // base with any credentials saved by an administrator
+
 	http *http.Client
 	now  func() time.Time
 	mu   sync.Mutex // refresh tokens are single use, so refreshes must not race
@@ -40,6 +44,7 @@ type Importer struct {
 var (
 	_ importer.Importer      = (*Importer)(nil)
 	_ importer.OAuthProvider = (*Importer)(nil)
+	_ importer.Configurable  = (*Importer)(nil)
 )
 
 // New returns an importer for the given application settings. A nil client uses a 30s timeout.
@@ -47,7 +52,7 @@ func New(cfg Config, client *http.Client) *Importer {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Importer{cfg: cfg, http: client, now: time.Now}
+	return &Importer{base: cfg, cfg: cfg, http: client, now: time.Now}
 }
 
 // Name returns the provider name.
@@ -55,11 +60,43 @@ func (*Importer) Name() string { return Name }
 
 // Configured reports whether client credentials and a redirect URL are set.
 func (i *Importer) Configured() bool {
-	return i != nil && i.cfg.ClientID != "" && i.cfg.ClientSecret != "" && i.cfg.RedirectURL != ""
+	if i == nil {
+		return false
+	}
+	c := i.config()
+	return c.ClientID != "" && c.ClientSecret != "" && c.RedirectURL != ""
+}
+
+func (i *Importer) config() Config {
+	i.cfgMu.RLock()
+	defer i.cfgMu.RUnlock()
+	return i.cfg
+}
+
+// BaseCredentials returns the credentials from the server configuration.
+func (i *Importer) BaseCredentials() importer.Credentials {
+	return importer.Credentials{ClientID: i.base.ClientID, ClientSecret: i.base.ClientSecret, RedirectURL: i.base.RedirectURL}
+}
+
+// SetCredentials applies overrides; an empty field falls back to the server configuration.
+func (i *Importer) SetCredentials(c importer.Credentials) {
+	next := i.base
+	if c.ClientID != "" {
+		next.ClientID = c.ClientID
+	}
+	if c.ClientSecret != "" {
+		next.ClientSecret = c.ClientSecret
+	}
+	if c.RedirectURL != "" {
+		next.RedirectURL = c.RedirectURL
+	}
+	i.cfgMu.Lock()
+	defer i.cfgMu.Unlock()
+	i.cfg = next
 }
 
 // AuthURL returns the Withings authorisation URL.
-func (i *Importer) AuthURL(state string) string { return i.cfg.authURL(state) }
+func (i *Importer) AuthURL(state string) string { return i.config().authURL(state) }
 
 // Connected reports whether the user has linked a Withings account.
 func (i *Importer) Connected(ctx context.Context, st store.Store, userID int64) bool {
@@ -75,7 +112,7 @@ func (i *Importer) Connect(ctx context.Context, st store.Store, userID int64, co
 	t, err := i.requestToken(ctx, url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
-		"redirect_uri": {i.cfg.RedirectURL},
+		"redirect_uri": {i.config().RedirectURL},
 	})
 	if err != nil {
 		return err

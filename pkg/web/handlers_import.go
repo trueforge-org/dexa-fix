@@ -178,6 +178,7 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 		if err == nil {
 			idStr, state, found = strings.Cut(c.Value, ".")
 		}
+		cu := currentUser(r)
 		got := r.URL.Query().Get("state")
 		if !found || state == "" || subtle.ConstantTimeCompare([]byte(state), []byte(got)) != 1 {
 			http.Error(w, "invalid or expired state, start the connection again", http.StatusBadRequest)
@@ -188,11 +189,11 @@ func (s *Server) integrationRoutes(mux *http.ServeMux) {
 			http.Error(w, "invalid state", http.StatusBadRequest)
 			return
 		}
-		u, err := s.store.GetUser(r.Context(), id)
-		if err != nil {
-			s.fail(w, err)
+		if cu == nil || cu.ID != id { // the account must be linked by the user who started the flow
+			http.Error(w, "sign in as the user who started the connection", http.StatusForbidden)
 			return
 		}
+		u := *cu
 		if e := r.URL.Query().Get("error"); e != "" {
 			flashRedirect(w, r, u.ID, label(name)+" connection was not authorised.")
 			return

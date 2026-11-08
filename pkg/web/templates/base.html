@@ -23,8 +23,11 @@
       <a href="/u/{{.User.ID}}/dexa"{{if eq .Tab "dexa"}} class="active" aria-current="page"{{end}}>DEXA scans</a>
       <a href="/u/{{.User.ID}}/scale"{{if eq .Tab "scale"}} class="active" aria-current="page"{{end}}>Scale</a>
       <a href="/u/{{.User.ID}}/settings"{{if eq .Tab "settings"}} class="active" aria-current="page"{{end}}>Settings</a>
+      {{if .User.IsAdmin}}<a href="/admin"{{if eq .Tab "admin"}} class="active" aria-current="page"{{end}}>Admin</a>{{end}}
     </nav>
-    <a class="who" href="/" title="Switch user"><span class="avatar" aria-hidden="true">{{initial .User.Name}}</span>{{.User.Name}}</a>
+    <div class="who"><span class="avatar" aria-hidden="true">{{initial .User.Name}}</span>{{.User.Name}}
+      <form method="post" action="/logout"><button type="submit" class="ghost">Sign out</button></form>
+    </div>
     {{end}}
   </div>
 </header>

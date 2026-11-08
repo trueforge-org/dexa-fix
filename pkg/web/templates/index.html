@@ -1,18 +1,38 @@
 {{define "content"}}
-<div class="card welcome">
-  <div>
-    <h1>Who are you?</h1>
-    <small>Pick your profile, or add a new one.</small>
+{{with .Login}}
+<div class="login-stack">
+  <div class="card welcome">
+    <div>
+      <h1>Sign in</h1>
+      <small>{{if .FirstUser}}Create the first account below. It becomes the administrator.{{else}}Welcome back to dexa-fix.{{end}}</small>
+    </div>
+    {{if .Providers}}<div class="provider-buttons">{{range .Providers}}<a class="button secondary" href="/auth/{{.Slug}}/login">Continue with {{.Label}}</a>{{end}}</div>{{end}}
+    {{if .PasswordEnabled}}{{if not .FirstUser}}
+    <form method="post" action="/login" class="fields">
+      <label>Name <input type="text" name="name" maxlength="64" required autocomplete="username"></label>
+      <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+      <button type="submit">Sign in</button>
+    </form>
+    {{end}}{{else if not .Providers}}<p class="help">No sign-in method is available. Ask your administrator.</p>{{end}}
   </div>
-  {{if .Users}}
-  <ul class="users">
-    {{range .Users}}<li><a href="/u/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .Name}}</span>{{.Name}}</a></li>{{end}}
-  </ul>
-  {{else}}<p>No users yet. Add the first one below.</p>{{end}}
-  <h2>New user</h2>
-  <form method="post" action="/users" class="inline">
-    <input type="text" name="name" placeholder="Name" maxlength="64" required aria-label="Name">
-    <button type="submit">Add</button>
+  {{if .ClaimName}}
+  <form method="post" action="/claim" class="card fields">
+    <h2>Set up the administrator</h2>
+    <p class="help">This database has an administrator without a password: <strong>{{.ClaimName}}</strong>. Whoever sets a password here takes over that account.</p>
+    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>Repeat password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <button type="submit">Claim {{.ClaimName}}</button>
   </form>
+  {{end}}
+  {{if and .PasswordEnabled .SignupOpen}}
+  <form method="post" action="/signup" class="card fields">
+    <h2>Create an account</h2>
+    <label>Name <input type="text" name="name" maxlength="64" required autocomplete="username"></label>
+    <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>Repeat password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <button type="submit" class="secondary">Create account</button>
+  </form>
+  {{end}}
 </div>
+{{end}}
 {{end}}

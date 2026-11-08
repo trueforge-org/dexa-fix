@@ -1,0 +1,127 @@
+{{define "content"}}
+<div class="page-head"><h1>Admin settings</h1></div>
+{{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
+{{$me := .User}}
+{{with .Admin}}
+<section class="card" id="status">
+  <h2>Server status</h2>
+  <dl class="stats">
+    <div><dt>Version</dt><dd>{{.Version}}</dd></div>
+    <div><dt>Go</dt><dd>{{.GoVersion}}</dd></div>
+    <div><dt>Database</dt><dd>{{.Status.Driver}}, schema {{.Status.SchemaVersion}}</dd></div>
+    <div><dt>Users</dt><dd>{{.Status.Users}} ({{.Status.Admins}} admin)</dd></div>
+    <div><dt>DEXA scans</dt><dd>{{.Status.DexaScans}}</dd></div>
+    <div><dt>Scale readings</dt><dd>{{.Status.ScaleReadings}}</dd></div>
+    <div><dt>Active sessions</dt><dd>{{.Status.Sessions}}</dd></div>
+    <div><dt>Access tokens</dt><dd>{{.Status.AccessTokens}}</dd></div>
+    <div><dt>Withings</dt><dd>{{if .Withings.Configured}}Configured{{else}}Not set up{{end}}</dd></div>
+  </dl>
+</section>
+
+<section class="card flush" id="users">
+  <div class="card-head"><h2>Users</h2></div>
+  <div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Role</th><th>Sign-in</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody>{{range .Users}}<tr>
+      <td>{{.Name}}{{if .Self}} <small>you</small>{{end}}</td>
+      <td>{{if .Admin}}<span class="status on">Admin</span>{{else}}<span class="status">User</span>{{end}}</td>
+      <td>{{.SignIn}}</td>
+      <td>{{.Created}}</td>
+      <td><div class="row-actions">
+        <form method="post" action="/admin/users/{{.ID}}/role"><input type="hidden" name="role" value="{{if .Admin}}user{{else}}admin{{end}}"><button class="secondary" type="submit">{{if .Admin}}Remove admin{{else}}Make admin{{end}}</button></form>
+        <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Name}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
+        {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Delete {{.Name}} and all their data? This cannot be undone.')"><button class="link" type="submit">Delete</button></form>{{end}}
+      </div></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  <form method="post" action="/admin/users" class="add-user">
+    <div class="form-row">
+      <label>New user's name <input type="text" name="name" maxlength="64" required autocomplete="off"></label>
+      <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+      <div><button type="submit">Add user</button></div>
+    </div>
+  </form>
+</section>
+
+<section class="card" id="registration">
+  <div class="card-head">
+    <h2>New accounts</h2>
+    {{if .SignupOpen}}<span class="status on">Open</span>{{else}}<span class="status">Closed</span>{{end}}
+  </div>
+  <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
+  <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></form>
+</section>
+
+<section class="card" id="signin">
+  <div class="card-head">
+    <h2>Password sign-in</h2>
+    {{if .PasswordEnabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+  </div>
+  {{if .PasswordForced}}<p class="notice">Password sign-in is being forced on by the server's <code>--force-password-login</code> option.</p>{{end}}
+  <p class="help">When off, people sign in through a provider below, and scripts use access tokens. Name and password no longer work, on the sign-in page or the API. To turn it off, first link your own account to a provider in Settings.</p>
+  <form method="post" action="/admin/password-login"><input type="hidden" name="enabled" value="{{if .PasswordEnabled}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .PasswordEnabled}}Turn off password sign-in{{else}}Turn on password sign-in{{end}}</button></form>
+</section>
+
+<section class="card" id="providers">
+  <h2>Sign-in providers</h2>
+  {{if .Providers}}<ul class="link-list">{{range .Providers}}<li>
+    <span><strong>{{.Label}}</strong> <small>{{.Kind}}{{if .AllowSignup}}, new accounts allowed{{end}}</small><br><small>Callback: <code>{{.CallbackURL}}</code></small></span>
+    <div class="row-actions"><a class="button secondary" href="/admin?edit={{.Slug}}#providers">Edit</a>
+    <form method="post" action="/admin/providers/{{.Slug}}/delete" onsubmit="return confirm('Remove {{.Label}}? Accounts lose this way of signing in.')"><button class="link" type="submit">Remove</button></form></div>
+  </li>{{end}}</ul>{{end}}
+  <form method="post" action="/admin/providers" class="provider-form section">
+    <h3>{{if .Editing}}Edit {{.Form.Label}}{{else}}Add a provider{{end}}</h3>
+    <p class="help">Register this server with the provider first, using the callback URL <code>https://your-host/auth/&lt;short name&gt;/callback</code>. Google's issuer is <code>https://accounts.google.com</code>. Apple needs only the fields shown when Apple is selected.</p>
+    <div class="form-row">
+      <label>Type <select name="kind">
+        <option value="oidc"{{if eq .Form.Kind "oidc"}} selected{{end}}>OpenID Connect (Google and others)</option>
+        <option value="apple"{{if eq .Form.Kind "apple"}} selected{{end}}>Sign in with Apple</option>
+        <option value="oauth2"{{if eq .Form.Kind "oauth2"}} selected{{end}}>Plain OAuth 2.0</option>
+      </select></label>
+      <label>Short name <input type="text" name="slug" value="{{.Form.Slug}}" maxlength="32" required pattern="[a-z0-9][a-z0-9\-]*" placeholder="google"{{if .Editing}} readonly{{end}}></label>
+      <label>Display name <input type="text" name="label" value="{{.Form.Label}}" required placeholder="Google"></label>
+    </div>
+    <div class="form-row">
+      <label class="not-apple not-oauth2">Issuer URL <input type="url" name="issuer" value="{{.Form.Issuer}}" placeholder="https://accounts.google.com"></label>
+      <label>Client ID <small>(Apple: Services ID)</small> <input type="text" name="client_id" value="{{.Form.ClientID}}" required autocomplete="off"></label>
+    </div>
+    <div class="form-row not-oidc not-oauth2">
+      <label>Apple team ID <input type="text" name="apple_team_id" value="{{.Form.AppleTeamID}}" autocomplete="off"></label>
+      <label>Apple key ID <input type="text" name="apple_key_id" value="{{.Form.AppleKeyID}}" autocomplete="off"></label>
+    </div>
+    <div class="form-row not-oidc not-apple">
+      <label>Authorisation URL <input type="url" name="auth_url" value="{{.Form.AuthURL}}"></label>
+      <label>Token URL <input type="url" name="token_url" value="{{.Form.TokenURL}}"></label>
+      <label>Userinfo URL <input type="url" name="userinfo_url" value="{{.Form.UserinfoURL}}"></label>
+      <label>Account ID field <input type="text" name="subject_claim" value="{{.Form.SubjectClaim}}" placeholder="sub"></label>
+    </div>
+    <label>Client secret <small>(Apple: contents of the .p8 key file){{if .Form.HasSecret}} Saved: leave empty to keep it.{{end}}</small>
+      <textarea name="client_secret" rows="2" autocomplete="off" spellcheck="false"></textarea></label>
+    <div class="form-row">
+      <label>Scopes <input type="text" name="scopes" value="{{.Form.Scopes}}" placeholder="Default for this type"></label>
+      <label>Name field <input type="text" name="name_claim" value="{{.Form.NameClaim}}" placeholder="preferred_username"></label>
+      <label class="check"><input type="checkbox" name="allow_signup" value="1"{{if .Form.AllowSignup}} checked{{end}}> Create accounts on first sign-in</label>
+    </div>
+    <div class="form-actions"><button type="submit">Save provider</button></div>
+  </form>
+</section>
+
+{{if .Withings.Available}}
+<form method="post" action="/admin/withings" class="card" id="withings">
+  <div class="card-head">
+    <h2>Withings application</h2>
+    {{if .Withings.Configured}}<span class="status on">Configured</span>{{else}}<span class="status">Not set up</span>{{end}}
+  </div>
+  <p class="help">Values saved here override the server's environment settings. Leave a field empty to use the environment value shown in it.</p>
+  <div class="form-row">
+    <label>Client ID <input type="text" name="client_id" value="{{.Withings.ClientID}}" placeholder="{{.Withings.BaseClientID}}" autocomplete="off"></label>
+    <label>Client secret <small>{{if .Withings.SecretSaved}}Saved: leave empty to keep it.{{else if .Withings.SecretInConfig}}Set in the environment.{{end}}</small>
+      <input type="password" name="client_secret" autocomplete="new-password"></label>
+    <label>Redirect URL <input type="url" name="redirect_url" value="{{.Withings.RedirectURL}}" placeholder="{{.Withings.BaseRedirectURL}}"></label>
+  </div>
+  {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
+  <div class="form-actions"><button type="submit">Save Withings settings</button></div>
+</form>
+{{end}}
+{{end}}
+{{end}}

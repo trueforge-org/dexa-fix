@@ -17,14 +17,24 @@ type rankRow struct {
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved string, status int) {
+	s.renderSettings(w, r, u, errMsg, saved, "", status)
+}
+
+func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int) {
 	rows := make([]rankRow, len(u.MethodRanking))
 	for i, k := range u.MethodRanking {
 		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
+	}
+	sec, err := s.securityView(r, u, newToken)
+	if err != nil {
+		s.fail(w, err)
+		return
 	}
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,
 		Withings: s.withingsView(r, u),
+		Security: sec,
 	})
 }
 

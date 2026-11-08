@@ -71,46 +71,83 @@ func orEmpty[T any](s []T) []T {
 	return s
 }
 
-// apiUser resolves {id} to a user, answering with a JSON error otherwise.
+// apiUser allows a request to act only on the authenticated user's own data.
 func (s *Server) apiUser(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u := currentUser(r)
+		if u == nil {
+			apiUnauthorized(w)
+			return
+		}
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if err != nil {
+		if err != nil || id != u.ID {
 			apiError(w, store.ErrNotFound)
 			return
 		}
-		u, err := s.store.GetUser(r.Context(), id)
-		if err != nil {
-			apiError(w, err)
-			return
-		}
-		h(w, r, u)
+		h(w, r, *u)
 	}
 }
 
+// apiAdmin restricts an endpoint to administrators.
+func (s *Server) apiAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := currentUser(r)
+		if u == nil {
+			apiUnauthorized(w)
+			return
+		}
+		if !u.IsAdmin() {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "administrator role required"})
+			return
+		}
+		h(w, r)
+	}
+}
+
+func apiUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="dexa-fix"`)
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+}
+
 func (s *Server) apiRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/users", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		us, err := s.store.ListUsers(r.Context())
 		if err != nil {
 			apiError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, orEmpty(us))
-	})
-	mux.HandleFunc("POST /api/v1/users", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("POST /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Name string `json:"name"`
+			Name     string `json:"name"`
+			Password string `json:"password"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		u, err := s.store.CreateUser(r.Context(), in.Name)
+		var (
+			u   models.User
+			err error
+		)
+		if in.Password == "" { // such a user signs in through a linked provider, or after an admin sets a password
+			u, err = s.store.CreateUser(r.Context(), in.Name)
+		} else {
+			if msg := validatePassword(in.Password, in.Password); msg != "" {
+				badRequest(w, msg)
+				return
+			}
+			var hash string
+			if hash, err = hashPassword(in.Password); err == nil {
+				u, err = s.store.CreateUserWithIdentity(r.Context(), in.Name, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+			}
+		}
 		if err != nil {
 			apiError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, u)
-	})
+	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/dexa-scans", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		scans, err := s.store.ListDexaScans(r.Context(), u.ID)

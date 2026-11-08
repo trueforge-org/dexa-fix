@@ -94,10 +94,7 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 		}
 		cals = append(cals, cr)
 	}
-	msg := r.URL.Query().Get("msg")
-	if len(msg) > maxFlashLen {
-		msg = msg[:maxFlashLen]
-	}
+	msg := flashParam(r)
 	data := pageData{
 		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
 		EstFields: estimate.Fields, EstRows: rows, Cals: cals, Msg: msg,

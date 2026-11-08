@@ -17,6 +17,10 @@ type CopyStats struct {
 	DexaScans    int
 	ScaleReads   int
 	Integrations int
+	Identities   int
+	AccessTokens int
+	Settings     int
+	Providers    int
 }
 
 // Copy transfers every row from src to dst, preserving ids. It works between any pair of backends.
@@ -36,7 +40,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 	if sv != dv {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
-	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil)} {
+	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil)} {
 		n, err := dst.db.NewSelect().Model(m).Count(ctx)
 		if err != nil {
 			return stats, fmt.Errorf("target: %w", err)
@@ -60,9 +64,22 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		if stats.Integrations, err = copyTable[integrationRow](ctx, src, tx, "user_id, provider"); err != nil {
 			return fmt.Errorf("user_integrations: %w", err)
 		}
+		// Sessions are not copied: they are short-lived, and users simply sign in again.
+		if stats.Identities, err = copyTable[identityRow](ctx, src, tx, "provider, subject"); err != nil {
+			return fmt.Errorf("user_identities: %w", err)
+		}
+		if stats.AccessTokens, err = copyTable[tokenRow](ctx, src, tx, "id"); err != nil {
+			return fmt.Errorf("access_tokens: %w", err)
+		}
+		if stats.Settings, err = copyTable[settingRow](ctx, src, tx, "name"); err != nil {
+			return fmt.Errorf("app_settings: %w", err)
+		}
+		if stats.Providers, err = copyTable[providerRow](ctx, src, tx, "slug"); err != nil {
+			return fmt.Errorf("auth_providers: %w", err)
+		}
 		if dst.driver == DriverPostgres {
 			// Explicit ids do not advance the serial sequences; align them so new inserts do not collide.
-			for _, table := range []string{"users", "dexa_scans", "scale_readings"} {
+			for _, table := range []string{"users", "dexa_scans", "scale_readings", "access_tokens"} {
 				q := fmt.Sprintf(`SELECT setval(pg_get_serial_sequence('%[1]s', 'id'), COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM %[1]s`, table)
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return fmt.Errorf("reset sequence %s: %w", table, err)

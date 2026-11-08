@@ -23,6 +23,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 
 func newServerWith(t *testing.T, wi *withings.Importer) (*httptest.Server, *http.Client) {
 	t.Helper()
+	ts, c, _ := newServerAndStore(t, wi)
+	return ts, c
+}
+
+func newServerAndStore(t *testing.T, wi *withings.Importer) (*httptest.Server, *http.Client, *sqlstore.Store) {
+	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +41,39 @@ func newServerWith(t *testing.T, wi *withings.Importer) (*httptest.Server, *http
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return ts, client
+	return ts, client, st
+}
+
+const testPassword = "correct horse"
+
+// cookieTransport sends a session cookie with every request of a client.
+type cookieTransport struct{ cookie *http.Cookie }
+
+func (ct cookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.AddCookie(ct.cookie)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// signup creates an account and makes the client act as it.
+func signup(t *testing.T, ts *httptest.Server, c *http.Client, name string) {
+	t.Helper()
+	resp := post(t, c, ts.URL+"/signup", url.Values{"name": {name}, "password": {testPassword}, "confirm": {testPassword}})
+	if resp.StatusCode != 303 {
+		t.Fatalf("signup %s: %d", name, resp.StatusCode)
+	}
+	useSession(t, c, resp)
+}
+
+func useSession(t *testing.T, c *http.Client, resp *http.Response) {
+	t.Helper()
+	for _, ck := range resp.Cookies() {
+		if ck.Name == sessionCookie && ck.MaxAge > 0 {
+			c.Transport = cookieTransport{ck}
+			return
+		}
+	}
+	t.Fatalf("no session cookie in %v", resp.Cookies())
 }
 
 func post(t *testing.T, c *http.Client, u string, form url.Values) *http.Response {
@@ -70,18 +108,9 @@ func body(t *testing.T, c *http.Client, u string) (int, string) {
 func TestUserAndMeasurementFlow(t *testing.T) {
 	ts, c := newTestServer(t)
 
-	if r := post(t, c, ts.URL+"/users", url.Values{"name": {"alice"}}); r.StatusCode != 303 || r.Header.Get("Location") != "/u/1" {
-		t.Fatalf("create user: %d %s", r.StatusCode, r.Header.Get("Location"))
-	}
-	// entering an existing name opens that user
-	if r := post(t, c, ts.URL+"/users", url.Values{"name": {"alice"}}); r.StatusCode != 303 || r.Header.Get("Location") != "/u/1" {
-		t.Fatalf("existing user: %d %s", r.StatusCode, r.Header.Get("Location"))
-	}
-	if r := post(t, c, ts.URL+"/users", url.Values{"name": {" "}}); r.StatusCode != 422 {
-		t.Fatalf("empty name: %d", r.StatusCode)
-	}
-	if code, b := body(t, c, ts.URL+"/"); code != 200 || !strings.Contains(b, "alice") {
-		t.Fatalf("index: %d", code)
+	signup(t, ts, c, "alice")
+	if code, _ := body(t, c, ts.URL+"/"); code != 303 {
+		t.Fatalf("index when signed in: %d", code)
 	}
 
 	r := post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"81,5"}, "muscle_mass_kg": {"30.2"}})
@@ -121,6 +150,7 @@ func TestUserAndMeasurementFlow(t *testing.T) {
 
 func TestUnknownUser(t *testing.T) {
 	ts, c := newTestServer(t)
+	signup(t, ts, c, "alice")
 	for _, p := range []string{"/u/99/dexa", "/u/99/scale", "/u/x/scale"} {
 		if code, _ := body(t, c, ts.URL+p); code != 404 {
 			t.Errorf("%s: %d", p, code)
@@ -133,7 +163,7 @@ func TestUnknownUser(t *testing.T) {
 
 func TestEstimatesPage(t *testing.T) {
 	ts, c := newTestServer(t)
-	post(t, c, ts.URL+"/users", url.Values{"name": {"bob"}})
+	signup(t, ts, c, "bob")
 	if code, b := body(t, c, ts.URL+"/u/1/estimates"); code != 200 || !strings.Contains(b, "No data yet") || strings.Contains(b, `id="overview"`) {
 		t.Fatalf("empty: %d", code)
 	}
@@ -155,7 +185,7 @@ func TestEstimatesPage(t *testing.T) {
 
 func TestWithingsNotSetUp(t *testing.T) {
 	ts, c := newTestServer(t)
-	post(t, c, ts.URL+"/users", url.Values{"name": {"bob"}})
+	signup(t, ts, c, "bob")
 	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Not set up") || !strings.Contains(b, "DEXAFIX_WITHINGS_CLIENT_ID") || strings.Contains(b, "/integrations/withings/connect") {
 		t.Errorf("settings should explain the missing setup:\n%s", b)
 	}
@@ -184,8 +214,12 @@ func TestAPI(t *testing.T) {
 		}
 		return resp.StatusCode, sb.String()
 	}
-	if code, b := do("GET", "/api/v1/users", ""); code != 200 || strings.TrimSpace(b) != "[]" {
-		t.Fatalf("empty users: %d %s", code, b)
+	if code, _ := do("GET", "/api/v1/users", ""); code != 401 {
+		t.Fatalf("users without sign-in: %d", code)
+	}
+	signup(t, ts, c, "admin")
+	if code, b := do("GET", "/api/v1/users", ""); code != 200 || !strings.Contains(b, `"name":"admin"`) || !strings.Contains(b, `"role":"admin"`) {
+		t.Fatalf("users: %d %s", code, b)
 	}
 	if code, _ := do("POST", "/api/v1/users", `{"name":"carol"}`); code != 201 {
 		t.Fatalf("create: %d", code)
@@ -278,7 +312,7 @@ func fakeWithingsAPI(t *testing.T) *httptest.Server {
 func TestWithingsFlow(t *testing.T) {
 	api := fakeWithingsAPI(t)
 	ts, c := newServerWith(t, withings.New(withings.Config{ClientID: "id", ClientSecret: "s", RedirectURL: "http://app/integrations/withings/callback", APIBase: api.URL}, nil))
-	post(t, c, ts.URL+"/users", url.Values{"name": {"dora"}})
+	signup(t, ts, c, "dora")
 
 	flash := func(resp *http.Response) string {
 		t.Helper()
@@ -393,7 +427,7 @@ func TestWithingsFlow(t *testing.T) {
 
 func TestMethodsAthleteModeAndSettings(t *testing.T) {
 	ts, c := newTestServer(t)
-	post(t, c, ts.URL+"/users", url.Values{"name": {"carol"}})
+	signup(t, ts, c, "carol")
 	api := func(method, path, payload string) (int, string) {
 		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(payload))
 		resp, err := c.Do(req)
