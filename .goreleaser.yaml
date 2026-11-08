@@ -48,6 +48,16 @@ signs:
       - "--bundle=${signature}"
       - "${artifact}"
 
+# Keyless signing of the container images and the multi-arch manifest.
+docker_signs:
+  - cmd: cosign
+    artifacts: all
+    output: true
+    args:
+      - sign
+      - "--yes"
+      - "${artifact}@${digest}"
+
 dockers:
   - id: amd64
     goos: linux

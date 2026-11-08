@@ -35,10 +35,15 @@ git push origin v1.0.0
   `checksums.txt`, a keyless cosign signature of it (`checksums.txt.sigstore.json`), SBOMs, and a
   changelog grouped by conventional-commit prefix;
 - a multi-arch container image `ghcr.io/trueforge-org/dexa-fix` tagged `X.Y.Z`, `X.Y` and `latest`
-  (pre-releases only get the full version tag);
+  (pre-releases only get the full version tag), keyless-signed with cosign (the images and the
+  manifest), on a base image pinned by digest;
 - build provenance attestations for the release artifacts.
 
 Run the Release workflow manually (workflow_dispatch) for a dry run that builds a snapshot only.
+
+Every third-party action is pinned to a commit SHA with its version in a comment, because the
+release job holds write and signing permissions. Dependabot (github-actions and docker) proposes
+the updates. The GoReleaser version in `release.yaml` is pinned too and is bumped by hand.
 
 ### Container
 

@@ -1,6 +1,7 @@
 # Goreleaser-friendly image: the prebuilt static binary is copied in (no build stage).
 # To build by hand: go build -o dexa-fix . && docker build -t dexa-fix .
-FROM gcr.io/distroless/static-debian12:nonroot
+# Pinned by digest (the tag is nonroot); the docker Dependabot ecosystem keeps it current.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 COPY dexa-fix /dexa-fix
 
