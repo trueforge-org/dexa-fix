@@ -320,6 +320,10 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	return out, nil
 }
 
+func (s *Store) HasUsers(ctx context.Context) (bool, error) {
+	return s.db.NewSelect().Model((*userRow)(nil)).Exists(ctx)
+}
+
 func (s *Store) GetUser(ctx context.Context, id int64) (models.User, error) {
 	var row userRow
 	if err := s.db.NewSelect().Model(&row).Where("id = ?", id).Scan(ctx); err != nil {

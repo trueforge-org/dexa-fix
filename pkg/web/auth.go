@@ -261,7 +261,9 @@ func (s *Server) passwordEnabled(ctx context.Context) bool {
 	}
 	v, err := s.store.GetSetting(ctx, settingPasswordOn)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		// Fail closed: a database error must not re-enable a sign-in method an admin turned off.
 		log.Error().Err(err).Msg("read password login setting")
+		return false
 	}
 	return v != valueDisabled
 }
@@ -275,8 +277,8 @@ func (s *Server) signupOpen(ctx context.Context) (bool, error) {
 	if err != nil || v == valueEnabled {
 		return v == valueEnabled, err
 	}
-	users, err := s.store.ListUsers(ctx)
-	return len(users) == 0, err
+	has, err := s.store.HasUsers(ctx)
+	return !has, err
 }
 
 // ---- tokens and cookies ----
@@ -386,7 +388,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg string, status int) {
 	ctx := r.Context()
-	users, err := s.store.ListUsers(ctx)
+	hasUsers, err := s.store.HasUsers(ctx)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -396,7 +398,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		s.fail(w, err)
 		return
 	}
-	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: len(users) == 0}
+	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers}
 	for _, p := range providers {
 		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
 	}

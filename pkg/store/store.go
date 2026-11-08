@@ -84,6 +84,8 @@ type Store interface {
 	// the new user's id, and an e-mail address already in use returns ErrExists.
 	CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
+	// HasUsers reports whether any user exists, without loading or decrypting them.
+	HasUsers(ctx context.Context) (bool, error)
 	GetUser(ctx context.Context, id int64) (models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (models.User, error)
 	// UpdateUserProfile stores the name, e-mail address and height (nil clears it). An e-mail
@@ -132,6 +134,8 @@ type Store interface {
 	DeleteIdentity(ctx context.Context, userID int64, provider string) error
 	// ListUserIdentities returns one user's identities, oldest first. Secret is always empty.
 	ListUserIdentities(ctx context.Context, userID int64) ([]models.Identity, error)
+	// UserProviders returns the provider names of one user's identities, in name order.
+	UserProviders(ctx context.Context, userID int64) ([]string, error)
 	// IdentityProviders returns the provider names of every user's identities.
 	IdentityProviders(ctx context.Context) (map[int64][]string, error)
 

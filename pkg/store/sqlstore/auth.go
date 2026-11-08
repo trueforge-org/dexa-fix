@@ -221,9 +221,16 @@ func (s *Store) DeleteIdentity(ctx context.Context, userID int64, provider strin
 	return err
 }
 
+func (s *Store) UserProviders(ctx context.Context, userID int64) ([]string, error) {
+	var out []string
+	err := s.db.NewSelect().Model((*identityRow)(nil)).Column("provider").Where("user_id = ?", userID).OrderExpr("provider").Scan(ctx, &out)
+	return out, err
+}
+
 func (s *Store) IdentityProviders(ctx context.Context) (map[int64][]string, error) {
 	var rows []identityRow
-	if err := s.db.NewSelect().Model(&rows).OrderExpr("provider").Scan(ctx); err != nil {
+	// Only the two columns used: the rest of the row holds the password hash.
+	if err := s.db.NewSelect().Model(&rows).Column("user_id", "provider").OrderExpr("provider").Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := map[int64][]string{}

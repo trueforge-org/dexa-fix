@@ -56,11 +56,10 @@ func dayOrDash(t *time.Time, none string) string {
 
 func (s *Server) securityView(r *http.Request, u models.User, newToken string) (*securityView, error) {
 	ctx := r.Context()
-	ids, err := s.store.IdentityProviders(ctx)
+	mine, err := s.store.UserProviders(ctx, u.ID)
 	if err != nil {
 		return nil, err
 	}
-	mine := ids[u.ID]
 	view := &securityView{PasswordEnabled: s.passwordEnabled(ctx), HasPassword: slices.Contains(mine, models.ProviderLocal), NewToken: newToken}
 	tokens, err := s.store.ListAccessTokens(ctx, u.ID)
 	if err != nil {
@@ -214,12 +213,12 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, u models.Us
 func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	provider := r.PathValue("provider")
-	ids, err := s.store.IdentityProviders(ctx)
+	mine, err := s.store.UserProviders(ctx, u.ID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	if !s.keepsSignIn(ctx, ids[u.ID], provider) {
+	if !s.keepsSignIn(ctx, mine, provider) {
 		settingsRedirect(w, r, u.ID, "Add another way to sign in before unlinking this account.")
 		return
 	}
