@@ -102,7 +102,7 @@ func (s *Store) GetUserByName(ctx context.Context, name string) (models.User, er
 	if err := s.db.NewSelect().Model(&row).Where("name = ?", name).Scan(ctx); err != nil {
 		return models.User{}, notFound(err)
 	}
-	return row.toModel(), nil
+	return s.userModel(&row)
 }
 
 func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error {
@@ -110,8 +110,12 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email
 	if name == "" || len(name) > 64 {
 		return fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
+	enc, err := s.encrypt(email, emailContext(userID))
+	if err != nil {
+		return err
+	}
 	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
-		Set("name = ?", name).Set("email = ?", email).Set("height_cm = ?", heightCm).
+		Set("name = ?", name).Set("email = ?", enc).Set("height_cm = ?", heightCm).
 		Where("id = ?", userID).Exec(ctx)
 	if err != nil {
 		if isUnique(err) {
@@ -212,7 +216,7 @@ func (s *Store) UserBySession(ctx context.Context, tokenHash string) (models.Use
 	if err != nil {
 		return models.User{}, notFound(err)
 	}
-	return row.toModel(), nil
+	return s.userModel(&row)
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
@@ -285,12 +289,16 @@ func (s *Store) GetSetting(ctx context.Context, name string) (string, error) {
 	if err := s.db.NewSelect().Model(&row).Where("name = ?", name).Scan(ctx); err != nil {
 		return "", notFound(err)
 	}
-	return row.Value, nil
+	return s.decrypt(row.Value, settingContext(name))
 }
 
 func (s *Store) PutSetting(ctx context.Context, name, value string) error {
-	row := settingRow{Name: name, Value: value, UpdatedAt: now()}
-	_, err := s.db.NewInsert().Model(&row).
+	enc, err := s.encrypt(value, settingContext(name))
+	if err != nil {
+		return err
+	}
+	row := settingRow{Name: name, Value: enc, UpdatedAt: now()}
+	_, err = s.db.NewInsert().Model(&row).
 		On("CONFLICT (name) DO UPDATE").
 		Set("value = EXCLUDED.value").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
 	return err
@@ -310,7 +318,11 @@ func (s *Store) ListAuthProviders(ctx context.Context) ([]models.AuthProvider, e
 	}
 	out := make([]models.AuthProvider, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, r.toModel())
+		p, err := s.providerModel(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }
@@ -320,10 +332,21 @@ func (s *Store) GetAuthProvider(ctx context.Context, slug string) (models.AuthPr
 	if err := s.db.NewSelect().Model(&row).Where("slug = ?", slug).Scan(ctx); err != nil {
 		return models.AuthProvider{}, notFound(err)
 	}
-	return row.toModel(), nil
+	return s.providerModel(row)
+}
+
+func (s *Store) providerModel(r providerRow) (models.AuthProvider, error) {
+	p := r.toModel()
+	var err error
+	p.ClientSecret, err = s.decrypt(r.ClientSecret, providerContext(r.Slug))
+	return p, err
 }
 
 func (s *Store) PutAuthProvider(ctx context.Context, p models.AuthProvider) error {
+	var err error
+	if p.ClientSecret, err = s.encrypt(p.ClientSecret, providerContext(p.Slug)); err != nil {
+		return err
+	}
 	row := providerRow{Slug: p.Slug, Label: p.Label, Kind: p.Kind, Issuer: p.Issuer, AuthURL: p.AuthURL, TokenURL: p.TokenURL,
 		UserinfoURL: p.UserinfoURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, AppleTeamID: p.AppleTeamID, AppleKeyID: p.AppleKeyID,
 		Scopes: p.Scopes, SubjectClaim: p.SubjectClaim, NameClaim: p.NameClaim, AllowSignup: p.AllowSignup, CreatedAt: now()}
@@ -332,7 +355,7 @@ func (s *Store) PutAuthProvider(ctx context.Context, p models.AuthProvider) erro
 		"apple_team_id", "apple_key_id", "scopes", "subject_claim", "name_claim", "allow_signup"} {
 		q = q.Set(col + " = EXCLUDED." + col)
 	}
-	_, err := q.Exec(ctx)
+	_, err = q.Exec(ctx)
 	return err
 }
 
@@ -356,7 +379,7 @@ func (s *Store) DeleteAuthProvider(ctx context.Context, slug string) error {
 
 // Stats counts the main tables.
 func (s *Store) Stats(ctx context.Context) (store.Stats, error) {
-	st := store.Stats{Driver: s.driver}
+	st := store.Stats{Driver: s.driver, Encrypted: s.cipher != nil}
 	var err error
 	if st.SchemaVersion, err = s.SchemaVersion(ctx); err != nil {
 		return st, err

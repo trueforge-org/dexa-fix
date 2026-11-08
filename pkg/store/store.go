@@ -23,6 +23,7 @@ var (
 // Stats summarises the contents of the database.
 type Stats struct {
 	Driver        string
+	Encrypted     bool // sensitive columns are encrypted
 	SchemaVersion int64
 	Users         int
 	Admins        int

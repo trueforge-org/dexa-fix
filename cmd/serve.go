@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +23,46 @@ import (
 
 // Version is the application version, set by main.
 var Version = "dev"
+
+// encryptionKeyEnv holds the encryption key directly. There is deliberately no flag for it, since
+// command lines are visible to other processes.
+const encryptionKeyEnv = "DEXAFIX_ENCRYPTION_KEY"
+
+// resolveEncryptionKey returns the key from the environment value, or else from the key file,
+// creating the file with a new random key if it does not exist.
+func resolveEncryptionKey(envValue, path string) (key []byte, created bool, err error) {
+	if envValue != "" {
+		key, err = sqlstore.ParseKey(envValue)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %w", encryptionKeyEnv, err)
+		}
+		return key, false, nil
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		key, err = sqlstore.ParseKey(string(data))
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %w", path, err)
+		}
+		return key, false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, false, err
+	}
+	key = make([]byte, sqlstore.KeySize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, false, fmt.Errorf("create encryption key file: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(hex.EncodeToString(key) + "\n"); err != nil {
+		return nil, false, fmt.Errorf("write encryption key file: %w", err)
+	}
+	return key, true, nil
+}
 
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -43,11 +86,23 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 		listen, _ := cmd.Flags().GetString("listen")
 		driver, dsn := dbFlags(cmd)
 		autoMigrate, _ := cmd.Flags().GetBool("auto-migrate")
+		keyFile, _ := cmd.Flags().GetString("encryption-key-file")
 
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		var opts []sqlstore.Option
+		key, created, err := resolveEncryptionKey(os.Getenv(encryptionKeyEnv), keyFile)
+		if err != nil {
+			return err
+		}
+		if created {
+			log.Warn().Str("file", keyFile).Msg("created a new encryption key: back it up, encrypted values cannot be read without it")
+		}
+		c, err := sqlstore.NewCipher(key)
+		if err != nil {
+			return err
+		}
+		opts := []sqlstore.Option{sqlstore.WithCipher(c)}
 		if !autoMigrate {
 			opts = append(opts, sqlstore.RequireMigrated())
 		}
@@ -99,5 +154,6 @@ func init() {
 	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "Withings OAuth client secret")
 	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
+	serveCmd.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing, unused when "+encryptionKeyEnv+" is set")
 	RootCmd.AddCommand(serveCmd)
 }

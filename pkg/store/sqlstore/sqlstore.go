@@ -32,6 +32,7 @@ const (
 type Store struct {
 	db     *bun.DB
 	driver string
+	cipher *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
 }
 
 var _ store.Store = (*Store)(nil)
@@ -44,7 +45,10 @@ const (
 	migrateRequire                    // fail if migrations are pending
 )
 
-type openConfig struct{ migrate migrateMode }
+type openConfig struct {
+	migrate migrateMode
+	cipher  *Cipher
+}
 
 // Option customises Open.
 type Option func(*openConfig)
@@ -87,7 +91,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		sqlDB.Close()
 		return nil, err
 	}
-	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver}
+	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, cipher: cfg.cipher}
 
 	switch cfg.migrate {
 	case migrateUp:
@@ -109,6 +113,12 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		if err != nil {
 			s.Close()
 			return nil, err
+		}
+	}
+	if cfg.cipher != nil && cfg.migrate != migrateSkip {
+		if err := s.encryptExisting(ctx); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("encrypt existing data: %w", err)
 		}
 	}
 	return s, nil
@@ -206,7 +216,11 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	}
 	var out []models.User
 	for i := range rows {
-		out = append(out, rows[i].toModel())
+		u, err := s.userModel(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
 	}
 	return out, nil
 }
@@ -219,7 +233,7 @@ func (s *Store) GetUser(ctx context.Context, id int64) (models.User, error) {
 		}
 		return models.User{}, err
 	}
-	return row.toModel(), nil
+	return s.userModel(&row)
 }
 
 // ---- dexa scans ----
@@ -343,12 +357,20 @@ func (s *Store) GetIntegration(ctx context.Context, userID int64, provider strin
 		}
 		return nil, err
 	}
-	return []byte(row.Data), nil
+	data, err := s.decrypt(row.Data, integrationContext(userID, provider))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(data), nil
 }
 
 func (s *Store) PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error {
-	row := integrationRow{UserID: userID, Provider: provider, Data: string(data), UpdatedAt: now()}
-	_, err := s.db.NewInsert().Model(&row).
+	enc, err := s.encrypt(string(data), integrationContext(userID, provider))
+	if err != nil {
+		return err
+	}
+	row := integrationRow{UserID: userID, Provider: provider, Data: enc, UpdatedAt: now()}
+	_, err = s.db.NewInsert().Model(&row).
 		On("CONFLICT (user_id, provider) DO UPDATE").
 		Set("data = EXCLUDED.data").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
 	if isFK(err) {

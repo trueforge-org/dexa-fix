@@ -9,6 +9,7 @@
     <div><dt>Version</dt><dd>{{.Version}}</dd></div>
     <div><dt>Go</dt><dd>{{.GoVersion}}</dd></div>
     <div><dt>Database</dt><dd>{{.Status.Driver}}, schema {{.Status.SchemaVersion}}</dd></div>
+    <div><dt>Encryption</dt><dd>{{if .Status.Encrypted}}On{{else}}Off{{end}}</dd></div>
     <div><dt>Users</dt><dd>{{.Status.Users}} ({{.Status.Admins}} admin)</dd></div>
     <div><dt>DEXA scans</dt><dd>{{.Status.DexaScans}}</dd></div>
     <div><dt>Scale readings</dt><dd>{{.Status.ScaleReadings}}</dd></div>

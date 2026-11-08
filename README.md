@@ -81,6 +81,8 @@ overrides the variable.
 | `--withings-client-secret` | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret.                    |
 | `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
+| `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing.     |
+| (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
 
 Other environment variables:
 
@@ -143,6 +145,10 @@ The target is migrated to the latest schema and must be empty. Ids are kept,
 and the Postgres sequences are reset so new rows do not collide. The copy is a
 single transaction, so a failure leaves the target untouched. The source is not
 changed, but it must already be fully migrated (`db migrate up`).
+
+`db copy` copies encrypted values unchanged, so the target database needs the
+same encryption key as the source. Give the server that starts on the target
+the same `DEXAFIX_ENCRYPTION_KEY` or key file. See [Encryption](#encryption).
 
 ## Using the app
 
@@ -245,11 +251,45 @@ go run . serve --force-password-login
 
 The same is set with `DEXAFIX_FORCE_PASSWORD_LOGIN=true`.
 
+### Encryption
+
+These values are encrypted with AES-256-GCM before they are stored:
+
+- each user's Withings tokens
+- sign-in provider secrets, including the Apple key
+- Withings application credentials and other server settings
+- e-mail addresses
+
+Each value is tied to its row, so copying it to another row makes it unreadable.
+Passwords and access tokens were already stored only as hashes. Measurements,
+height and names are not encrypted by the application. For those, use disk or
+database encryption.
+
+The key comes from one of these, in this order:
+
+1. The environment variable `DEXAFIX_ENCRYPTION_KEY`: 32 bytes as 64
+   hexadecimal characters or as base64. There is no command-line flag for it.
+2. The key file set with `--encryption-key-file` or
+   `DEXAFIX_ENCRYPTION_KEY_FILE`. The default is `dexa-fix.key` in the working
+   directory.
+
+If the variable is not set and the key file does not exist, dexa-fix creates
+the file with a new random key and mode 0600.
+
+In containers, put the key file on a persistent volume, or set
+`DEXAFIX_ENCRYPTION_KEY`. A new key cannot read values encrypted with an old
+one. Values stored before encryption are encrypted automatically at startup.
+
+Back up the key separately from the database. Without it, the encrypted values
+cannot be read, and the server does not start, because a server setting can no
+longer be read. Keeping the key next to database backups defeats the purpose.
+There is no built-in key rotation.
+
 ### Storage and rate limiting
 
-Provider secrets and Withings credentials are stored unencrypted in the
-database. Protect the database and its backups. Sign-in attempts are not rate
-limited. On a public deployment, limit them at a reverse proxy.
+Some values are encrypted in the database. See [Encryption](#encryption) for
+which ones and how to manage the key. Sign-in attempts are not rate limited.
+On a public deployment, limit them at a reverse proxy.
 
 ## Withings import
 
@@ -536,9 +576,10 @@ buttons there.
 
 - **Sign-in attempts are not rate limited.** On a public deployment, limit them
   at a reverse proxy. See [Storage and rate limiting](#storage-and-rate-limiting).
-- **Secrets are stored unencrypted.** Withings tokens (in the `user_integrations`
-  table), provider secrets and Withings credentials are not encrypted. Protect
-  the database file or Postgres database and its backups.
+- **Measurements, height and names are not encrypted.** Protect the database
+  file or Postgres database and its backups with disk or database encryption.
+  Losing the encryption key makes the encrypted values unreadable. See
+  [Encryption](#encryption).
 - **Behind a proxy.** The OAuth state cookie is marked `Secure` only when the
   app itself serves HTTPS, so the proxy should enforce HTTPS. The Withings
   redirect URL must be the public URL.
