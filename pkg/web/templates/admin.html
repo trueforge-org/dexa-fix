@@ -126,12 +126,12 @@
     <h2>Withings application {{help "withings-app"}}</h2>
     {{if .Withings.Configured}}<span class="status on">Configured</span>{{else}}<span class="status">Not set up</span>{{end}}
   </div>
-  <p class="help">Values saved here override the server's environment settings. Leave a field empty to use the environment value shown in it.</p>
+  <p class="help">Create an application at Withings and enter its credentials here. They are stored encrypted. Register the redirect URL below with Withings; leave it empty to use this server's address.</p>
   <div class="form-row">
-    <label>Client ID <input type="text" name="client_id" value="{{.Withings.ClientID}}" placeholder="{{.Withings.BaseClientID}}" autocomplete="off"></label>
-    <label>Client secret <small>{{if .Withings.SecretSaved}}Saved: leave empty to keep it.{{else if .Withings.SecretInConfig}}Set in the environment.{{end}}</small>
+    <label>Client ID <input type="text" name="client_id" value="{{.Withings.ClientID}}" autocomplete="off"></label>
+    <label>Client secret <small>{{if .Withings.SecretSaved}}Saved: leave empty to keep it.{{end}}</small>
       <input type="password" name="client_secret" autocomplete="new-password"></label>
-    <label>Redirect URL <input type="url" name="redirect_url" value="{{.Withings.RedirectURL}}" placeholder="{{.Withings.BaseRedirectURL}}"></label>
+    <label>Redirect URL <input type="url" name="redirect_url" value="{{.Withings.RedirectURL}}" placeholder="{{.Withings.DefaultRedirect}}"></label>
   </div>
   {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
   <div class="form-actions"><button type="submit">Save Withings settings</button></div>

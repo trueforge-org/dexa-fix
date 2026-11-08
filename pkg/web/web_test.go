@@ -217,7 +217,7 @@ func TestEstimatesPage(t *testing.T) {
 func TestWithingsNotSetUp(t *testing.T) {
 	ts, c := newTestServer(t)
 	signup(t, ts, c, "bob")
-	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Not set up") || !strings.Contains(b, "DEXAFIX_WITHINGS_CLIENT_ID") || strings.Contains(b, "/integrations/withings/connect") {
+	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "Not set up") || strings.Contains(b, "DEXAFIX_WITHINGS") || strings.Contains(b, "/integrations/withings/connect") {
 		t.Errorf("settings should explain the missing setup:\n%s", b)
 	}
 	if _, b := body(t, c, ts.URL+"/u/1/estimates"); !strings.Contains(b, "Set up Withings") || strings.Contains(b, "/integrations/withings/connect") {

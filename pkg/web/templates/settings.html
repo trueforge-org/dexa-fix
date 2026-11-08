@@ -62,7 +62,7 @@
   <p class="help">Link your Withings account to import your scale measurements instead of typing them in. You will be sent to Withings to grant access.</p>
   <div class="integration"><a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a></div>
   {{else}}
-  <p class="help">Withings import is not set up on this server yet. An administrator needs to create a Withings application and add its credentials on the {{if $.User.IsAdmin}}<a href="/admin#withings">Admin page</a>{{else}}Admin page{{end}}, or set <code>DEXAFIX_WITHINGS_CLIENT_ID</code> and <code>DEXAFIX_WITHINGS_CLIENT_SECRET</code> on the server.</p>
+  <p class="help">Withings import is not set up on this server yet. An administrator needs to create a Withings application and add its credentials on the {{if $.User.IsAdmin}}<a href="/admin#withings">Admin page</a>{{else}}Admin page{{end}}.</p>
   <div class="integration"><button type="button" disabled>Connect Withings</button></div>
   {{end}}
 </section>

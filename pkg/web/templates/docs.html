@@ -271,9 +271,9 @@
 <h4 id="withings-setup">Setup (administrator)</h4>
 <ol>
   <li>In the Withings developer dashboard create an application and register the callback URL, for example <code>https://dexa.example.com/integrations/withings/callback</code>.</li>
-  <li>Give the server the credentials: either in the <a href="#withings-app">Withings application</a> card on the Admin page, or with <code>DEXAFIX_WITHINGS_CLIENT_ID</code>, <code>DEXAFIX_WITHINGS_CLIENT_SECRET</code> (or <code>--withings-client-secret-file</code>) and <code>DEXAFIX_WITHINGS_REDIRECT_URL</code>. Values saved on the Admin page override the environment.</li>
+  <li>As an administrator, enter the client id and secret in the <a href="#withings-app">Withings application</a> card on the Admin page. They are stored encrypted. The redirect URL defaults to this server's own callback address. Withings is configured only there; the old <code>DEXAFIX_WITHINGS_*</code> variables are ignored with a warning.</li>
 </ol>
-<p>Connecting works only when client id, secret and redirect URL are all set. The redirect URL has a local default (<code>http://localhost:8080/...</code>), so set it to the public URL registered with Withings for any real deployment.</p>
+<p>Connecting works only when client id, secret and redirect URL are all set.</p>
 <h4 id="withings-import">Connecting and importing (user)</h4>
 <ol>
   <li>On the Settings or Estimates page choose <strong>Connect Withings</strong> and grant access. Finish within 10 minutes.</li>
@@ -373,10 +373,6 @@
     <tr><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Database connection string. A string that contains a password is rejected on the command line; use the environment variable or <code>--dsn-file</code>.</td></tr>
     <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
     <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
-    <tr><td><code>--withings-client-id</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_ID</code></td><td>empty</td><td>Withings application client id.</td></tr>
-    <tr><td>(no flag)</td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET</code></td><td>empty</td><td>Withings client secret. Secrets are never accepted as flags. A hidden <code>--withings-client-secret</code> flag is still registered, but passing it makes <code>serve</code> fail with an error. If <code>--withings-client-secret-file</code> is also given, the file is used and the flag is ignored.</td></tr>
-    <tr><td><code>--withings-client-secret-file</code></td><td><code>DEXAFIX_WITHINGS_CLIENT_SECRET_FILE</code></td><td>empty</td><td>File holding the Withings client secret.</td></tr>
-    <tr><td><code>--withings-redirect-url</code></td><td><code>DEXAFIX_WITHINGS_REDIRECT_URL</code></td><td><code>http://localhost:8080/integrations/withings/callback</code></td><td>Callback URL registered with Withings. Set it to the public URL.</td></tr>
     <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever. An invalid <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> (not a whole number, or negative) is ignored without a warning, and 365 is used.</td></tr>
     <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
     <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
@@ -442,7 +438,7 @@ dexa.example.com {
 traefik.http.routers.dexa.rule=Host(`dexa.example.com`)
 traefik.http.routers.dexa.tls=true
 traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
-<p class="docs-warn">dexa-fix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, <code>--withings-redirect-url</code> has to be the public callback address.</p>
+<p class="docs-warn">dexa-fix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, the redirect URL on the Admin page has to be the public callback address.</p>
 </section>
 
 <section id="database">
@@ -572,7 +568,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
   <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
   <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>
-  <li><strong>Behind a proxy</strong> the proxy should enforce HTTPS, and <code>--withings-redirect-url</code> must be the public URL. Only trust proxy ranges that nothing else can send from.</li>
+  <li><strong>Behind a proxy</strong> the proxy should enforce HTTPS, and the Withings redirect URL on the Admin page must be the public URL. Only trust proxy ranges that nothing else can send from.</li>
   <li><strong>The database file</strong> is created with mode <code>0600</code>; a warning is logged if an existing one is group or world readable. Keep the key file at <code>0600</code> as well.</li>
   <li><strong>Tokens</strong> are shown once and stored hashed; revoke any you no longer use. Prefer expiring tokens.</li>
   <li>This is a measurement tool, not a medical device. Estimates correct a scale by a DEXA offset and say nothing about health.</li>

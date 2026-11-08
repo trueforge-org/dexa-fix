@@ -64,10 +64,8 @@ type adminWithings struct {
 	Configured      bool
 	ClientID        string
 	RedirectURL     string
-	BaseClientID    string
-	BaseRedirectURL string
+	DefaultRedirect string // used when the field is left empty
 	SecretSaved     bool
-	SecretInConfig  bool
 }
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
@@ -134,7 +132,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 	view := &adminView{
 		Status: stats, Version: s.Version, GoVersion: runtime.Version(),
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
-		Withings: s.adminWithingsView(ctx),
+		Withings: s.adminWithingsView(r),
 		Form:     adminProvider{AuthProvider: models.AuthProvider{Kind: models.ProviderKindOIDC}},
 	}
 	if view.SignupOpen, err = s.signupOpen(ctx); err != nil {
@@ -545,18 +543,22 @@ func (s *Server) applyWithingsCredentials(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) adminWithingsView(ctx context.Context) adminWithings {
-	c, ok := s.withingsConfigurable()
-	if !ok {
+// withingsCallback is this server's Withings OAuth callback URL, the one to register with Withings.
+func withingsCallback(r *http.Request) string {
+	return externalURL(r, "/integrations/withings/callback")
+}
+
+func (s *Server) adminWithingsView(r *http.Request) adminWithings {
+	ctx := r.Context()
+	if _, ok := s.withingsConfigurable(); !ok {
 		return adminWithings{}
 	}
-	base := c.BaseCredentials()
 	id, _ := s.settingOrEmpty(ctx, settingWithingsClientID)
 	secret, _ := s.settingOrEmpty(ctx, settingWithingsSecret)
 	redirect, _ := s.settingOrEmpty(ctx, settingWithingsRedirect)
 	v := adminWithings{
-		Available: true, ClientID: id, RedirectURL: redirect, BaseClientID: base.ClientID, BaseRedirectURL: base.RedirectURL,
-		SecretSaved: secret != "", SecretInConfig: base.ClientSecret != "",
+		Available: true, ClientID: id, RedirectURL: redirect, DefaultRedirect: withingsCallback(r),
+		SecretSaved: secret != "",
 	}
 	if p, ok := s.oauthProvider(providerWithings); ok {
 		v.Configured = p.Configured()
@@ -580,6 +582,9 @@ func (s *Server) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ mod
 	if redirect != "" && !validProviderURL(redirect) {
 		adminRedirect(w, r, "The redirect URL must use https, or http on localhost.")
 		return
+	}
+	if redirect == "" && id != "" {
+		redirect = withingsCallback(r) // this server's own callback, as the browser reaches it
 	}
 	err := save(settingWithingsClientID, id)
 	if err == nil {

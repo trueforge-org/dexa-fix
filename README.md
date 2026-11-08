@@ -99,10 +99,6 @@ overrides the variable.
 | `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
 | `--dsn-file`               | `DEXAFIX_DSN_FILE`               | empty                                                                 | File holding the connection string. |
 | `--auto-migrate`            | `DEXAFIX_AUTO_MIGRATE`           | `true`                                                                | Apply pending migrations on startup; when `false`, `serve` fails if any are pending. |
-| `--withings-client-id`     | `DEXAFIX_WITHINGS_CLIENT_ID`     | empty                                                                 | Withings application client id.                        |
-| (none)                     | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret. Never a flag. |
-| `--withings-client-secret-file` | `DEXAFIX_WITHINGS_CLIENT_SECRET_FILE` | empty                                                    | File holding the Withings client secret. |
-| `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
 | `--trusted-proxies`        | `DEXAFIX_TRUSTED_PROXIES`        | empty                                                                 | Reverse proxies whose `X-Forwarded-*` headers are believed. See [Running behind a reverse proxy](#running-behind-a-reverse-proxy). |
 | `--base-url`               | `DEXAFIX_BASE_URL`               | empty                                                                 | Public address, such as `https://dexa.example.com`. |
 | `--audit-retention-days`   | `DEXAFIX_AUDIT_RETENTION_DAYS`   | `365`                                                                 | Delete audit log events, and the IP addresses in them, after this many days. `0` keeps them forever. |
@@ -133,9 +129,8 @@ go run . serve --db-driver postgres
 
 **Secrets are never accepted as command-line flags**, because other users of the
 machine can read them with `ps` and shells keep them in their history. A
-connection string with a password, and the Withings client secret, come from
-the environment or from a file (`--dsn-file`, `--from-dsn-file`,
-`--to-dsn-file`, `--withings-client-secret-file`, or the matching
+connection string with a password comes from the environment or from a file
+(`--dsn-file`, `--from-dsn-file`, `--to-dsn-file`, or the matching
 `DEXAFIX_*_FILE` variables), which works well with Docker and Kubernetes
 secrets. A plain `--dsn file:path.db` without a password is fine. Passing a
 password in a flag makes the command fail with a message that says so. The
@@ -213,7 +208,7 @@ the network's range, or `private`. Only trust ranges that nothing but your
 proxies can send from.
 
 dexa-fix must be served from the root of its host. A sub-path such as
-`example.com/dexa/` is not supported. If you use Withings, `--withings-redirect-url`
+`example.com/dexa/` is not supported. If you use Withings, the redirect URL on the Admin page
 has to be the public callback address, for example
 `https://dexa.example.com/integrations/withings/callback`.
 
@@ -506,20 +501,15 @@ as scale readings with the source `withings`.
 1. In the Withings developer dashboard, create an application and register the
    callback URL, for example
    `https://dexa.example.com/integrations/withings/callback`.
-2. Give the server the application's credentials. Either enter them in the
-   Withings application section of the Admin page, or start the server with
-   environment variables:
-
-   ```bash
-   export DEXAFIX_WITHINGS_CLIENT_ID=...
-   export DEXAFIX_WITHINGS_CLIENT_SECRET=...
-   export DEXAFIX_WITHINGS_REDIRECT_URL=https://dexa.example.com/integrations/withings/callback
-   ```
-
-   Values saved on the Admin page override the environment variables. Connecting
-   is possible only when all three are set. Until then, the Settings page shows
-   Withings as not set up. The redirect URL has a local default, so set it
-   explicitly for any public deployment, to the URL registered with Withings.
+2. As an administrator, enter the application's client id and secret in the
+   Withings application section of the Admin page. They are stored encrypted in
+   the database. The redirect URL defaults to this server's own callback
+   address, so set it explicitly only if the address Withings must use differs
+   (for example behind a proxy without `--base-url`). Connecting is possible
+   only when all three are set; until then the Settings page shows Withings as
+   not set up. Withings is configured only on the Admin page: the old
+   `DEXAFIX_WITHINGS_*` variables and flags no longer exist and are ignored with
+   a warning.
 3. On the estimates or Settings page, choose **Connect Withings** and grant
    access. Finish within 10 minutes, the lifetime of the connection state.
 4. Choose **Import from Withings**.

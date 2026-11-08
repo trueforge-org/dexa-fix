@@ -88,11 +88,9 @@ var serveCmd = &cobra.Command{
 Each flag can also be set through an environment variable, such as DEXAFIX_LISTEN or DEXAFIX_DSN.
 A flag on the command line overrides its variable.
 Secrets are never accepted as flags: a connection string with a password goes in DEXAFIX_DSN or a
-file (--dsn-file), and the Withings client secret in DEXAFIX_WITHINGS_CLIENT_SECRET or a file
-(--withings-client-secret-file).
+file (--dsn-file).
 
-The Withings import is enabled by setting the client id, secret and redirect URL
-(DEXAFIX_WITHINGS_CLIENT_ID, DEXAFIX_WITHINGS_CLIENT_SECRET, DEXAFIX_WITHINGS_REDIRECT_URL).`,
+The Withings import is set up on the Admin page (client id, secret and redirect URL), not here.`,
 	Example: `dexa-fix serve --listen :8080
 DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix serve --db-driver postgres
 dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
@@ -129,16 +127,14 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 		}
 		defer st.Close()
 
-		wcfg := withings.Config{}
-		wcfg.ClientID, _ = cmd.Flags().GetString("withings-client-id")
-		if wcfg.ClientSecret, err = secretFlag(cmd, "withings-client-secret", "withings-client-secret-file", func(string) bool { return true }); err != nil {
-			return err
+		// The Withings application credentials are managed on the Admin page only; they are stored
+		// encrypted in the database. Variables from older versions are ignored, with a warning.
+		for _, name := range []string{"DEXAFIX_WITHINGS_CLIENT_ID", "DEXAFIX_WITHINGS_CLIENT_SECRET", "DEXAFIX_WITHINGS_CLIENT_SECRET_FILE", "DEXAFIX_WITHINGS_REDIRECT_URL"} {
+			if os.Getenv(name) != "" {
+				log.Warn().Str("variable", name).Msg("ignored: Withings credentials are set on the Admin page")
+			}
 		}
-		wcfg.RedirectURL, _ = cmd.Flags().GetString("withings-redirect-url")
-		wi := withings.New(wcfg, nil)
-		if !wi.Configured() {
-			log.Info().Msg("withings import disabled: client id, secret and redirect URL are not all set")
-		}
+		wi := withings.New(withings.Config{}, nil)
 		srv, err := web.New(st, importer.NewRegistry(wi))
 		if err != nil {
 			return err
@@ -186,12 +182,6 @@ func init() {
 	serveCmd.Flags().String("listen", envOr("DEXAFIX_LISTEN", ":8080"), "address to listen on")
 	addDBFlags(serveCmd)
 	serveCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
-	serveCmd.Flags().String("withings-client-id", envOr("DEXAFIX_WITHINGS_CLIENT_ID", ""), "Withings OAuth client id")
-	// The client secret has no command-line flag of its own: only the environment and a file.
-	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "")
-	serveCmd.Flags().MarkHidden("withings-client-secret")
-	serveCmd.Flags().String("withings-client-secret-file", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET_FILE", ""), "file holding the Withings OAuth client secret (or set DEXAFIX_WITHINGS_CLIENT_SECRET)")
-	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")
 	serveCmd.Flags().Int("audit-retention-days", envInt("DEXAFIX_AUDIT_RETENTION_DAYS", 365), "delete audit log events (and the IP addresses in them) after this many days; 0 keeps them forever")
 	serveCmd.Flags().String("trusted-proxies", envOr("DEXAFIX_TRUSTED_PROXIES", ""), "comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-* headers are believed; also \"loopback\" and \"private\"")
 	serveCmd.Flags().String("base-url", envOr("DEXAFIX_BASE_URL", ""), "public address of the app, such as https://dexa.example.com; used for sign-in callback URLs and to decide that cookies are Secure")

@@ -427,6 +427,11 @@ func TestAdminSavesWithingsCredentials(t *testing.T) {
 	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, "/u/1/integrations/withings/connect") {
 		t.Fatal("secret lost")
 	}
+	// an empty redirect URL defaults to this server's own callback
+	post(t, c, ts.URL+"/admin/withings", url.Values{"client_id": {"cid3"}})
+	if _, b := body(t, c, ts.URL+"/admin"); !strings.Contains(b, ts.URL+"/integrations/withings/callback") {
+		t.Fatalf("default redirect URL missing:\n%s", b)
+	}
 }
 
 // fakeIdP is a minimal OpenID Connect provider.
