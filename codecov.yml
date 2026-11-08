@@ -1,0 +1,32 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 1
+  range: "60...90"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 75%
+        # informational for the first weeks: reports but never fails the check.
+        # Remove this line to enforce the patch target.
+        informational: true
+
+flags:
+  unit:
+    carryforward: true
+  postgres:
+    carryforward: true
+
+ignore:
+  - "**/*_test.go"
+  - "main.go"
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false

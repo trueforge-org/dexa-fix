@@ -1,0 +1,50 @@
+---
+name: Release
+
+on: # yamllint disable-line rule:truthy
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # dry run: builds a snapshot, publishes nothing
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: GoReleaser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload assets
+      packages: write # push images to ghcr.io
+      id-token: write # keyless cosign signing and attestations
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean' || 'release --snapshot --clean --skip=publish,sign' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-checksums: dist/checksums.txt
