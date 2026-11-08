@@ -24,7 +24,9 @@ import (
 // A server upgrade starts with an empty cache, so a change in the algorithm is never masked.
 
 // estimateCacheUsers bounds the memory used: results are kept for this many users at a time, the
-// least recently used one is dropped first.
+// least recently used one is dropped first. Measured with BenchmarkCompute10Years' data (a daily
+// reading for ten years): one result keeps about 5 MB and takes about 30 ms to compute, so the
+// worst case is roughly 160 MB; typical histories are far smaller.
 const estimateCacheUsers = 32
 
 type estimateKey struct {

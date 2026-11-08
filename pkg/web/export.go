@@ -141,16 +141,20 @@ func (s *Server) buildDataExport(ctx context.Context, u models.User) (dataExport
 
 // sendExport writes v as a downloadable, indented JSON file. The name has no user input in it.
 func sendExport(w http.ResponseWriter, kind string, userID int64, v any) {
-	body, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		log.Error().Err(err).Str("export", kind).Msg("export failed")
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	// The encoder marshals once and writes that buffer, so the file is not held twice (as
+	// MarshalIndent plus an appended newline would). Nothing is written if marshalling fails, so
+	// the error response below still goes out cleanly.
 	name := "dexa-fix-" + kind + "-user" + strconv.FormatInt(userID, 10) + "-" + time.Now().UTC().Format("2006-01-02") + ".json"
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	w.Write(append(body, '\n'))
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		log.Error().Err(err).Str("export", kind).Msg("export failed")
+		h.Del("Content-Disposition")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) exportProfile(w http.ResponseWriter, r *http.Request, u models.User) {
