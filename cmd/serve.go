@@ -30,7 +30,7 @@ var serveCmd = &cobra.Command{
 	Short: "Run the web application",
 	Long: `Run the web application.
 
-Flags can also be set through DEXAFIX_LISTEN, DEXAFIX_DB_DRIVER and DEXAFIX_DSN.
+Flags can also be set through DEXAFIX_LISTEN, DEXAFIX_DB_DRIVER, DEXAFIX_DSN and DEXAFIX_AUTO_MIGRATE.
 
 The Withings import is enabled by setting the client id, secret and redirect URL
 (DEXAFIX_WITHINGS_CLIENT_ID, DEXAFIX_WITHINGS_CLIENT_SECRET, DEXAFIX_WITHINGS_REDIRECT_URL).`,
@@ -38,13 +38,17 @@ The Withings import is enabled by setting the client id, secret and redirect URL
 dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		listen, _ := cmd.Flags().GetString("listen")
-		driver, _ := cmd.Flags().GetString("db-driver")
-		dsn, _ := cmd.Flags().GetString("dsn")
+		driver, dsn := dbFlags(cmd)
+		autoMigrate, _ := cmd.Flags().GetBool("auto-migrate")
 
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		st, err := sqlstore.Open(ctx, driver, dsn)
+		var opts []sqlstore.Option
+		if !autoMigrate {
+			opts = append(opts, sqlstore.RequireMigrated())
+		}
+		st, err := sqlstore.Open(ctx, driver, dsn, opts...)
 		if err != nil {
 			return err
 		}
@@ -84,8 +88,8 @@ dexa-fix serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 
 func init() {
 	serveCmd.Flags().String("listen", envOr("DEXAFIX_LISTEN", ":8080"), "address to listen on")
-	serveCmd.Flags().String("db-driver", envOr("DEXAFIX_DB_DRIVER", sqlstore.DriverSQLite), "database driver: sqlite or postgres")
-	serveCmd.Flags().String("dsn", envOr("DEXAFIX_DSN", "file:dexa-fix.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"), "database connection string")
+	addDBFlags(serveCmd)
+	serveCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	serveCmd.Flags().String("withings-client-id", envOr("DEXAFIX_WITHINGS_CLIENT_ID", ""), "Withings OAuth client id")
 	serveCmd.Flags().String("withings-client-secret", envOr("DEXAFIX_WITHINGS_CLIENT_SECRET", ""), "Withings OAuth client secret")
 	serveCmd.Flags().String("withings-redirect-url", envOr("DEXAFIX_WITHINGS_REDIRECT_URL", "http://localhost:8080/integrations/withings/callback"), "OAuth callback URL registered with the Withings application")

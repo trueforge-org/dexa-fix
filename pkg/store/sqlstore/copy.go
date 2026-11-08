@@ -1,0 +1,99 @@
+package sqlstore
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/uptrace/bun"
+)
+
+// copyBatch is the number of rows inserted per statement.
+const copyBatch = 500
+
+// CopyStats reports how many rows Copy transferred per table.
+type CopyStats struct {
+	Users        int
+	DexaScans    int
+	ScaleReads   int
+	Integrations int
+}
+
+// Copy transfers every row from src to dst, preserving ids. It works between any pair of backends.
+// Both databases must be at the same schema version and dst must be empty. The copy is a single
+// transaction on dst, so a failure leaves it untouched.
+func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
+	var stats CopyStats
+
+	sv, err := src.SchemaVersion(ctx)
+	if err != nil {
+		return stats, fmt.Errorf("source: %w", err)
+	}
+	dv, err := dst.SchemaVersion(ctx)
+	if err != nil {
+		return stats, fmt.Errorf("target: %w", err)
+	}
+	if sv != dv {
+		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
+	}
+	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil)} {
+		n, err := dst.db.NewSelect().Model(m).Count(ctx)
+		if err != nil {
+			return stats, fmt.Errorf("target: %w", err)
+		}
+		if n > 0 {
+			return stats, errors.New("target database is not empty")
+		}
+	}
+
+	err = dst.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		if stats.Users, err = copyTable[userRow](ctx, src, tx, "id"); err != nil {
+			return fmt.Errorf("users: %w", err)
+		}
+		if stats.DexaScans, err = copyTable[dexaRow](ctx, src, tx, "id"); err != nil {
+			return fmt.Errorf("dexa_scans: %w", err)
+		}
+		if stats.ScaleReads, err = copyTable[scaleRow](ctx, src, tx, "id"); err != nil {
+			return fmt.Errorf("scale_readings: %w", err)
+		}
+		if stats.Integrations, err = copyTable[integrationRow](ctx, src, tx, "user_id, provider"); err != nil {
+			return fmt.Errorf("user_integrations: %w", err)
+		}
+		if dst.driver == DriverPostgres {
+			// Explicit ids do not advance the serial sequences; align them so new inserts do not collide.
+			for _, table := range []string{"users", "dexa_scans", "scale_readings"} {
+				q := fmt.Sprintf(`SELECT setval(pg_get_serial_sequence('%[1]s', 'id'), COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM %[1]s`, table)
+				if _, err := tx.ExecContext(ctx, q); err != nil {
+					return fmt.Errorf("reset sequence %s: %w", table, err)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return CopyStats{}, err
+	}
+	return stats, nil
+}
+
+// copyTable pages through one table of src ordered by orderBy and inserts the rows into tx.
+func copyTable[T any](ctx context.Context, src *Store, tx bun.Tx, orderBy string) (int, error) {
+	total := 0
+	for offset := int64(0); ; offset += copyBatch {
+		var rows []T
+		if err := src.db.NewSelect().Model(&rows).OrderExpr(orderBy).Limit(copyBatch).Offset(offset).Scan(ctx); err != nil {
+			return total, err
+		}
+		if len(rows) == 0 {
+			return total, nil
+		}
+		if _, err := tx.NewInsert().Model(&rows).Returning("NULL").Exec(ctx); err != nil {
+			return total, err
+		}
+		total += len(rows)
+		if len(rows) < copyBatch {
+			return total, nil
+		}
+	}
+}

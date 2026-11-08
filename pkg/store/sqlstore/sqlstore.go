@@ -1,25 +1,25 @@
-// Package sqlstore implements store.Store on top of database/sql for SQLite and PostgreSQL.
+// Package sqlstore implements store.Store on top of bun, for SQLite and PostgreSQL.
+// Schema changes are versioned goose migrations (see migrate.go).
 package sqlstore
 
 import (
 	"context"
 	"database/sql"
-	"embed"
+	"errors"
 	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
-	_ "modernc.org/sqlite"             // pure-Go sqlite driver
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/schema"
+	_ "modernc.org/sqlite" // pure-Go sqlite driver
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
-
-//go:embed migrations
-var migrationsFS embed.FS
 
 // Supported database drivers.
 const (
@@ -27,130 +27,111 @@ const (
 	DriverPostgres = "postgres"
 )
 
-// Store is a database/sql backed store.Store.
+// Store is a bun backed store.Store.
 type Store struct {
-	db     *sql.DB
+	db     *bun.DB
 	driver string
 }
 
 var _ store.Store = (*Store)(nil)
 
-// Open connects to the database and applies pending migrations.
-func Open(ctx context.Context, driver, dsn string) (*Store, error) {
-	var sqlDriver string
+type migrateMode int
+
+const (
+	migrateUp      migrateMode = iota // apply pending migrations (default)
+	migrateSkip                       // leave the schema alone
+	migrateRequire                    // fail if migrations are pending
+)
+
+type openConfig struct{ migrate migrateMode }
+
+// Option customises Open.
+type Option func(*openConfig)
+
+// WithoutMigrate opens the database without touching the schema (used by the db management commands).
+func WithoutMigrate() Option { return func(c *openConfig) { c.migrate = migrateSkip } }
+
+// RequireMigrated fails Open when there are pending migrations instead of applying them.
+func RequireMigrated() Option { return func(c *openConfig) { c.migrate = migrateRequire } }
+
+// Open connects to the database and, unless told otherwise, applies pending migrations.
+func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, error) {
+	cfg := openConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	var (
+		sqlDB   *sql.DB
+		dialect schema.Dialect
+		err     error
+	)
 	switch driver {
 	case DriverSQLite:
-		sqlDriver = "sqlite"
+		sqlDB, err = sql.Open("sqlite", sqliteDSN(dsn))
+		dialect = sqlitedialect.New()
 	case DriverPostgres:
-		sqlDriver = "pgx"
+		sqlDB, err = sql.Open("pgx", dsn)
+		dialect = pgdialect.New()
 	default:
 		return nil, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
 	}
-	db, err := sql.Open(sqlDriver, dsn)
 	if err != nil {
 		return nil, err
 	}
 	if driver == DriverSQLite {
-		db.SetMaxOpenConns(1) // sqlite allows a single writer; avoids "database is locked"
+		sqlDB.SetMaxOpenConns(1) // sqlite allows a single writer; avoids "database is locked"
 	}
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		sqlDB.Close()
 		return nil, err
 	}
-	s := &Store{db: db, driver: driver}
-	if err := s.migrate(ctx); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver}
+
+	switch cfg.migrate {
+	case migrateUp:
+		if _, err := s.Migrate(ctx); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	case migrateRequire:
+		p, err := s.provider()
+		if err == nil {
+			err = s.checkVersion(ctx, p)
+		}
+		if err == nil {
+			var pending bool
+			if pending, err = p.HasPending(ctx); err == nil && pending {
+				err = errors.New("database has pending migrations: run `dexa-fix db migrate up` or enable --auto-migrate")
+			}
+		}
+		if err != nil {
+			s.Close()
+			return nil, err
+		}
 	}
 	return s, nil
 }
 
+// sqliteDSN makes sure foreign keys are enforced (they are off by default in SQLite and only
+// switchable per connection) and that writers wait for locks instead of failing immediately.
+func sqliteDSN(dsn string) string {
+	for _, pragma := range []string{"foreign_keys(1)", "busy_timeout(5000)"} {
+		name := pragma[:strings.IndexByte(pragma, '(')]
+		if strings.Contains(dsn, name+"(") {
+			continue
+		}
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		dsn += sep + "_pragma=" + pragma
+	}
+	return dsn
+}
+
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
-
-// q rewrites ? placeholders to $n for postgres.
-func (s *Store) q(query string) string {
-	if s.driver != DriverPostgres {
-		return query
-	}
-	var b strings.Builder
-	n := 0
-	for _, r := range query {
-		if r == '?' {
-			n++
-			b.WriteString("$" + strconv.Itoa(n))
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-func (s *Store) migrate(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY)`); err != nil {
-		return err
-	}
-	dir := "migrations/" + s.driver
-	entries, err := migrationsFS.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		var n int
-		if err := s.db.QueryRowContext(ctx, s.q(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`), name).Scan(&n); err != nil {
-			return err
-		}
-		if n > 0 {
-			continue
-		}
-		body, err := migrationsFS.ReadFile(dir + "/" + name)
-		if err != nil {
-			return err
-		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		for _, stmt := range strings.Split(string(body), ";") {
-			if strings.TrimSpace(stmt) == "" {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				tx.Rollback()
-				return fmt.Errorf("%s: %w", name, err)
-			}
-		}
-		if _, err := tx.ExecContext(ctx, s.q(`INSERT INTO schema_migrations (version) VALUES (?)`), name); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func isUnique(err error) bool {
-	if err == nil {
-		return false
-	}
-	m := err.Error()
-	return strings.Contains(m, "UNIQUE constraint failed") || strings.Contains(m, "SQLSTATE 23505")
-}
-
-func isFK(err error) bool {
-	if err == nil {
-		return false
-	}
-	m := err.Error()
-	return strings.Contains(m, "FOREIGN KEY constraint failed") || strings.Contains(m, "SQLSTATE 23503")
-}
 
 func now() time.Time { return time.Now().UTC() }
 
@@ -161,34 +142,22 @@ func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error
 	if name == "" || len(name) > 64 {
 		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
 	}
-	u := models.User{Name: name, CreatedAt: now(), MethodRanking: models.DefaultRanking()}
-	err := s.db.QueryRowContext(ctx, s.q(`INSERT INTO users (name, created_at) VALUES (?, ?) RETURNING id`), u.Name, u.CreatedAt).Scan(&u.ID)
-	if isUnique(err) {
-		return models.User{}, store.ErrExists
+	row := userRow{Name: name, CreatedAt: now()}
+	if _, err := s.db.NewInsert().Model(&row).Exec(ctx); err != nil {
+		if isUnique(err) {
+			return models.User{}, store.ErrExists
+		}
+		return models.User{}, err
 	}
-	return u, err
-}
-
-const userCols = `id, name, created_at, athlete_default, method_ranking`
-
-func scanUser(sc interface{ Scan(...any) error }) (models.User, error) {
-	var u models.User
-	var ranking string
-	if err := sc.Scan(&u.ID, &u.Name, &u.CreatedAt, &u.AthleteDefault, &ranking); err != nil {
-		return u, err
-	}
-	var keys []string
-	if ranking != "" {
-		keys = strings.Split(ranking, ",")
-	}
-	u.MethodRanking = models.NormalizeRanking(keys)
-	return u, nil
+	return row.toModel(), nil
 }
 
 // UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.
 func (s *Store) UpdateUserSettings(ctx context.Context, userID int64, athleteDefault bool, ranking []string) error {
-	res, err := s.db.ExecContext(ctx, s.q(`UPDATE users SET athlete_default = ?, method_ranking = ? WHERE id = ?`),
-		athleteDefault, strings.Join(models.NormalizeRanking(ranking), ","), userID)
+	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
+		Set("athlete_default = ?", athleteDefault).
+		Set("method_ranking = ?", strings.Join(models.NormalizeRanking(ranking), ",")).
+		Where("id = ?", userID).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -199,157 +168,130 @@ func (s *Store) UpdateUserSettings(ctx context.Context, userID int64, athleteDef
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+userCols+` FROM users ORDER BY name`)
-	if err != nil {
+	var rows []userRow
+	if err := s.db.NewSelect().Model(&rows).OrderExpr("name").Scan(ctx); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []models.User
-	for rows.Next() {
-		u, err := scanUser(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, u)
+	for i := range rows {
+		out = append(out, rows[i].toModel())
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) GetUser(ctx context.Context, id int64) (models.User, error) {
-	u, err := scanUser(s.db.QueryRowContext(ctx, s.q(`SELECT `+userCols+` FROM users WHERE id = ?`), id))
-	if err == sql.ErrNoRows {
-		return u, store.ErrNotFound
+	var row userRow
+	if err := s.db.NewSelect().Model(&row).Where("id = ?", id).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.User{}, store.ErrNotFound
+		}
+		return models.User{}, err
 	}
-	return u, err
+	return row.toModel(), nil
 }
 
 // ---- dexa scans ----
 
-const dexaCols = `weight_kg, fat_ratio_pct, fat_mass_kg, fat_free_mass_kg, lean_mass_kg, bone_mass_kg, visceral_fat_mass_kg, bmd_g_cm2, t_score, z_score, android_fat_pct, gynoid_fat_pct`
-
-func dexaFields(d *models.DexaScan) []any {
-	return []any{&d.WeightKg, &d.FatRatioPct, &d.FatMassKg, &d.FatFreeMassKg, &d.LeanMassKg, &d.BoneMassKg, &d.VisceralFatMassKg, &d.BMDGCm2, &d.TScore, &d.ZScore, &d.AndroidFatPct, &d.GynoidFatPct}
-}
-
 func (s *Store) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
 	d.MeasuredAt = d.MeasuredAt.UTC().Truncate(24 * time.Hour)
 	d.CreatedAt = now()
-	args := []any{d.UserID, d.MeasuredAt}
-	for _, f := range dexaFields(d) {
-		args = append(args, *(f.(**float64)))
+	row := dexaRow{
+		UserID: d.UserID, MeasuredAt: d.MeasuredAt,
+		WeightKg: d.WeightKg, FatRatioPct: d.FatRatioPct, FatMassKg: d.FatMassKg, FatFreeMassKg: d.FatFreeMassKg,
+		LeanMassKg: d.LeanMassKg, BoneMassKg: d.BoneMassKg, VisceralFatMassKg: d.VisceralFatMassKg,
+		BMDGCm2: d.BMDGCm2, TScore: d.TScore, ZScore: d.ZScore, AndroidFatPct: d.AndroidFatPct, GynoidFatPct: d.GynoidFatPct,
+		Notes: d.Notes, CreatedAt: d.CreatedAt,
 	}
-	args = append(args, d.Notes, d.CreatedAt)
-	query := s.q(`INSERT INTO dexa_scans (user_id, measured_at, ` + dexaCols + `, notes, created_at) VALUES (?, ?, ` + strings.Repeat("?, ", 12) + `?, ?) RETURNING id`)
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(&d.ID)
-	if isFK(err) {
-		return store.ErrNotFound
+	if _, err := s.db.NewInsert().Model(&row).Exec(ctx); err != nil {
+		if isFK(err) {
+			return store.ErrNotFound
+		}
+		return err
 	}
-	return err
+	d.ID = row.ID
+	return nil
 }
 
 func (s *Store) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error) {
-	rows, err := s.db.QueryContext(ctx, s.q(`SELECT id, user_id, measured_at, `+dexaCols+`, notes, created_at FROM dexa_scans WHERE user_id = ? ORDER BY measured_at DESC, id DESC`), userID)
-	if err != nil {
+	var rows []dexaRow
+	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
+		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []models.DexaScan
-	for rows.Next() {
-		var d models.DexaScan
-		dest := append([]any{&d.ID, &d.UserID, &d.MeasuredAt}, dexaFields(&d)...)
-		dest = append(dest, &d.Notes, &d.CreatedAt)
-		if err := rows.Scan(dest...); err != nil {
-			return nil, err
-		}
-		d.MeasuredAt = d.MeasuredAt.UTC()
-		out = append(out, d)
+	for i := range rows {
+		out = append(out, rows[i].toModel())
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) DeleteDexaScan(ctx context.Context, userID, id int64) error {
-	return s.deleteOwned(ctx, `dexa_scans`, userID, id)
+	return s.deleteOwned(ctx, (*dexaRow)(nil), userID, id)
 }
 
 // ---- scale readings ----
 
-const scaleCols = `weight_kg, fat_ratio_pct, fat_mass_kg, fat_free_mass_kg, muscle_mass_kg, hydration_kg, bone_mass_kg, visceral_fat_index`
-
-func scaleFields(r *models.ScaleReading) []any {
-	return []any{&r.WeightKg, &r.FatRatioPct, &r.FatMassKg, &r.FatFreeMassKg, &r.MuscleMassKg, &r.HydrationKg, &r.BoneMassKg, &r.VisceralFatIndex}
-}
-
-var scaleColList = strings.Split(strings.ReplaceAll(scaleCols, " ", ""), ",")
-
 func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for i := range rs {
+			r := &rs[i]
+			if r.MeasuredAt.IsZero() {
+				return fmt.Errorf("%w: measured_at is required", store.ErrInvalid)
+			}
+			if r.Source == "" {
+				r.Source = models.SourceManual
+			}
+			if r.Method == "" {
+				r.Method = models.MethodScale
+			}
+			if !models.ValidMethod(r.Method) {
+				return fmt.Errorf("%w: unknown method %q", store.ErrInvalid, r.Method)
+			}
+			row := scaleRow{
+				UserID: userID, MeasuredAt: r.MeasuredAt.UTC(),
+				WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
+				MuscleMassKg: r.MuscleMassKg, HydrationKg: r.HydrationKg, BoneMassKg: r.BoneMassKg, VisceralFatIndex: r.VisceralFatIndex,
+				Source: r.Source, Method: r.Method, AthleteMode: r.AthleteMode, ExternalID: r.ExternalID,
+				Notes: r.Notes, CreatedAt: now(),
+			}
+			q := tx.NewInsert().Model(&row).Returning("NULL").On("CONFLICT (user_id, source, external_id) DO UPDATE")
+			for _, c := range scaleValueCols {
+				q = q.Set(c + " = EXCLUDED." + c)
+			}
+			if _, err := q.Exec(ctx); err != nil {
+				if isFK(err) {
+					return store.ErrNotFound
+				}
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
-
-	sets := []string{"measured_at = excluded.measured_at", "notes = excluded.notes"}
-	for _, c := range scaleColList {
-		sets = append(sets, c+" = excluded."+c)
-	}
-	query := s.q(`INSERT INTO scale_readings (user_id, measured_at, ` + scaleCols + `, source, method, athlete_mode, external_id, notes, created_at) VALUES (?, ?, ` + strings.Repeat("?, ", 8) + `?, ?, ?, ?, ?, ?)
-		ON CONFLICT (user_id, source, external_id) DO UPDATE SET ` + strings.Join(sets, ", "))
-
-	for i := range rs {
-		r := &rs[i]
-		if r.MeasuredAt.IsZero() {
-			return 0, fmt.Errorf("%w: measured_at is required", store.ErrInvalid)
-		}
-		if r.Source == "" {
-			r.Source = models.SourceManual
-		}
-		args := []any{userID, r.MeasuredAt.UTC()}
-		for _, f := range scaleFields(r) {
-			args = append(args, *(f.(**float64)))
-		}
-		if r.Method == "" {
-			r.Method = models.MethodScale
-		}
-		if !models.ValidMethod(r.Method) {
-			return 0, fmt.Errorf("%w: unknown method %q", store.ErrInvalid, r.Method)
-		}
-		args = append(args, r.Source, r.Method, r.AthleteMode, r.ExternalID, r.Notes, now())
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			if isFK(err) {
-				return 0, store.ErrNotFound
-			}
-			return 0, err
-		}
-	}
-	return len(rs), tx.Commit()
+	return len(rs), nil
 }
 
 func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error) {
-	rows, err := s.db.QueryContext(ctx, s.q(`SELECT id, user_id, measured_at, `+scaleCols+`, source, method, athlete_mode, external_id, notes, created_at FROM scale_readings WHERE user_id = ? ORDER BY measured_at DESC, id DESC`), userID)
-	if err != nil {
+	var rows []scaleRow
+	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
+		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []models.ScaleReading
-	for rows.Next() {
-		var r models.ScaleReading
-		dest := append([]any{&r.ID, &r.UserID, &r.MeasuredAt}, scaleFields(&r)...)
-		dest = append(dest, &r.Source, &r.Method, &r.AthleteMode, &r.ExternalID, &r.Notes, &r.CreatedAt)
-		if err := rows.Scan(dest...); err != nil {
-			return nil, err
-		}
-		r.MeasuredAt = r.MeasuredAt.UTC()
-		out = append(out, r)
+	for i := range rows {
+		out = append(out, rows[i].toModel())
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) DeleteScaleReading(ctx context.Context, userID, id int64) error {
-	return s.deleteOwned(ctx, `scale_readings`, userID, id)
+	return s.deleteOwned(ctx, (*scaleRow)(nil), userID, id)
 }
 
-func (s *Store) deleteOwned(ctx context.Context, table string, userID, id int64) error {
-	res, err := s.db.ExecContext(ctx, s.q(`DELETE FROM `+table+` WHERE id = ? AND user_id = ?`), id, userID)
+func (s *Store) deleteOwned(ctx context.Context, model any, userID, id int64) error {
+	res, err := s.db.NewDelete().Model(model).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -362,18 +304,21 @@ func (s *Store) deleteOwned(ctx context.Context, table string, userID, id int64)
 // ---- integrations ----
 
 func (s *Store) GetIntegration(ctx context.Context, userID int64, provider string) ([]byte, error) {
-	var data string
-	err := s.db.QueryRowContext(ctx, s.q(`SELECT data FROM user_integrations WHERE user_id = ? AND provider = ?`), userID, provider).Scan(&data)
-	if err == sql.ErrNoRows {
-		return nil, store.ErrNotFound
+	var row integrationRow
+	if err := s.db.NewSelect().Model(&row).Where("user_id = ?", userID).Where("provider = ?", provider).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, err
 	}
-	return []byte(data), err
+	return []byte(row.Data), nil
 }
 
 func (s *Store) PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error {
-	_, err := s.db.ExecContext(ctx, s.q(`INSERT INTO user_integrations (user_id, provider, data, updated_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT (user_id, provider) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`),
-		userID, provider, string(data), now())
+	row := integrationRow{UserID: userID, Provider: provider, Data: string(data), UpdatedAt: now()}
+	_, err := s.db.NewInsert().Model(&row).
+		On("CONFLICT (user_id, provider) DO UPDATE").
+		Set("data = EXCLUDED.data").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
 	if isFK(err) {
 		return store.ErrNotFound
 	}
@@ -381,6 +326,6 @@ func (s *Store) PutIntegration(ctx context.Context, userID int64, provider strin
 }
 
 func (s *Store) DeleteIntegration(ctx context.Context, userID int64, provider string) error {
-	_, err := s.db.ExecContext(ctx, s.q(`DELETE FROM user_integrations WHERE user_id = ? AND provider = ?`), userID, provider)
+	_, err := s.db.NewDelete().Model((*integrationRow)(nil)).Where("user_id = ?", userID).Where("provider = ?", provider).Exec(ctx)
 	return err
 }

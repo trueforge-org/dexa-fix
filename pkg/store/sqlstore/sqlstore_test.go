@@ -2,8 +2,12 @@ package sqlstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +17,46 @@ import (
 
 func f(v float64) *float64 { return &v }
 
+// newStore returns a fresh, migrated store. It uses in-memory SQLite unless DEXAFIX_TEST_POSTGRES_DSN is
+// set, in which case every test gets its own schema in that Postgres database. Run the suite both ways.
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	ctx := context.Background()
+	if pg := os.Getenv("DEXAFIX_TEST_POSTGRES_DSN"); pg != "" {
+		return newPostgresStore(t, pg)
+	}
+	s, err := Open(ctx, DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func newPostgresStore(t *testing.T, dsn string) *Store {
+	t.Helper()
+	ctx := context.Background()
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	schema := fmt.Sprintf("t_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := admin.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		a, err := sql.Open("pgx", dsn)
+		if err == nil {
+			a.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
+			a.Close()
+		}
+	})
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	s, err := Open(ctx, DriverPostgres, dsn+sep+"search_path="+schema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,13 +150,6 @@ func TestScaleUpsertIdempotent(t *testing.T) {
 func TestUnsupportedDriver(t *testing.T) {
 	if _, err := Open(context.Background(), "mysql", ""); err == nil {
 		t.Fatal("expected error")
-	}
-}
-
-func TestRebind(t *testing.T) {
-	s := &Store{driver: DriverPostgres}
-	if got := s.q("a=? AND b=?"); got != "a=$1 AND b=$2" {
-		t.Fatal(got)
 	}
 }
 

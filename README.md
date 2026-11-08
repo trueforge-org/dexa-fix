@@ -39,7 +39,8 @@ The full rules are in [Estimation details](#estimation-details).
 - One estimate per day for weight, body fat, fat mass, fat-free mass, muscle
   mass, hydration, bone mass and visceral fat index.
 - Optional Withings import, so scale readings do not need typing in.
-- SQLite (default) or Postgres. The schema is created on startup.
+- SQLite (default) or Postgres. Schema changes are versioned migrations, applied
+  on startup. See [Database](#database).
 
 ## Quick start
 
@@ -71,7 +72,8 @@ overrides the variable.
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
 | `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on.                                  |
 | `--db-driver`              | `DEXAFIX_DB_DRIVER`              | `sqlite`                                                              | `sqlite` or `postgres`.                                |
-| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)` | Database connection string.                            |
+| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string.                            |
+| `--auto-migrate`            | `DEXAFIX_AUTO_MIGRATE`           | `true`                                                                | Apply pending migrations on startup; when `false`, `serve` fails if any are pending. |
 | `--withings-client-id`     | `DEXAFIX_WITHINGS_CLIENT_ID`     | empty                                                                 | Withings application client id.                        |
 | `--withings-client-secret` | `DEXAFIX_WITHINGS_CLIENT_SECRET` | empty                                                                 | Withings application client secret.                    |
 | `--withings-redirect-url`  | `DEXAFIX_WITHINGS_REDIRECT_URL`  | `http://localhost:8080/integrations/withings/callback`                | Callback URL registered with the Withings application. |
@@ -90,6 +92,53 @@ go run . serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
 ```
 
 `dexa-fix info` prints information about the binary.
+
+## Database
+
+The store uses [bun](https://bun.uptrace.dev/), so SQLite and Postgres share one
+query path. The schema is versioned with [goose](https://github.com/pressly/goose)
+migrations, embedded per backend in `pkg/store/sqlstore/migrations/{sqlite,postgres}/`.
+
+`serve` applies pending migrations on startup. It refuses to start if the
+database schema is newer than the binary, so upgrade dexa-fix first.
+
+SQLite connections always enforce foreign keys and wait up to 5 seconds for
+locks, so the DSN needs no pragmas. The default DSN is `file:dexa-fix.db`.
+
+| Command                  | Description                                                   |
+| ------------------------ | ------------------------------------------------------------- |
+| `db migrate [up]`        | Apply all pending migrations. This is the default action.     |
+| `db migrate down`        | Roll back the latest migration.                               |
+| `db migrate to N`        | Migrate up or down to version N. `0` empties the schema.      |
+| `db migrate status`      | List every migration and whether it is applied.               |
+| `db migrate version`     | Print the current schema version.                             |
+| `db copy`                | Copy all data to another database. See below.                 |
+
+`db migrate` takes `--db-driver` and `--dsn`, with the same environment
+variables as `serve`. `db copy` takes `--from-driver`, `--from-dsn`,
+`--to-driver` and `--to-dsn`. `--from-dsn` defaults to `DEXAFIX_DSN`.
+
+```bash
+go run . db migrate status
+go run . db migrate up --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
+```
+
+### Moving from SQLite to Postgres
+
+Create an empty Postgres database, then copy and start the server:
+
+```bash
+go run . db copy \
+  --from-driver sqlite --from-dsn file:dexa-fix.db \
+  --to-driver postgres --to-dsn postgres://user:pass@localhost/dexafix
+
+go run . serve --db-driver postgres --dsn postgres://user:pass@localhost/dexafix
+```
+
+The target is migrated to the latest schema and must be empty. Ids are kept,
+and the Postgres sequences are reset so new rows do not collide. The copy is a
+single transaction, so a failure leaves the target untouched. The source is not
+changed, but it must already be fully migrated (`db migrate up`).
 
 ## Using the app
 
@@ -294,22 +343,40 @@ zero.
 go test ./...
 ```
 
+The tests use in-memory SQLite. To run the store tests against Postgres too,
+set `DEXAFIX_TEST_POSTGRES_DSN`. Each test gets its own schema. Postgres 18 is
+the supported version, so test against that:
+
+```bash
+docker run -d --rm --name dexa-pg -e POSTGRES_PASSWORD=x -p 5432:5432 postgres:18
+DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode=disable' \
+  go test ./pkg/store/sqlstore/
+```
+
 ### Layout
 
 - `main.go`: entry point. Sets up logging and prints the version.
-- `cmd/`: `serve` runs the web app, `info` prints binary information.
+- `cmd/`: `serve` runs the web app, `db` migrates and copies the database,
+  `info` prints binary information.
 - `pkg/estimate/`: estimation logic.
 - `pkg/importer/`: the importer interfaces and the registry.
 - `pkg/importer/withings/`: OAuth and API client (`client.go`), the rules for
   what to write (`plan.go`), and the importer (`withings.go`).
 - `pkg/models/`: domain types.
-- `pkg/store/`: the `Store` interface. `sqlstore/` implements it for SQLite and
-  Postgres, with migrations under `migrations/`.
+- `pkg/store/`: the `Store` interface. `sqlstore/` implements it with bun for
+  SQLite and Postgres. Its goose migrations live under `migrations/`.
 - `pkg/web/`: HTML handlers and templates, the JSON API (`api.go`), the
   integration routes (`handlers_import.go`), and routes in `server.go`.
 
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.
+
+### Schema changes
+
+Every schema change adds a migration with the same version number to both
+`pkg/store/sqlstore/migrations/sqlite/` and `migrations/postgres/`, for example
+`00002_add_notes.sql`. Each file has `-- +goose Up` and `-- +goose Down`
+sections. `TestMigrationParity` fails if the two directories differ.
 
 ### Adding an importer
 

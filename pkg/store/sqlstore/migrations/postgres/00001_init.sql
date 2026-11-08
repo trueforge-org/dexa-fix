@@ -1,7 +1,10 @@
+-- +goose Up
 CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TIMESTAMPTZ NOT NULL,
+  athlete_default BOOLEAN NOT NULL DEFAULT FALSE,
+  method_ranking TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE scale_readings (
   id BIGSERIAL PRIMARY KEY,
@@ -10,6 +13,8 @@ CREATE TABLE scale_readings (
   weight_kg DOUBLE PRECISION, fat_ratio_pct DOUBLE PRECISION, fat_mass_kg DOUBLE PRECISION, fat_free_mass_kg DOUBLE PRECISION,
   muscle_mass_kg DOUBLE PRECISION, hydration_kg DOUBLE PRECISION, bone_mass_kg DOUBLE PRECISION, visceral_fat_index DOUBLE PRECISION,
   source TEXT NOT NULL DEFAULT 'manual',
+  method TEXT NOT NULL DEFAULT 'scale',
+  athlete_mode BOOLEAN NOT NULL DEFAULT FALSE,
   external_id TEXT,
   notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL,
@@ -34,3 +39,9 @@ CREATE TABLE user_integrations (
   updated_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (user_id, provider)
 );
+
+-- +goose Down
+DROP TABLE user_integrations;
+DROP TABLE dexa_scans;
+DROP TABLE scale_readings;
+DROP TABLE users;
