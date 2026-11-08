@@ -28,6 +28,7 @@ type securityView struct {
 	Activity        []auditLine // the latest events about this account
 	PasswordEnabled bool
 	HasPassword     bool
+	ConfirmPassword bool // sensitive changes ask for the current password
 	Tokens          []tokenView
 	NewToken        string // shown once, right after it was created
 	Linked          []linkedProvider
@@ -60,7 +61,9 @@ func (s *Server) securityView(r *http.Request, u models.User, newToken string) (
 	if err != nil {
 		return nil, err
 	}
-	view := &securityView{PasswordEnabled: s.passwordEnabled(ctx), HasPassword: slices.Contains(mine, models.ProviderLocal), NewToken: newToken}
+	pwOn := s.passwordEnabled(ctx)
+	hasPw := slices.Contains(mine, models.ProviderLocal)
+	view := &securityView{PasswordEnabled: pwOn, HasPassword: hasPw, ConfirmPassword: pwOn && hasPw, NewToken: newToken}
 	tokens, err := s.store.ListAccessTokens(ctx, u.ID)
 	if err != nil {
 		return nil, err
@@ -98,6 +101,9 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 		s.settingsPage(w, r, u, "Please enter a valid e-mail address.", "", http.StatusUnprocessableEntity)
 		return
 	}
+	if email != u.Email && !s.confirmPassword(w, r, u) {
+		return
+	}
 	var height *float64
 	if raw := strings.TrimSpace(r.PostFormValue("height_cm")); raw != "" {
 		v, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", "."), 64)
@@ -120,26 +126,47 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	}
 }
 
+// confirmPassword asks a user who signs in with a password for it again before a change that
+// could hand the account to someone holding only a stolen session: a new e-mail address, an access
+// token, a linked sign-in provider. The attempts are limited like sign-in attempts. It reports
+// whether to go on; if not, the response has been written. Users without a password (they sign in
+// through a provider) and servers with password sign-in off have nothing to confirm with.
+func (s *Server) confirmPassword(w http.ResponseWriter, r *http.Request, u models.User) bool {
+	ctx := r.Context()
+	if !s.passwordEnabled(ctx) {
+		return true
+	}
+	id, err := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
+	if errors.Is(err, store.ErrNotFound) {
+		return true
+	}
+	if err != nil {
+		s.fail(w, err)
+		return false
+	}
+	key := "pw:" + strconv.FormatInt(u.ID, 10)
+	if s.limiter.blocked(key, maxLoginFail) || s.limiter.blocked(ipKey(r), maxIPFail) {
+		s.settingsPage(w, r, u, "Too many wrong passwords. Try again later.", "", http.StatusTooManyRequests)
+		return false
+	}
+	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
+		s.limiter.fail(key)
+		s.limiter.fail(ipKey(r))
+		s.audit(r, u.ID, auditPasswordWrong, "")
+		s.settingsPage(w, r, u, "Enter your current password to make this change.", "", http.StatusUnprocessableEntity)
+		return false
+	}
+	s.limiter.reset(key)
+	return true
+}
+
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	if !s.passwordEnabled(ctx) {
 		s.settingsPage(w, r, u, "Signing in with a password is turned off.", "", http.StatusForbidden)
 		return
 	}
-	_, err := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
-	switch {
-	case err == nil: // changing a password needs the current one
-		id, ierr := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
-		if ierr != nil {
-			s.fail(w, ierr)
-			return
-		}
-		if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
-			s.settingsPage(w, r, u, "The current password is wrong.", "", http.StatusUnprocessableEntity)
-			return
-		}
-	case !errors.Is(err, store.ErrNotFound):
-		s.fail(w, err)
+	if !s.confirmPassword(w, r, u) { // changing a password needs the current one
 		return
 	}
 	password := r.PostFormValue("password")
@@ -170,6 +197,9 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models
 }
 
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request, u models.User) {
+	if !s.confirmPassword(w, r, u) {
+		return
+	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	if name == "" || len(name) > maxTokenNameLen {
 		s.settingsPage(w, r, u, "Please give the token a name of 1-64 characters.", "", http.StatusUnprocessableEntity)

@@ -148,6 +148,9 @@ var patRe = regexp.MustCompile(`dxf_[0-9a-f]{64}`)
 
 func createPAT(t *testing.T, ts *httptest.Server, c *http.Client, id int, form url.Values) string {
 	t.Helper()
+	if form.Get("current") == "" {
+		form.Set("current", testPassword)
+	}
 	req, _ := http.NewRequest("POST", fmt.Sprintf("%s/u/%d/tokens", ts.URL, id), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := c.Do(req)
@@ -246,6 +249,10 @@ func TestProfile(t *testing.T) {
 	signup(t, ts, bob, "bob")
 
 	r := post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"Bob"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}})
+	if r.StatusCode != 422 { // a new e-mail address needs the current password
+		t.Fatalf("e-mail change without password: %d", r.StatusCode)
+	}
+	r = post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"Bob"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}, "current": {testPassword}})
 	if r.StatusCode != 303 { // names need not be unique
 		t.Fatalf("save: %d", r.StatusCode)
 	}
@@ -502,7 +509,7 @@ func (idp *fakeIdP) token(t *testing.T, aud, sub, nonce string) string {
 // signInVia runs the browser side of the provider flow and returns the callback response.
 func (idp *fakeIdP) signInVia(t *testing.T, ts *httptest.Server, c *http.Client, slug string) *http.Response {
 	t.Helper()
-	resp, err := c.Post(ts.URL+"/auth/"+slug+"/login", "application/x-www-form-urlencoded", nil)
+	resp, err := c.Post(ts.URL+"/auth/"+slug+"/login", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"current": {testPassword}}.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,5 +855,20 @@ func TestAppleClientSecret(t *testing.T) {
 	}
 	if _, err := appleClientSecret(models.AuthProvider{ClientSecret: "nope"}, now); err == nil {
 		t.Fatal("bad key accepted")
+	}
+}
+
+func TestSensitiveChangesNeedThePassword(t *testing.T) {
+	ts, c, _ := newAuthServer(t)
+	signup(t, ts, c, "alice")
+	for i := range maxLoginFail {
+		r := post(t, c, ts.URL+"/u/1/tokens", url.Values{"name": {"x"}, "expires": {"30"}, "current": {"wrong password"}})
+		if r.StatusCode != 422 {
+			t.Fatalf("attempt %d: %d", i, r.StatusCode)
+		}
+	}
+	// guessing is limited: even the right password is refused for a while
+	if r := post(t, c, ts.URL+"/u/1/tokens", url.Values{"name": {"x"}, "expires": {"30"}, "current": {testPassword}}); r.StatusCode != 429 {
+		t.Fatalf("after too many wrong passwords: %d", r.StatusCode)
 	}
 }

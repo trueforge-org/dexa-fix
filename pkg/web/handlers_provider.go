@@ -180,6 +180,9 @@ func fixed32(n *big.Int) []byte { return n.FillBytes(make([]byte, 32)) }
 // to attach someone else's provider account to the visitor's session.
 func (s *Server) providerStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if u := currentUser(r); u != nil && r.Method == http.MethodPost && !s.confirmPassword(w, r, *u) {
+		return // linking a provider needs the current password
+	}
 	p, err := s.store.GetAuthProvider(ctx, r.PathValue("provider"))
 	if err != nil {
 		s.fail(w, err)

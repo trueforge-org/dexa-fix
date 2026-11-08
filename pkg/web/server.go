@@ -58,6 +58,9 @@ type Server struct {
 	jobCtx    context.Context // parent of background jobs; cancelled by Close
 	cancelJob context.CancelFunc
 	jobs      sync.WaitGroup
+	jobsMu    sync.Mutex // guards jobsDone and the Add in startJob against Close's Wait
+	jobsDone  bool
+	slSlots   chan struct{} // limits Strength Level syncs running at the same time
 
 	auditNoise      *auditNoise
 	estCache        *estimateCache
@@ -86,6 +89,7 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		httpClient: &http.Client{Timeout: providerTimeout},
 		oidcCache:  map[string]*oidc.Provider{},
 		limiter:    newFailLimiter(),
+		slSlots:    make(chan struct{}, maxStrengthLevelJobs),
 		auditNoise: newAuditNoise(),
 		estCache:   newEstimateCache(),
 		assetVer:   staticVersions(static),
@@ -114,8 +118,27 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 // Close cancels the background jobs and waits for them to stop. Call it after the HTTP server has
 // been shut down.
 func (s *Server) Close() {
+	s.jobsMu.Lock()
+	s.jobsDone = true
+	s.jobsMu.Unlock()
 	s.cancelJob()
 	s.jobs.Wait()
+}
+
+// startJob runs f in the background, tracked by Close. It reports false, without running f, once
+// the server is closing.
+func (s *Server) startJob(f func()) bool {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+	if s.jobsDone {
+		return false
+	}
+	s.jobs.Add(1)
+	go func() {
+		defer s.jobs.Done()
+		f()
+	}()
+	return true
 }
 
 // assetURL returns the cache-busting URL of an embedded static file.

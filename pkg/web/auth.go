@@ -106,6 +106,9 @@ func (s *Server) authBasic(r *http.Request) (models.User, bool, error) {
 	if errors.Is(err, errThrottled) {
 		return models.User{}, false, nil
 	}
+	if err == nil && !ok {
+		s.auditAs(r, 0, 0, auditAPIAuthFailed, "")
+	}
 	return u, ok, err
 }
 
@@ -175,13 +178,17 @@ func foundUser(u models.User, err error) (models.User, bool, error) {
 
 // ---- passwords ----
 
+// bcryptCost is the work factor for new password hashes. Older hashes keep working and are
+// upgraded the next time their owner signs in. Tests lower it to keep them fast.
+var bcryptCost = 12
+
 var dummyHash = sync.OnceValue(func() []byte {
-	h, _ := bcrypt.GenerateFromPassword([]byte("dexa-fix-dummy"), bcrypt.DefaultCost)
+	h, _ := bcrypt.GenerateFromPassword([]byte("dexa-fix-dummy"), bcryptCost)
 	return h
 })
 
 func hashPassword(password string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	return string(h), err
 }
 
@@ -242,6 +249,11 @@ func (s *Server) verifyPassword(ctx context.Context, login, password string) (mo
 	}
 	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(password)) != nil {
 		return models.User{}, false, nil
+	}
+	if cost, err := bcrypt.Cost([]byte(id.Secret)); err == nil && cost < bcryptCost {
+		if err := s.setPassword(ctx, u.ID, password); err != nil { // best effort: the sign-in succeeded
+			log.Warn().Err(err).Msg("upgrade password hash")
+		}
 	}
 	return u, true, nil
 }

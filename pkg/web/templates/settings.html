@@ -6,6 +6,7 @@
   <div class="form-row">
     <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="name"></label>
     <label>E-mail <small>(you sign in with this)</small> <input type="email" name="email" value="{{.User.Email}}" maxlength="254" required autocomplete="username"></label>
+    {{if and .Security .Security.ConfirmPassword}}<label>Current password <small>(only to change the e-mail address)</small> <input type="password" name="current" autocomplete="current-password"></label>{{end}}
     <label>Height (cm) {{help "profile-settings"}} <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
   </div>
   <div class="form-actions"><button type="submit">Save profile</button></div>
@@ -22,6 +23,7 @@
   </table></div>{{end}}
   <form method="post" action="/u/{{$.User.ID}}/tokens" class="form-row">
     <label>Token name {{help "access-tokens"}} <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
+    {{if .ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
     <label>Expires <select name="expires"><option value="30">In 30 days</option><option value="90" selected>In 90 days</option><option value="365">In 1 year</option><option value="never">Never</option></select></label>
     <div><button type="submit">Create token</button></div>
   </form>
@@ -31,7 +33,7 @@
   <h2>Linked accounts {{help "linked-accounts"}}</h2>
   <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
     {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="secondary" type="submit">Unlink</button></form>
-    {{else}}<form method="post" action="/auth/{{.Slug}}/login"><button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
+    {{else}}<form method="post" action="/auth/{{.Slug}}/login">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
 </section>
 {{end}}
 {{if .PasswordEnabled}}

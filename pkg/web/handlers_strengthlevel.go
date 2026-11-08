@@ -29,6 +29,9 @@ var strengthLevelBase = client.DefaultBase
 const (
 	strengthLevelDefaultDays = 90
 	strengthLevelMaxDays     = 3650
+
+	maxStrengthLevelJobs      = 3 // syncs running at the same time, over all users
+	maxStrengthLevelLoginFail = 5 // wrong Strength Level logins per user and limiter window
 )
 
 // strengthLevelDelay is the pause between two writes to Strength Level; tests shorten it.
@@ -99,13 +102,23 @@ func (s *Server) strengthLevelSaveLogin(w http.ResponseWriter, r *http.Request, 
 		settingsFlash(w, r, u, "Enter the e-mail address and password of your Strength Level account.")
 		return
 	}
-	// Sign in first, so a wrong password is reported now and nothing wrong is stored.
+	// Sign in first, so a wrong password is reported now and nothing wrong is stored. The check
+	// signs in to another service from this server, so the failures are limited like sign-ins.
+	limitKey := "sl:" + strconv.FormatInt(u.ID, 10)
+	if s.limiter.blocked(limitKey, maxStrengthLevelLoginFail) {
+		settingsFlash(w, r, u, "Too many failed Strength Level sign-ins. Try again in a few minutes.")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), strengthLevelTimeout)
 	defer cancel()
 	if err := client.New(strengthLevelBase, nil).Login(ctx, email, password); err != nil {
+		if errors.Is(err, client.ErrLogin) {
+			s.limiter.fail(limitKey)
+		}
 		settingsFlash(w, r, u, "Could not sign in to Strength Level: "+strengthLevelError(err))
 		return
 	}
+	s.limiter.reset(limitKey)
 	data, err := json.Marshal(slLogin{Email: email, Password: password})
 	if err == nil {
 		err = s.store.PutIntegration(r.Context(), u.ID, strengthLevelProvider, data)
@@ -114,6 +127,7 @@ func (s *Server) strengthLevelSaveLogin(w http.ResponseWriter, r *http.Request, 
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditSLLoginSaved, "")
 	settingsFlash(w, r, u, "Strength Level login saved.")
 }
 
@@ -169,11 +183,22 @@ func (s *Server) strengthLevelSync(w http.ResponseWriter, r *http.Request, u mod
 		settingsFlash(w, r, u, "A sync is already running.")
 		return
 	}
-	s.jobs.Add(1)
-	go func() {
-		defer s.jobs.Done()
+	started := s.startJob(func() {
+		// Only a few syncs hit Strength Level at once; the others wait their turn.
+		select {
+		case s.slSlots <- struct{}{}:
+			defer func() { <-s.slSlots }()
+		case <-ctx.Done():
+			return
+		}
 		s.runStrengthLevelSync(ctx, job, login, entries, since, update)
-	}()
+	})
+	if !started {
+		cancel()
+		settingsFlash(w, r, u, "The server is shutting down.")
+		return
+	}
+	s.audit(r, u.ID, auditSLSync, strconv.Itoa(days)+" days")
 	settingsFlash(w, r, u, "Sync started in the background.")
 }
 
@@ -281,5 +306,6 @@ func (s *Server) strengthLevelDeleteLogin(w http.ResponseWriter, r *http.Request
 		s.fail(w, err)
 		return
 	}
+	s.audit(r, u.ID, auditSLLoginRemoved, "")
 	settingsFlash(w, r, u, "Strength Level login removed.")
 }

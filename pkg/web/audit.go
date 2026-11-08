@@ -24,6 +24,11 @@ const (
 	auditSignup           = "signup"
 	auditProfile          = "profile_updated"
 	auditPasswordChanged  = "password_changed"
+	auditPasswordWrong    = "password_confirm_failed"
+	auditAPIAuthFailed    = "api_auth_failed"
+	auditSLLoginSaved     = "strengthlevel_login_saved"
+	auditSLLoginRemoved   = "strengthlevel_login_removed"
+	auditSLSync           = "strengthlevel_sync_started"
 	auditTokenCreated     = "token_created"
 	auditTokenRevoked     = "token_revoked"
 	auditIdentityLinked   = "sign_in_linked"
@@ -50,6 +55,9 @@ const (
 var auditLabels = map[string]string{
 	auditLogin: "Signed in", auditLoginFailed: "Failed sign-in", auditLoginThrottled: "Sign-in blocked (too many failures)",
 	auditLogout: "Signed out", auditSignup: "Account created",
+	auditPasswordWrong: "Wrong password on a sensitive change", auditAPIAuthFailed: "Failed API sign-in",
+	auditSLLoginSaved: "Strength Level login saved", auditSLLoginRemoved: "Strength Level login removed",
+	auditSLSync:  "Strength Level sync started",
 	auditProfile: "Profile changed", auditPasswordChanged: "Password changed", auditTokenCreated: "Access token created",
 	auditTokenRevoked: "Access token revoked", auditIdentityLinked: "Sign-in method linked", auditIdentityUnlinked: "Sign-in method unlinked",
 	auditExportProfile: "Settings and personal details exported", auditExportData: "Measurements exported",
@@ -185,9 +193,7 @@ func (s *Server) StartMaintenance() {
 	if s.AuditRetention <= 0 {
 		return
 	}
-	s.jobs.Add(1)
-	go func() {
-		defer s.jobs.Done()
+	s.startJob(func() {
 		t := time.NewTicker(auditPurgeEvery)
 		defer t.Stop()
 		for {
@@ -205,13 +211,13 @@ func (s *Server) StartMaintenance() {
 			case <-t.C:
 			}
 		}
-	}()
+	})
 }
 
 // noisyAudit lists events that anyone, signed in or not, can trigger at will. They are recorded at
 // most once per client address and minute, with a count of the ones left out, so a flood of failed
 // sign-ins cannot fill the database.
-var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true}
+var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true}
 
 const (
 	auditNoiseWindow = time.Minute
