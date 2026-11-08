@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,9 +31,15 @@ var Version = "dev"
 // command lines are visible to other processes.
 const encryptionKeyEnv = "DEXAFIX_ENCRYPTION_KEY"
 
+// encryptionKeyPreviousEnv holds earlier keys, comma separated, that may still open values written
+// before a rotation. Like the current key it has no flag.
+const encryptionKeyPreviousEnv = "DEXAFIX_ENCRYPTION_KEY_PREVIOUS"
+
 // resolveEncryptionKey returns the key from the environment value, or else from the key file,
-// creating the file with a new random key if it does not exist.
-func resolveEncryptionKey(envValue, path string) (key []byte, created bool, err error) {
+// creating the file with a new random key if it does not exist. hasData, when not nil, tells
+// whether the database already holds encrypted values: then a missing key file is an error, since a
+// new key could not read them and would only bury the real problem (a key file that did not mount).
+func resolveEncryptionKey(envValue, path string, hasData func() (bool, error)) (key []byte, created bool, err error) {
 	if envValue != "" {
 		key, err = sqlstore.ParseKey(envValue)
 		if err != nil {
@@ -50,6 +58,17 @@ func resolveEncryptionKey(envValue, path string) (key []byte, created bool, err 
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, false, err
 	}
+	if hasData != nil {
+		has, err := hasData()
+		if err != nil {
+			return nil, false, fmt.Errorf("check the database for encrypted values: %w", err)
+		}
+		if has {
+			return nil, false, fmt.Errorf("encryption key file %s not found, but the database already holds encrypted values: "+
+				"restore the key file (is the volume mounted? is the working directory right?) or set %s; "+
+				"no new key is created, because it could not read them", path, encryptionKeyEnv)
+		}
+	}
 	key = make([]byte, sqlstore.KeySize)
 	if _, err := rand.Read(key); err != nil {
 		return nil, false, err
@@ -63,6 +82,101 @@ func resolveEncryptionKey(envValue, path string) (key []byte, created bool, err 
 		return nil, false, fmt.Errorf("write encryption key file: %w", err)
 	}
 	return key, true, nil
+}
+
+// resolvePreviousKeys returns the keys named in the environment value (comma separated) and in the
+// file (one per line; blank lines and lines starting with # are ignored).
+func resolvePreviousKeys(envValue, path string) ([][]byte, error) {
+	var keys [][]byte
+	for _, part := range strings.Split(envValue, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		key, err := sqlstore.ParseKey(part)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", encryptionKeyPreviousEnv, err)
+		}
+		keys = append(keys, key)
+	}
+	if path == "" {
+		return keys, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("previous encryption keys: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, err := sqlstore.ParseKey(line)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// keyFileBesideDatabase reports whether the database is a SQLite file in the same directory as the
+// key file. A leak of that directory (a backup, a volume snapshot, an image layer) then exposes
+// both the ciphertext and the key.
+func keyFileBesideDatabase(driver, dsn, keyFile string) bool {
+	if driver != sqlstore.DriverSQLite || keyFile == "" {
+		return false
+	}
+	name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(dsn, "file://"), "file:"), "?")
+	if name == "" || name == ":memory:" {
+		return false
+	}
+	return sameDir(name, keyFile)
+}
+
+func sameDir(a, b string) bool {
+	dir := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		d := filepath.Dir(abs)
+		if real, err := filepath.EvalSymlinks(d); err == nil {
+			d = real
+		}
+		return d
+	}
+	return dir(a) == dir(b)
+}
+
+// addKeyFlags registers the encryption key flags shared by the commands that open the database
+// with a cipher. The keys themselves are never accepted as flag values.
+func addKeyFlags(c *cobra.Command) {
+	c.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing for a new database, unused when "+encryptionKeyEnv+" is set")
+	c.Flags().String("encryption-key-previous-file", envOr("DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE", ""), "file with earlier encryption keys, one per line, that may still open values written before a rotation (see also "+encryptionKeyPreviousEnv+")")
+}
+
+// loadCipher resolves the current and previous keys. It refuses to create a key file for a database
+// that already holds encrypted values.
+func loadCipher(ctx context.Context, cmd *cobra.Command, driver, dsn string) (*sqlstore.Cipher, error) {
+	keyFile, _ := cmd.Flags().GetString("encryption-key-file")
+	prevFile, _ := cmd.Flags().GetString("encryption-key-previous-file")
+	hasData := func() (bool, error) { return sqlstore.HasEncryptedValues(ctx, driver, dsn) }
+	key, created, err := resolveEncryptionKey(os.Getenv(encryptionKeyEnv), keyFile, hasData)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		log.Warn().Str("file", keyFile).Msg("created a new encryption key: back it up, encrypted values cannot be read without it")
+	}
+	if os.Getenv(encryptionKeyEnv) == "" && keyFileBesideDatabase(driver, dsn, keyFile) {
+		log.Warn().Str("file", keyFile).Msg("the encryption key file is in the same directory as the database file: " +
+			"a leak of that directory (backup, snapshot, image) exposes both the encrypted values and the key; " +
+			"prefer " + encryptionKeyEnv + " from a secret store, or a key file on a separate secret mount")
+	}
+	previous, err := resolvePreviousKeys(os.Getenv(encryptionKeyPreviousEnv), prevFile)
+	if err != nil {
+		return nil, err
+	}
+	return sqlstore.NewCipher(key, previous...)
 }
 
 func envOr(key, def string) string {
@@ -101,19 +215,11 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			return err
 		}
 		autoMigrate, _ := cmd.Flags().GetBool("auto-migrate")
-		keyFile, _ := cmd.Flags().GetString("encryption-key-file")
 
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		key, created, err := resolveEncryptionKey(os.Getenv(encryptionKeyEnv), keyFile)
-		if err != nil {
-			return err
-		}
-		if created {
-			log.Warn().Str("file", keyFile).Msg("created a new encryption key: back it up, encrypted values cannot be read without it")
-		}
-		c, err := sqlstore.NewCipher(key)
+		c, err := loadCipher(ctx, cmd, driver, dsn)
 		if err != nil {
 			return err
 		}
@@ -186,6 +292,6 @@ func init() {
 	serveCmd.Flags().String("trusted-proxies", envOr("DEXAFIX_TRUSTED_PROXIES", ""), "comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-* headers are believed; also \"loopback\" and \"private\"")
 	serveCmd.Flags().String("base-url", envOr("DEXAFIX_BASE_URL", ""), "public address of the app, such as https://dexa.example.com; used for sign-in callback URLs and to decide that cookies are Secure")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
-	serveCmd.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing, unused when "+encryptionKeyEnv+" is set")
+	addKeyFlags(serveCmd)
 	RootCmd.AddCommand(serveCmd)
 }

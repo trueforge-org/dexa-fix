@@ -214,8 +214,64 @@ dexa-fix db copy --from-dsn file:dexa-fix.db --to-driver postgres --to-dsn-file 
 	},
 }
 
+var dbRekeyCmd = &cobra.Command{
+	Use:   "rekey",
+	Short: "Re-encrypt every encrypted value with the current encryption key",
+	Long: `Re-encrypt every encrypted value with the current encryption key and recompute the e-mail
+lookup hashes, in a single transaction: it completes or changes nothing. It can be repeated; values
+already under the current key are skipped.
+
+The old keys must be given as previous keys (DEXAFIX_ENCRYPTION_KEY_PREVIOUS or
+--encryption-key-previous-file). Stop the server first and back up the database and the key.
+--dry-run only reports how many values would change, and fails if any value cannot be opened.`,
+	Example: `DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey --dry-run
+DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		driver, dsn, err := dbFlags(cmd)
+		if err != nil {
+			return err
+		}
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		c, err := loadCipher(ctx, cmd, driver, dsn)
+		if err != nil {
+			return err
+		}
+		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+
+		stats, err := st.Rekey(ctx, dryRun)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		verb := "re-encrypted"
+		if dryRun {
+			verb = "to re-encrypt"
+			fmt.Fprintln(out, "dry run: nothing was changed")
+		}
+		fmt.Fprintf(out, "e-mail addresses %s: %d\n", verb, stats.Emails)
+		fmt.Fprintf(out, "integrations %s:     %d\n", verb, stats.Integrations)
+		fmt.Fprintf(out, "settings %s:         %d\n", verb, stats.Settings)
+		fmt.Fprintf(out, "auth providers %s:   %d\n", verb, stats.Providers)
+		fmt.Fprintf(out, "e-mail lookups recomputed: %d\n", stats.Lookups)
+		fmt.Fprintf(out, "already under the current key: %d\n", stats.Current)
+		return nil
+	},
+}
+
 func init() {
 	addDBFlags(dbMigrateCmd)
+	addDBFlags(dbRekeyCmd)
+	addKeyFlags(dbRekeyCmd)
+	dbRekeyCmd.Flags().Bool("dry-run", false, "only report what would change")
 	dbCopyCmd.Flags().String("from-driver", sqlstore.DriverSQLite, "source database driver: sqlite or postgres")
 	dbMigrateCmd.Flags().Bool("yes", false, "confirm rolling the schema back, which drops tables and their data")
 	dbCopyCmd.Flags().String("from-dsn", envOr("DEXAFIX_FROM_DSN", envOr("DEXAFIX_DSN", "")), "source connection string (without a password: use DEXAFIX_FROM_DSN or --from-dsn-file for those)")
@@ -223,6 +279,6 @@ func init() {
 	dbCopyCmd.Flags().String("to-driver", envOr("DEXAFIX_TO_DRIVER", ""), "target database driver: sqlite or postgres")
 	dbCopyCmd.Flags().String("to-dsn", envOr("DEXAFIX_TO_DSN", ""), "target connection string (without a password: use DEXAFIX_TO_DSN or --to-dsn-file for those)")
 	dbCopyCmd.Flags().String("to-dsn-file", envOr("DEXAFIX_TO_DSN_FILE", ""), "file holding the target connection string")
-	dbCmd.AddCommand(dbMigrateCmd, dbCopyCmd)
+	dbCmd.AddCommand(dbMigrateCmd, dbCopyCmd, dbRekeyCmd)
 	RootCmd.AddCommand(dbCmd)
 }

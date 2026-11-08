@@ -232,7 +232,7 @@ func TestSameValueEncryptsDifferently(t *testing.T) {
 	if x == y {
 		t.Fatal("nonce reuse")
 	}
-	if got, err := c.open(x, "ctx"); err != nil || got != "v" {
+	if got, _, err := c.open(x, "ctx"); err != nil || got != "v" {
 		t.Fatalf("open: %q %v", got, err)
 	}
 }

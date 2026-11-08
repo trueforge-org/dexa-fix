@@ -129,6 +129,10 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		}
 	}
 	if cfg.cipher != nil && cfg.migrate != migrateSkip {
+		if err := s.verifyKey(ctx); err != nil {
+			s.Close()
+			return nil, err
+		}
 		if err := s.encryptExisting(ctx); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("encrypt existing data: %w", err)

@@ -42,7 +42,11 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
 	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
-		n, err := dst.db.NewSelect().Model(m).Count(ctx)
+		q := dst.db.NewSelect().Model(m)
+		if _, ok := m.(*settingRow); ok {
+			q = q.Where("name <> ?", checkSetting) // written by Open when the target has a key
+		}
+		n, err := q.Count(ctx)
 		if err != nil {
 			return stats, fmt.Errorf("target: %w", err)
 		}
@@ -71,6 +75,10 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		}
 		if stats.AccessTokens, err = copyTable[tokenRow](ctx, src, tx, "id"); err != nil {
 			return fmt.Errorf("access_tokens: %w", err)
+		}
+		// The source's key check goes with its ciphertext, so the target's own is replaced.
+		if _, err := tx.NewDelete().Model((*settingRow)(nil)).Where("name = ?", checkSetting).Exec(ctx); err != nil {
+			return fmt.Errorf("app_settings: %w", err)
 		}
 		if stats.Settings, err = copyTable[settingRow](ctx, src, tx, "name"); err != nil {
 			return fmt.Errorf("app_settings: %w", err)

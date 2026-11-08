@@ -103,8 +103,10 @@ overrides the variable.
 | `--base-url`               | `DEXAFIX_BASE_URL`               | empty                                                                 | Public address, such as `https://dexa.example.com`. |
 | `--audit-retention-days`   | `DEXAFIX_AUDIT_RETENTION_DAYS`   | `365`                                                                 | Delete audit log events, and the IP addresses in them, after this many days. `0` keeps them forever. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
-| `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing.     |
+| `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing, but only for a database without encrypted values. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
+| `--encryption-key-previous-file` | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE` | empty                                                     | File with earlier keys, one per line, for a key rotation. |
+| (none)                     | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS` | unset                                                                | Earlier keys, comma separated, for a key rotation. No flag. |
 
 Two variables are read strictly:
 
@@ -242,6 +244,7 @@ instead of guessing. Start from a fresh database.
 | `db migrate status`      | List every migration and whether it is applied.               |
 | `db migrate version`     | Print the current schema version.                             |
 | `db copy`                | Copy all data to another database. See below.                 |
+| `db rekey [--dry-run]`   | Re-encrypt all encrypted values with the current key. See [Encryption](#encryption). |
 
 `db migrate` takes `--db-driver` and `--dsn`, with the same environment
 variables as `serve`. `db copy` takes `--from-driver`, `--from-dsn`,
@@ -253,6 +256,7 @@ Rolling back drops the tables and columns of the migrations it undoes, together
 with their data. `db migrate down` and `db migrate to N` for an N below the
 current version therefore refuse to run without `--yes`; without it they print
 which migrations would be undone. Make a backup first.
+`db rekey` takes the database and encryption key flags of `serve`.
 
 ```bash
 go run . db migrate status
@@ -278,7 +282,8 @@ single transaction, so a failure leaves the target untouched. The source is not
 changed, but it must already be fully migrated (`db migrate up`).
 
 `db copy` copies encrypted values unchanged, so the target database needs the
-same encryption key as the source. Give the server that starts on the target
+same encryption key as the source (or run `db rekey` on the target afterwards,
+with the source key as a previous key). Give the server that starts on the target
 the same `DEXAFIX_ENCRYPTION_KEY` or key file. See [Encryption](#encryption).
 
 ## Using the app
@@ -471,17 +476,62 @@ The key comes from one of these, in this order:
    directory.
 
 If the variable is not set and the key file does not exist, dexa-fix creates
-the file with a new random key and mode 0600.
+the file with a new random key and mode 0600, but only for a new database or one
+that holds no encrypted values yet. If the database already holds encrypted
+values, a missing key file is an error and no file is created, so a key file
+that did not mount (or a wrong working directory) is reported instead of being
+replaced by a key that cannot read anything.
 
 In containers, put the key file on a persistent volume, or set
-`DEXAFIX_ENCRYPTION_KEY`. A new key cannot read values encrypted with an old
-one. Values stored before encryption are encrypted automatically at startup.
+`DEXAFIX_ENCRYPTION_KEY`. Values stored before encryption are encrypted
+automatically at startup.
+
+The database remembers which key it belongs to (a check value in the
+`crypto.check` setting, which reveals nothing about the key). Starting with a
+different key fails with a message that says so, instead of failing later at a
+random value.
+
+For SQLite, `serve` logs a warning when the key file is in the same directory as
+the database file, which is the case for the container image defaults
+(`/data/dexa-fix.db` and `/data/dexa-fix.key`). A leak of that directory (a
+backup, a volume snapshot) then exposes both the encrypted values and the key.
+Prefer `DEXAFIX_ENCRYPTION_KEY` from a secret store, or a key file on a separate
+secret mount.
 
 Back up the key separately from the database. Without it, the encrypted values
 cannot be read, and the server does not start, because a server setting can no
 longer be read. Keeping the key next to database backups defeats the purpose.
-There is no built-in key rotation or key check yet; the plan is in
-[docs/key-rotation.md](docs/key-rotation.md).
+
+#### Rotating the key
+
+Stored values look like `enc:v2:<key id>:<data>`. The key id is the first eight
+hexadecimal characters of the SHA-256 of the key, so values written by different
+keys can be told apart. Values from before (`enc:v1:`) stay readable. To change
+the key:
+
+1. Stop the server and back up the database and the key file.
+2. Generate a new key, for example `openssl rand -hex 32`.
+3. Configure the new key as the current one and the old key as a previous one:
+   `DEXAFIX_ENCRYPTION_KEY=<new>` and `DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old>`, or
+   a new `--encryption-key-file` plus `--encryption-key-previous-file` with the
+   old key on a line of its own. Several previous keys are allowed.
+4. Run `dexa-fix db rekey --dry-run` to see how many values would change. It
+   fails if any value cannot be opened by one of the keys.
+5. Run `dexa-fix db rekey`. In a single transaction it re-encrypts the e-mail
+   addresses, integrations, server settings (including the cookie key) and
+   sign-in provider secrets with the current key, recomputes the e-mail lookup
+   hashes (they derive from the key) and stores the new check value. It either
+   completes or changes nothing, and can be repeated: values already under the
+   current key are skipped.
+6. Start the server with only the new key. Remove the old key from the
+   configuration once `db rekey` reports no values left to re-encrypt.
+
+The server also starts between steps 3 and 5. It reads old values with the
+previous key, writes new ones with the current key, and logs a warning until
+`db rekey` has run. Run `db rekey` while the server is stopped: a running server
+keeps its keys in memory. The cookie key itself does not change, so sessions
+stay valid. `db rekey` was tested on SQLite; on Postgres it is the same code in
+one transaction.
 
 ### Storage and rate limiting
 

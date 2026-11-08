@@ -379,8 +379,10 @@
     <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
     <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
     <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout. Only the exact value <code>true</code> turns it on; <code>1</code> or <code>TRUE</code> does not.</td></tr>
-    <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing. Unused when the key variable is set.</td></tr>
+    <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing, but only for a database without encrypted values. Unused when the key variable is set.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
+    <tr><td><code>--encryption-key-previous-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE</code></td><td>empty</td><td>File with earlier keys, one per line (blank lines and <code>#</code> comments are ignored), for a key rotation.</td></tr>
+    <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS</code></td><td>unset</td><td>Earlier keys, comma separated, for a key rotation.</td></tr>
   </tbody>
 </table></div>
 <p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
@@ -460,6 +462,7 @@ traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
     <tr><td><code>db migrate status</code></td><td>List every migration and whether it is applied.</td></tr>
     <tr><td><code>db migrate version</code></td><td>Print the current schema version.</td></tr>
     <tr><td><code>db copy</code></td><td>Copy all data to another database.</td></tr>
+    <tr><td><code>db rekey [--dry-run]</code></td><td>Re-encrypt all encrypted values with the current key. See <a href="#encryption">Encryption</a>.</td></tr>
   </tbody>
 </table></div>
 <p class="docs-warn">Rolling back drops tables and the data in them. Take a backup first.</p>
@@ -467,7 +470,7 @@ traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
 <pre><code>export DEXAFIX_TO_DSN='postgres://user:secret@localhost/dexafix'
 dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
 dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></pre>
-<p>The target is migrated to the latest schema first and must be empty. Ids are kept and Postgres sequences are reset. The copy is a single transaction, so a failure leaves the target untouched. The source is not changed but must already be fully migrated (<code>db migrate up</code>). Encrypted values are copied unchanged: the server on the target needs the <strong>same encryption key</strong> (see <a href="#encryption">Encryption</a>).</p>
+<p>The target is migrated to the latest schema first and must be empty. Ids are kept and Postgres sequences are reset. The copy is a single transaction, so a failure leaves the target untouched. The source is not changed but must already be fully migrated (<code>db migrate up</code>). Encrypted values are copied unchanged: the server on the target needs the <strong>same encryption key</strong>, or run <code>db rekey</code> on the target with the source key as a previous key (see <a href="#encryption">Encryption</a>).</p>
 </section>
 
 <section id="encryption">
@@ -477,14 +480,26 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 <p>The key comes from, in this order:</p>
 <ol>
   <li>The environment variable <code>DEXAFIX_ENCRYPTION_KEY</code>: 32 bytes as 64 hexadecimal characters or as base64. There is no command-line flag, because command lines are visible to other processes.</li>
-  <li>The key file (<code>--encryption-key-file</code> or <code>DEXAFIX_ENCRYPTION_KEY_FILE</code>, default <code>dexa-fix.key</code> in the working directory). If neither exists, dexa-fix creates the file with a new random key and mode <code>0600</code> and logs a warning.</li>
+  <li>The key file (<code>--encryption-key-file</code> or <code>DEXAFIX_ENCRYPTION_KEY_FILE</code>, default <code>dexa-fix.key</code> in the working directory). If neither exists, dexa-fix creates the file with a new random key and mode <code>0600</code> and logs a warning, but only for a new database or one without encrypted values. If the database already holds encrypted values, a missing key file is an error and nothing is created, so a key file that did not mount is reported instead of replaced.</li>
 </ol>
 <ul>
   <li>In containers, put the key file on a persistent volume or set the variable.</li>
   <li><strong>Back up the key separately from the database.</strong> Without it the encrypted values cannot be read and the server does not start. Keeping the key next to the database backup defeats the purpose.</li>
-  <li>A new key cannot read values encrypted with an old one. There is no built-in key rotation.</li>
+  <li>The database remembers which key it belongs to (a check value in the <code>crypto.check</code> setting that reveals nothing about the key). Starting with a different key fails with a message that says so.</li>
+  <li>For SQLite, <code>serve</code> logs a warning when the key file is in the same directory as the database file, as with the container image defaults. A leak of that directory exposes both the encrypted values and the key. Prefer <code>DEXAFIX_ENCRYPTION_KEY</code> from a secret store, or a key file on a separate secret mount.</li>
   <li>Values stored before encryption was on are encrypted automatically at startup.</li>
 </ul>
+<h3 id="key-rotation">Rotating the key</h3>
+<p>Stored values look like <code>enc:v2:&lt;key id&gt;:&lt;data&gt;</code>; the key id is the first eight hex characters of the SHA-256 of the key. Older <code>enc:v1:</code> values stay readable.</p>
+<ol>
+  <li>Stop the server and back up the database and the key file.</li>
+  <li>Generate a new key, for example <code>openssl rand -hex 32</code>.</li>
+  <li>Make it the current key and give the old one as a previous key: <code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt;</code> and <code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt;</code>, or a new key file plus <code>--encryption-key-previous-file</code>.</li>
+  <li>Run <code>dexa-fix db rekey --dry-run</code>. It reports how many values would change and fails if any value cannot be opened.</li>
+  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key) and provider secrets, recomputes the e-mail lookup hashes and stores the new check value. It either completes or changes nothing, and can be repeated.</li>
+  <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
+</ol>
+<p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
 </section>
 
 <section id="data-export">
