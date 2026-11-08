@@ -413,7 +413,8 @@ func (s *Store) DeleteIntegration(ctx context.Context, userID int64, provider st
 func (s *Store) SetUserStrengthLevelAuto(ctx context.Context, userID int64, enabled bool) error {
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewUpdate().Model((*userRow)(nil)).
-			Set("strengthlevel_auto = ?", enabled).Where("id = ?", userID).Exec(ctx)
+			Set("strengthlevel_auto = ?", enabled).Set("strengthlevel_bulk = strengthlevel_bulk AND ?", enabled).
+			Where("id = ?", userID).Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -426,4 +427,17 @@ func (s *Store) SetUserStrengthLevelAuto(ctx context.Context, userID int64, enab
 		}
 		return err
 	})
+}
+
+// SetUserStrengthLevelBulk allows or forbids the multi-day sync for a user who may sync.
+func (s *Store) SetUserStrengthLevelBulk(ctx context.Context, userID int64, enabled bool) error {
+	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
+		Set("strengthlevel_bulk = ?", enabled).Where("id = ?", userID).Where("strengthlevel_auto = ?", true).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
 }

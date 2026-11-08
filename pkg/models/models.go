@@ -151,6 +151,9 @@ type User struct {
 	// StrengthLevelAuto is set by an administrator. It lets the user store their Strength Level
 	// login and sync body readings to it automatically.
 	StrengthLevelAuto bool `json:"-"`
+	// StrengthLevelBulk additionally allows the multi-day sync on the settings page. It needs
+	// StrengthLevelAuto.
+	StrengthLevelBulk bool `json:"-"`
 }
 
 // ScaleReading is a single smart-scale measurement. Fields are aligned with Withings measure types.

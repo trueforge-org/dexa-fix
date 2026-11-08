@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -575,11 +576,24 @@ func TestDailyTableRemembersHiddenColumns(t *testing.T) {
 	}
 }
 
-// fakeStrengthLevel is a minimal my.strengthlevel.com: one account (a@b.c / pw) with one entry.
-func fakeStrengthLevel(t *testing.T) (posted *[]map[string]any) {
+// fakeSL is a minimal my.strengthlevel.com: one account (a@b.c / pw) with a few entries.
+type fakeSL struct {
+	mu      sync.Mutex
+	entries map[string]map[string]any // by date
+	posts   []map[string]any
+	puts    []map[string]any
+}
+
+func (f *fakeSL) count() (posts, puts int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.posts), len(f.puts)
+}
+
+func fakeStrengthLevel(t *testing.T, entries map[string]map[string]any) *fakeSL {
 	t.Helper()
 	const uid = "019474c6-b1b1-7299-bd69-57017308050a"
-	var got []map[string]any
+	f := &fakeSL{entries: entries}
 	in := func(r *http.Request) bool { c, err := r.Cookie("sl"); return err == nil && c.Value == "ok" }
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
@@ -594,94 +608,204 @@ func fakeStrengthLevel(t *testing.T) (posted *[]map[string]any) {
 		http.SetCookie(w, &http.Cookie{Name: "sl", Value: "ok", Path: "/"})
 		http.Redirect(w, r, "/home", http.StatusFound)
 	})
-	mux.HandleFunc("GET /home", func(w http.ResponseWriter, r *http.Request) {})
-	mux.HandleFunc("GET /{user}/bodyweight", func(w http.ResponseWriter, r *http.Request) {
-		if !in(r) || r.PathValue("user") != "bobby" {
+	mux.HandleFunc("GET /home", func(w http.ResponseWriter, r *http.Request) {
+		if !in(r) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`<meta name="csrf-token" content="page"><script>x={"user_id":"` + uid + `"}</script>`))
+		w.Write([]byte(`<meta name="csrf-token" content="page"><script>x={"otherUserViewModel":{"id":"` + uid + `"}}</script>`))
 	})
 	mux.HandleFunc("GET /api/bodyweights", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":[{"id":"e","date":"` + time.Now().UTC().Format("2006-01-02") + `","bodyweight":80}]}`))
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		data := []map[string]any{}
+		for _, e := range f.entries {
+			data = append(data, e)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
 	})
 	mux.HandleFunc("POST /api/bodyweights", func(w http.ResponseWriter, r *http.Request) {
 		var b map[string]any
 		json.NewDecoder(r.Body).Decode(&b)
-		got = append(got, b)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.posts = append(f.posts, b)
+		b["id"] = "n" + b["date"].(string)
+		f.entries[b["date"].(string)] = b
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"data":{}}`))
+	})
+	mux.HandleFunc("PUT /api/bodyweights/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		json.NewDecoder(r.Body).Decode(&b)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for date, e := range f.entries {
+			if e["id"] == r.PathValue("id") {
+				b["id"] = e["id"]
+				f.entries[date] = b
+				f.puts = append(f.puts, b)
+				w.Write([]byte(`{"data":{}}`))
+				return
+			}
+		}
+		http.NotFound(w, r)
 	})
 	ts := httptest.NewServer(mux)
 	old := strengthLevelBase
 	strengthLevelBase = ts.URL
 	t.Cleanup(func() { ts.Close(); strengthLevelBase = old })
-	return &got
+	return f
 }
 
-func TestStrengthLevelFlag(t *testing.T) {
-	posted := fakeStrengthLevel(t)
+// waitForSync waits until the settings page reports a finished background sync.
+func waitForSync(t *testing.T, c *http.Client, base string) string {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		_, b := body(t, c, base+"/u/2/settings")
+		if strings.Contains(b, "Last sync") || strings.Contains(b, "The last sync stopped") {
+			return b
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the background sync did not finish")
+	return ""
+}
+
+func TestStrengthLevel(t *testing.T) {
+	day := func(ago int) string { return time.Now().UTC().AddDate(0, 0, -ago).Format("2006-01-02") }
+	fake := fakeStrengthLevel(t, map[string]map[string]any{
+		day(0): {"id": "e0", "date": day(0), "bodyweight": 80.0},                                               // same as our estimate
+		day(1): {"id": "e1", "date": day(1), "bodyweight": 70.0, "bodyfat": 12.0, "bodyfat_method": "caliper"}, // other value
+	})
+	strengthLevelDelay = 0
 	ts, c, st := newServerAndStore(t, withings.New(withings.Config{}, nil))
 	signup(t, ts, c, "alice") // first account is the administrator
 	bob := &http.Client{CheckRedirect: c.CheckRedirect}
 	signup(t, ts, bob, "bob")
-	login := url.Values{"username": {"bobby"}, "email": {"a@b.c"}, "password": {"pw"}}
+	login := url.Values{"email": {"a@b.c"}, "password": {"pw"}}
 	stored := func() error { _, err := st.GetIntegration(context.Background(), 2, "strengthlevel"); return err }
+	admin := func(path string, on string) *http.Response {
+		return post(t, c, ts.URL+"/admin/users/2/"+path, url.Values{"enabled": {on}})
+	}
 
-	// Off by default: no settings card, and saving or syncing is refused.
+	// Off by default: no settings card, and saving a login, syncing or sending a day is refused.
 	if _, b := body(t, bob, ts.URL+"/u/2/settings"); strings.Contains(b, `id="strengthlevel"`) {
 		t.Fatal("card shown without the flag")
 	}
-	for _, p := range []string{"login", "sync"} {
-		if r := post(t, bob, ts.URL+"/u/2/strengthlevel/"+p, login); r.StatusCode != 403 {
+	for _, p := range []string{"login", "sync", "day"} {
+		if r := post(t, bob, ts.URL+"/u/2/strengthlevel/"+p, login); r.StatusCode != 403 && !(p == "day" && r.StatusCode == 403) {
 			t.Fatalf("%s without flag: %d", p, r.StatusCode)
 		}
 	}
-	// Only an administrator can set the flag.
+	// Only an administrator can set the switches; the multi-day one needs the first.
 	if r := post(t, bob, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"1"}}); r.StatusCode != 404 {
 		t.Fatalf("non-admin enable: %d", r.StatusCode)
 	}
-	if r := post(t, c, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"1"}}); r.StatusCode != 303 {
+	admin("strengthlevel-bulk", "1")
+	if _, b := body(t, c, ts.URL+"/admin"); strings.Contains(b, "Disallow multi-day sync") {
+		t.Fatal("bulk switch set without the first switch")
+	}
+	if r := admin("strengthlevel", "1"); r.StatusCode != 303 {
 		t.Fatalf("admin enable: %d", r.StatusCode)
 	}
-	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, `name="username"`) {
-		t.Fatalf("card missing:\n%s", b)
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, `name="email"`) || strings.Contains(b, `name="days"`) {
+		t.Fatalf("card without the multi-day form expected:\n%s", b)
+	}
+	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/sync", nil); r.StatusCode != 403 {
+		t.Fatalf("multi-day sync without its switch: %d", r.StatusCode)
 	}
 
 	// Incomplete or wrong logins are not stored.
-	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"email": {"a@b.c"}, "password": {"pw"}})
-	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"username": {"bobby"}, "email": {"a@b.c"}, "password": {"wrong"}})
-	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"username": {"nobody"}, "email": {"a@b.c"}, "password": {"pw"}})
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"email": {"a@b.c"}})
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"email": {"a@b.c"}, "password": {"wrong"}})
 	if err := stored(); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("an unusable login was stored: %v", err)
 	}
 	post(t, bob, ts.URL+"/u/2/strengthlevel/login", login)
-	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, "bobby") || strings.Contains(b, "pw</") || strings.Contains(b, `value="pw"`) {
-		t.Fatalf("saved view must show the username and never the password:\n%s", b)
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, "a@b.c") || strings.Contains(b, `value="pw"`) {
+		t.Fatalf("saved view must show the e-mail address and never the password:\n%s", b)
 	}
 
-	// Sync adds the recent days without an entry (today has one on the fake) and nothing older than 90 days.
-	day := func(ago int) string { return time.Now().UTC().AddDate(0, 0, -ago).Format("2006-01-02") }
+	// Readings: today 80, yesterday 79.4, 200 days ago 90. Days between are interpolated.
 	for _, d := range []struct {
 		ago int
 		kg  string
 	}{{0, "80"}, {1, "79.4"}, {200, "90"}} {
 		post(t, bob, ts.URL+"/u/2/scale", url.Values{"measured_at": {day(d.ago) + "T07:30"}, "weight_kg": {d.kg}})
 	}
-	r := post(t, bob, ts.URL+"/u/2/strengthlevel/sync", nil)
-	if r.StatusCode != 303 || !strings.Contains(r.Header.Get("Location"), "added+1+day") {
-		t.Fatalf("sync: %d %s", r.StatusCode, r.Header.Get("Location"))
+
+	// The estimates page offers a button per day, which overwrites the day on Strength Level.
+	if _, b := body(t, bob, ts.URL+"/u/2/estimates"); !strings.Contains(b, `action="/u/2/strengthlevel/day"`) {
+		t.Fatal("no single-day button on the estimates page")
 	}
-	if len(*posted) != 1 || (*posted)[0]["date"] != day(1) || (*posted)[0]["bodyweight"] != 79.4 {
-		t.Fatalf("posted: %+v", *posted)
+	r := post(t, bob, ts.URL+"/u/2/strengthlevel/day", url.Values{"day": {day(1)}})
+	if r.StatusCode != 303 || !strings.Contains(r.Header.Get("Location"), "overwritten") {
+		t.Fatalf("send one day: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	if _, puts := fake.count(); puts != 1 || fake.puts[0]["bodyweight"] != 79.4 || fake.puts[0]["bodyfat"] != 12.0 || fake.puts[0]["bodyfat_method"] != "caliper" {
+		t.Fatalf("overwrite keeps the site's body fat and method: %+v", fake.puts)
+	}
+	r = post(t, bob, ts.URL+"/u/2/strengthlevel/day", url.Values{"day": {day(0)}})
+	if !strings.Contains(r.Header.Get("Location"), "already+up+to+date") {
+		t.Fatalf("same values: %s", r.Header.Get("Location"))
+	}
+	r = post(t, bob, ts.URL+"/u/2/strengthlevel/day", url.Values{"day": {day(5)}}) // interpolated, missing there
+	if !strings.Contains(r.Header.Get("Location"), "added") {
+		t.Fatalf("interpolated day: %s", r.Header.Get("Location"))
+	}
+	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/day", url.Values{"day": {"nope"}}); r.StatusCode != 400 {
+		t.Fatalf("bad day: %d", r.StatusCode)
+	}
+	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/day", url.Values{"day": {day(300)}}); !strings.Contains(r.Header.Get("Location"), "no+weight+estimate") {
+		t.Fatalf("day without estimate: %s", r.Header.Get("Location"))
 	}
 
-	// Disabling the flag deletes the login and refuses further saves.
-	post(t, c, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"0"}})
+	// The multi-day sync runs in the background once the administrator allows it.
+	admin("strengthlevel-bulk", "1")
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, `name="days"`) {
+		t.Fatal("multi-day form missing after allowing it")
+	}
+	before, _ := fake.count()
+	r = post(t, bob, ts.URL+"/u/2/strengthlevel/sync", url.Values{"days": {"10"}})
+	if r.StatusCode != 303 || !strings.Contains(r.Header.Get("Location"), "started+in+the+background") {
+		t.Fatalf("sync: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	page := waitForSync(t, bob, ts.URL)
+	// Days 0..10: today and yesterday exist (and are left alone), day 5 was added above: 8 more.
+	if posts, puts := fake.count(); posts-before != 8 || puts != 1 || !strings.Contains(page, "added 8, updated 0, 3 already up to date") {
+		t.Fatalf("add-only sync: %d new posts, %d puts\n%s", posts-before, puts, page)
+	}
+	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/sync", url.Values{"days": {"0"}}); !strings.Contains(r.Header.Get("Location"), "between+1+and+3650") {
+		t.Fatalf("bad days: %s", r.Header.Get("Location"))
+	}
+
+	// With the update box ticked, days that exist with other values are overwritten too.
+	fake.mu.Lock()
+	fake.entries[day(2)]["bodyweight"] = 1.0
+	fake.mu.Unlock()
+	post(t, bob, ts.URL+"/u/2/strengthlevel/sync", url.Values{"days": {"10"}, "update": {"1"}})
+	for i := 0; i < 100; i++ { // the previous result is still shown until the new job has finished
+		_, b := body(t, bob, ts.URL+"/u/2/settings")
+		if strings.Contains(b, "updating existing days") {
+			page = b
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !strings.Contains(page, "added 0, updated 1,") {
+		t.Fatalf("update sync:\n%s", page)
+	}
+
+	// Taking the permissions away deletes the login.
+	admin("strengthlevel", "0")
 	if err := stored(); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("login kept after disabling: %v", err)
 	}
 	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/login", login); r.StatusCode != 403 {
 		t.Fatalf("save after disable: %d", r.StatusCode)
+	}
+	if u, _ := st.GetUser(context.Background(), 2); u.StrengthLevelAuto || u.StrengthLevelBulk {
+		t.Fatalf("switches after disabling: %+v", u)
 	}
 }

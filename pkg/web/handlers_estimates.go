@@ -155,6 +155,7 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 		EstFields: shown, EstColumns: columns, EstRows: rows, EstRange: window.Desc, EstRangeKey: window.Key, Cals: cals, Msg: msg,
 		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}
+	data.SLSend = s.strengthLevelReady(r, u)
 	data.Withings = s.withingsView(r, u)
 	data.Resync = data.Withings != nil && data.Withings.Connected
 	s.render(w, "estimates.html", http.StatusOK, data)

@@ -74,21 +74,31 @@
     {{if .Saved}}<span class="status on">Login saved</span>{{else}}<span class="status">No login</span>{{end}}
   </div>
   {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
-  <p class="help">Your Strength Level e-mail and password are stored encrypted and used to add your weight and body fat to days that have none there. Only e-mail and password accounts work, not Google, Apple or Facebook sign-in.{{if .Saved}} Saved for <strong>{{.Username}}</strong> ({{.Email}}); the password is never shown.{{end}}</p>
+  <p class="help">Your Strength Level e-mail and password are stored encrypted and used to add your weight and body fat to days that have none there. Only e-mail and password accounts work, not Google, Apple or Facebook sign-in.{{if .Saved}} Saved for <strong>{{.Email}}</strong>; the password is never shown.{{end}}</p>
   <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login" class="stack">
     <div class="form-row">
-      <label>Strength Level username <input type="text" name="username" maxlength="64" required autocomplete="off" value="{{.Username}}"></label>
       <label>Strength Level e-mail <input type="email" name="email" maxlength="254" required autocomplete="off" value="{{.Email}}"></label>
       <label>Password <input type="password" name="password" maxlength="200" required autocomplete="new-password"></label>
     </div>
     <div class="form-actions"><button type="submit">{{if .Saved}}Replace login{{else}}Save login{{end}}</button></div>
   </form>
   {{if .Saved}}
-  <div class="integration">
-    <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync"><button type="submit">Sync missing days</button></form>
-    <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login/delete"><button type="submit" class="secondary">Remove login</button></form>
+  {{if .Bulk}}
+  <div id="sl-status"{{if .Job}}{{if .Job.Running}} hx-get="/u/{{$.User.ID}}/settings" hx-trigger="every 2s" hx-select="#sl-status" hx-target="#sl-status" hx-swap="outerHTML"{{end}}{{end}}>
+    {{with .Job}}{{if .Running}}<progress value="{{.Done}}" max="{{if .Total}}{{.Total}}{{else}}1{{end}}"></progress>{{end}}<p class="notice" role="status">{{.Text}}</p>{{end}}
   </div>
-  <p class="help">Sync adds your weight (and body fat) for the last 90 days that have no entry on Strength Level. It never changes or deletes entries that are already there.</p>
+  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync" class="stack">
+    <div class="form-row">
+      <label>Last <input type="number" name="days" value="90" min="1" max="3650" step="1" required style="width:5.5rem"> days</label>
+      <label class="check"><input type="checkbox" name="update" value="1"> Also update days that already exist</label>
+    </div>
+    <div class="form-actions"><button type="submit"{{if .Job}}{{if .Job.Running}} disabled{{end}}{{end}}>Sync in the background</button></div>
+  </form>
+  <p class="help">Sync sends the daily estimates of your weight and body fat, including interpolated days and days held after your last reading. Days missing on Strength Level are added. With the box ticked, days that exist there with other values are overwritten too; nothing is ever deleted. It runs in the background, one day at a time, so long periods take a while. You can also send a single day from the Estimates page.</p>
+  {{else}}
+  <p class="help">You can send single days from the Estimates page. An administrator can also allow syncing many days at once.</p>
+  {{end}}
+  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login/delete"><button type="submit" class="secondary">Remove login</button></form>
   {{end}}
 </section>
 {{end}}

@@ -26,6 +26,7 @@ type userRow struct {
 	MethodRanking     string    `bun:"method_ranking"`
 	HiddenColumns     string    `bun:"hidden_columns"`
 	StrengthLevelAuto bool      `bun:"strengthlevel_auto"`
+	StrengthLevelBulk bool      `bun:"strengthlevel_bulk"`
 }
 
 func (r *userRow) toModel() models.User {
@@ -47,6 +48,7 @@ func (r *userRow) toModel() models.User {
 		MethodRanking:     models.NormalizeRanking(keys),
 		HiddenColumns:     hidden,
 		StrengthLevelAuto: r.StrengthLevelAuto,
+		StrengthLevelBulk: r.StrengthLevelBulk,
 	}
 }
 

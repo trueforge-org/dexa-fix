@@ -44,6 +44,8 @@ type Server struct {
 	cookieKey  []byte
 	httpClient *http.Client
 
+	sl slJobs // background Strength Level syncs
+
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
 }
@@ -108,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/login", s.user(s.strengthLevelSaveLogin))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/sync", s.user(s.strengthLevelSync))
+	mux.HandleFunc("POST /u/{id}/strengthlevel/day", s.user(s.strengthLevelDay))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/login/delete", s.user(s.strengthLevelDeleteLogin))
 
 	s.apiRoutes(mux)
@@ -157,6 +160,7 @@ type pageData struct {
 
 	Login *loginView // sign-in page
 
+	SLSend        bool          // estimates page: show the button that sends one day to Strength Level
 	StrengthLevel *slView       // settings page: only for users an administrator has enabled it for
 	Security      *securityView // settings page: password, tokens and linked accounts
 	Admin         *adminView    // admin page

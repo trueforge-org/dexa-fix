@@ -48,6 +48,8 @@ type adminUser struct {
 	SignIn  string
 	// StrengthLevel is whether the user may sync to Strength Level automatically.
 	StrengthLevel bool
+	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
+	StrengthLevelBulk bool
 }
 
 type adminProvider struct {
@@ -72,6 +74,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users", s.admin(s.adminAddUser))
 	mux.HandleFunc("POST /admin/users/{id}/role", s.admin(s.adminSetRole))
 	mux.HandleFunc("POST /admin/users/{id}/strengthlevel", s.admin(s.adminSetStrengthLevel))
+	mux.HandleFunc("POST /admin/users/{id}/strengthlevel-bulk", s.admin(s.adminSetStrengthLevelBulk))
 	mux.HandleFunc("POST /admin/users/{id}/password", s.admin(s.adminSetPassword))
 	mux.HandleFunc("POST /admin/users/{id}/delete", s.admin(s.adminDeleteUser))
 	mux.HandleFunc("POST /admin/password-login", s.admin(s.adminPasswordLogin))
@@ -145,7 +148,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 		if signIn == "" {
 			signIn = "None"
 		}
-		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto})
+		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto, x.StrengthLevelBulk})
 	}
 	edit := r.URL.Query().Get("edit")
 	for _, p := range providers {
@@ -249,10 +252,33 @@ func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 	if on {
-		adminRedirect(w, r, t.Name+" may now sync to Strength Level.")
+		adminRedirect(w, r, t.Name+" may now store a Strength Level login and send single days.")
 		return
 	}
+	s.sl.stop(t.ID)
 	adminRedirect(w, r, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
+}
+
+func (s *Server) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
+	t, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	if !t.StrengthLevelAuto {
+		adminRedirect(w, r, "Enable Strength Level sync for "+t.Name+" first.")
+		return
+	}
+	on := r.PostFormValue("enabled") == "1"
+	if err := s.store.SetUserStrengthLevelBulk(r.Context(), t.ID, on); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if on {
+		adminRedirect(w, r, t.Name+" may now run the multi-day Strength Level sync from Settings.")
+		return
+	}
+	s.sl.stop(t.ID)
+	adminRedirect(w, r, "The multi-day Strength Level sync is off for "+t.Name+".")
 }
 
 func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {

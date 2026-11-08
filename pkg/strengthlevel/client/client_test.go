@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ type fake struct {
 	mu      sync.Mutex
 	entries map[string]map[string]any // by date
 	posted  []map[string]any
+	puts    []map[string]any
 	badPage bool
 }
 
@@ -33,6 +35,10 @@ func (f *fake) handler() http.Handler {
 		return err == nil && c.Value == "ok"
 	}
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		if loggedIn(r) {
+			http.Redirect(w, r, "/crowcontrol", http.StatusFound)
+			return
+		}
 		http.SetCookie(w, &http.Cookie{Name: "strengthsession", Value: "anon", Path: "/"})
 		w.Write([]byte(`<form method="post" action="/login"><input name="email"><input type="hidden" name="csrf_token" value="loginTok"></form>`))
 	})
@@ -45,8 +51,7 @@ func (f *fake) handler() http.Handler {
 		http.SetCookie(w, &http.Cookie{Name: "strengthsession", Value: "ok", Path: "/"})
 		http.Redirect(w, r, "/crowcontrol", http.StatusFound)
 	})
-	mux.HandleFunc("GET /crowcontrol", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("home")) })
-	mux.HandleFunc("GET /{user}/bodyweight", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /crowcontrol", func(w http.ResponseWriter, r *http.Request) {
 		if !loggedIn(r) {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
@@ -70,6 +75,26 @@ func (f *fake) handler() http.Handler {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data})
 	})
+	mux.HandleFunc("PUT /api/bodyweights/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !loggedIn(r) || r.Header.Get("X-CSRF-Token") != pageCSRF {
+			http.Error(w, "csrf", http.StatusForbidden)
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for date, e := range f.entries {
+			if e["id"] == r.PathValue("id") {
+				body["id"] = e["id"]
+				f.entries[date] = body
+				f.puts = append(f.puts, body)
+				w.Write([]byte(`{"data":{}}`))
+				return
+			}
+		}
+		http.NotFound(w, r)
+	})
 	mux.HandleFunc("POST /api/bodyweights", func(w http.ResponseWriter, r *http.Request) {
 		if !loggedIn(r) || r.Header.Get("X-CSRF-Token") != pageCSRF {
 			http.Error(w, "csrf", http.StatusForbidden)
@@ -91,7 +116,7 @@ func fp(v float64) *float64 { return &v }
 
 func newFake(t *testing.T) (*fake, *Client) {
 	f := &fake{entries: map[string]map[string]any{
-		"2026-11-06": {"id": "e1", "date": "2026-11-06", "bodyweight": 72.7, "bodyfat": 15.8},
+		"2026-11-06": {"id": "e1", "date": "2026-11-06", "bodyweight": 72.7, "bodyfat": 15.8, "bodyfat_method": "caliper", "timezone": "Europe/Amsterdam", "timezone_offset_mins": -60},
 	}}
 	ts := httptest.NewServer(f.handler())
 	t.Cleanup(ts.Close)
@@ -103,7 +128,7 @@ func newFake(t *testing.T) (*fake, *Client) {
 func TestLoginAndSync(t *testing.T) {
 	f, c := newFake(t)
 	ctx := context.Background()
-	if err := c.Login(ctx, "crowcontrol", "a@b.c", "pw"); err != nil {
+	if err := c.Login(ctx, "a@b.c", "pw"); err != nil {
 		t.Fatal(err)
 	}
 	local := []strengthlevel.Entry{ // newest first, as DailyEntries returns them
@@ -112,7 +137,7 @@ func TestLoginAndSync(t *testing.T) {
 		{Day: "2026-11-06", WeightKg: 99}, // exists remotely with another value: left alone
 		{Day: "2026-10-01", WeightKg: 70}, // before since
 	}
-	res, err := c.Sync(ctx, local, "2026-11-01")
+	res, err := c.Sync(ctx, local, "2026-11-01", Options{})
 	if err != nil || res.Added != 2 || res.Skipped != 1 || len(res.Failed) != 0 {
 		t.Fatalf("%+v %v", res, err)
 	}
@@ -125,7 +150,7 @@ func TestLoginAndSync(t *testing.T) {
 	if p := f.posted[1]; p["bodyfat"] != 15.8 || p["bodyweight"] != 72.7 || p["bodyfat_method"] != "scales" {
 		t.Fatalf("fat post: %+v", p)
 	}
-	if res, _ = c.Sync(ctx, local, "2026-11-01"); res.Added != 0 || res.Skipped != 3 {
+	if res, _ = c.Sync(ctx, local, "2026-11-01", Options{}); res.Added != 0 || res.Skipped != 3 {
 		t.Fatalf("second sync must be a no-op: %+v", res)
 	}
 	if f.entries["2026-11-06"]["bodyweight"] != 72.7 {
@@ -135,7 +160,7 @@ func TestLoginAndSync(t *testing.T) {
 
 func TestLoginRefused(t *testing.T) {
 	_, c := newFake(t)
-	if err := c.Login(context.Background(), "crowcontrol", "a@b.c", "wrong"); !errors.Is(err, ErrLogin) {
+	if err := c.Login(context.Background(), "a@b.c", "wrong"); !errors.Is(err, ErrLogin) {
 		t.Fatalf("want ErrLogin, got %v", err)
 	}
 }
@@ -143,8 +168,74 @@ func TestLoginRefused(t *testing.T) {
 func TestLoginUnexpectedPage(t *testing.T) {
 	f, c := newFake(t)
 	f.badPage = true
-	err := c.Login(context.Background(), "crowcontrol", "a@b.c", "pw")
+	err := c.Login(context.Background(), "a@b.c", "pw")
 	if !errors.Is(err, ErrPage) || !strings.Contains(err.Error(), "token") {
 		t.Fatalf("want ErrPage, got %v", err)
+	}
+}
+
+func TestLoginWhenAlreadySignedIn(t *testing.T) {
+	f, c := newFake(t)
+	u, _ := url.Parse(c.base)
+	c.http.Jar.SetCookies(u, []*http.Cookie{{Name: "strengthsession", Value: "ok", Path: "/"}})
+	if err := c.Login(context.Background(), "someone@else", "not-checked"); err != nil {
+		t.Fatalf("a forwarded sign-in page must count as signed in: %v", err)
+	}
+	if days, err := c.List(context.Background()); err != nil || len(days) != len(f.entries) {
+		t.Fatalf("%v %v", days, err)
+	}
+}
+
+func TestSyncUpdatesExistingDays(t *testing.T) {
+	f, c := newFake(t)
+	ctx := context.Background()
+	if err := c.Login(ctx, "a@b.c", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	var progress []int
+	local := []strengthlevel.Entry{
+		{Day: "2026-11-07", WeightKg: 73},
+		{Day: "2026-11-06", WeightKg: 71.04, FatPct: fp(14.26)}, // other values than on the site
+	}
+	res, err := c.Sync(ctx, local, "", Options{Update: true, Progress: func(done, total int) { progress = append(progress, done, total) }})
+	if err != nil || res.Added != 1 || res.Updated != 1 || res.Skipped != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if len(progress) != 4 || progress[1] != 2 || progress[2] != 2 {
+		t.Fatalf("progress (done, total pairs): %v", progress)
+	}
+	if len(f.puts) != 1 {
+		t.Fatalf("puts: %+v", f.puts)
+	}
+	p := f.puts[0]
+	if p["bodyweight"] != 71.0 || p["bodyfat"] != 14.3 || p["bodyfat_method"] != "caliper" || p["timezone"] != "Europe/Amsterdam" || p["date"] != "2026-11-06" {
+		t.Fatalf("update keeps the entry's method and time zone: %+v", p)
+	}
+
+	// The same values again change nothing; an entry without body fat keeps the one on the site.
+	f.puts = nil
+	res, _ = c.Sync(ctx, []strengthlevel.Entry{{Day: "2026-11-06", WeightKg: 71.0, FatPct: fp(14.3)}}, "", Options{Update: true})
+	if res.Updated != 0 || res.Skipped != 1 || len(f.puts) != 0 {
+		t.Fatalf("unchanged day: %+v %v", res, f.puts)
+	}
+	res, _ = c.Sync(ctx, []strengthlevel.Entry{{Day: "2026-11-06", WeightKg: 70}}, "", Options{Update: true})
+	if res.Updated != 1 || f.puts[0]["bodyfat"] != 14.3 || f.puts[0]["bodyweight"] != 70.0 {
+		t.Fatalf("body fat on the site must survive: %+v %+v", res, f.puts)
+	}
+}
+
+func TestUpsertSingleDay(t *testing.T) {
+	f, c := newFake(t)
+	ctx := context.Background()
+	if err := c.Login(ctx, "a@b.c", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	for day, want := range map[string]Outcome{"2026-11-09": Added, "2026-11-06": Updated} {
+		if got, err := c.Upsert(ctx, strengthlevel.Entry{Day: day, WeightKg: 75}); err != nil || got != want {
+			t.Fatalf("%s: %v %v", day, got, err)
+		}
+	}
+	if got, _ := c.Upsert(ctx, strengthlevel.Entry{Day: "2026-11-06", WeightKg: 75}); got != Unchanged || len(f.puts) != 1 {
+		t.Fatalf("second upsert must not write: %v %d", got, len(f.puts))
 	}
 }
