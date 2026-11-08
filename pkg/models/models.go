@@ -148,6 +148,9 @@ type User struct {
 	MethodRanking []string `json:"method_ranking"`
 	// HiddenColumns lists the daily table columns the user has hidden.
 	HiddenColumns []string `json:"-"`
+	// StrengthLevelAuto is set by an administrator. It lets the user store their Strength Level
+	// login and sync body readings to it automatically.
+	StrengthLevelAuto bool `json:"-"`
 }
 
 // ScaleReading is a single smart-scale measurement. Fields are aligned with Withings measure types.

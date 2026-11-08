@@ -15,16 +15,17 @@ import (
 type userRow struct {
 	bun.BaseModel `bun:"table:users"`
 
-	ID             int64     `bun:"id,pk,autoincrement"`
-	Name           string    `bun:"name"`
-	Role           string    `bun:"role"`
-	Email          string    `bun:"email"`
-	EmailLookup    *string   `bun:"email_lookup"`
-	HeightCm       *float64  `bun:"height_cm"`
-	CreatedAt      time.Time `bun:"created_at"`
-	AthleteDefault bool      `bun:"athlete_default"`
-	MethodRanking  string    `bun:"method_ranking"`
-	HiddenColumns  string    `bun:"hidden_columns"`
+	ID                int64     `bun:"id,pk,autoincrement"`
+	Name              string    `bun:"name"`
+	Role              string    `bun:"role"`
+	Email             string    `bun:"email"`
+	EmailLookup       *string   `bun:"email_lookup"`
+	HeightCm          *float64  `bun:"height_cm"`
+	CreatedAt         time.Time `bun:"created_at"`
+	AthleteDefault    bool      `bun:"athlete_default"`
+	MethodRanking     string    `bun:"method_ranking"`
+	HiddenColumns     string    `bun:"hidden_columns"`
+	StrengthLevelAuto bool      `bun:"strengthlevel_auto"`
 }
 
 func (r *userRow) toModel() models.User {
@@ -36,15 +37,16 @@ func (r *userRow) toModel() models.User {
 		hidden = strings.Split(r.HiddenColumns, ",")
 	}
 	return models.User{
-		ID:             r.ID,
-		Name:           r.Name,
-		Role:           r.Role,
-		Email:          r.Email,
-		HeightCm:       r.HeightCm,
-		CreatedAt:      r.CreatedAt,
-		AthleteDefault: r.AthleteDefault,
-		MethodRanking:  models.NormalizeRanking(keys),
-		HiddenColumns:  hidden,
+		ID:                r.ID,
+		Name:              r.Name,
+		Role:              r.Role,
+		Email:             r.Email,
+		HeightCm:          r.HeightCm,
+		CreatedAt:         r.CreatedAt,
+		AthleteDefault:    r.AthleteDefault,
+		MethodRanking:     models.NormalizeRanking(keys),
+		HiddenColumns:     hidden,
+		StrengthLevelAuto: r.StrengthLevelAuto,
 	}
 }
 

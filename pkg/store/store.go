@@ -54,6 +54,9 @@ type Store interface {
 	DeleteUser(ctx context.Context, userID int64) error
 	// UpdateUserSettings stores the athlete-mode default and the method accuracy ranking.
 	UpdateUserSettings(ctx context.Context, userID int64, athleteDefault bool, ranking []string) error
+	// SetUserStrengthLevelAuto lets an administrator allow or forbid automatic Strength Level sync.
+	// Forbidding it also deletes the user's stored Strength Level login.
+	SetUserStrengthLevelAuto(ctx context.Context, userID int64, enabled bool) error
 	// UpdateUserHiddenColumns stores which daily table columns the user has hidden.
 	UpdateUserHiddenColumns(ctx context.Context, userID int64, keys []string) error
 

@@ -5,3 +5,6 @@
 *.key
 /dexa-fix
 /dist/
+
+# browser captures can hold passwords and session cookies
+*.har

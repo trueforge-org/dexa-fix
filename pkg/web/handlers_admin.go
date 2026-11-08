@@ -46,6 +46,8 @@ type adminUser struct {
 	Self    bool
 	Created string
 	SignIn  string
+	// StrengthLevel is whether the user may sync to Strength Level automatically.
+	StrengthLevel bool
 }
 
 type adminProvider struct {
@@ -69,6 +71,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", s.admin(s.adminPage))
 	mux.HandleFunc("POST /admin/users", s.admin(s.adminAddUser))
 	mux.HandleFunc("POST /admin/users/{id}/role", s.admin(s.adminSetRole))
+	mux.HandleFunc("POST /admin/users/{id}/strengthlevel", s.admin(s.adminSetStrengthLevel))
 	mux.HandleFunc("POST /admin/users/{id}/password", s.admin(s.adminSetPassword))
 	mux.HandleFunc("POST /admin/users/{id}/delete", s.admin(s.adminDeleteUser))
 	mux.HandleFunc("POST /admin/password-login", s.admin(s.adminPasswordLogin))
@@ -142,7 +145,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 		if signIn == "" {
 			signIn = "None"
 		}
-		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn})
+		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto})
 	}
 	edit := r.URL.Query().Get("edit")
 	for _, p := range providers {
@@ -233,6 +236,23 @@ func (s *Server) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.U
 	default:
 		adminRedirect(w, r, t.Name+" is now "+role+".")
 	}
+}
+
+func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
+	t, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	on := r.PostFormValue("enabled") == "1"
+	if err := s.store.SetUserStrengthLevelAuto(r.Context(), t.ID, on); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if on {
+		adminRedirect(w, r, t.Name+" may now sync to Strength Level.")
+		return
+	}
+	adminRedirect(w, r, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
 }
 
 func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {

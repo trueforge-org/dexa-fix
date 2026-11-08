@@ -106,6 +106,9 @@ func (s *Server) Handler() http.Handler {
 		s.settingsPage(w, r, u, "", flashParam(r), http.StatusOK)
 	}))
 	mux.HandleFunc("POST /u/{id}/settings", s.user(s.settingsSave))
+	mux.HandleFunc("POST /u/{id}/strengthlevel/login", s.user(s.strengthLevelSaveLogin))
+	mux.HandleFunc("POST /u/{id}/strengthlevel/sync", s.user(s.strengthLevelSync))
+	mux.HandleFunc("POST /u/{id}/strengthlevel/login/delete", s.user(s.strengthLevelDeleteLogin))
 
 	s.apiRoutes(mux)
 	s.integrationRoutes(mux)
@@ -154,8 +157,9 @@ type pageData struct {
 
 	Login *loginView // sign-in page
 
-	Security *securityView // settings page: password, tokens and linked accounts
-	Admin    *adminView    // admin page
+	StrengthLevel *slView       // settings page: only for users an administrator has enabled it for
+	Security      *securityView // settings page: password, tokens and linked accounts
+	Admin         *adminView    // admin page
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, status int, data pageData) {

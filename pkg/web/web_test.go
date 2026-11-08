@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,9 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
+	"github.com/trueforge-org/dexa-fix/pkg/store"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -568,5 +572,116 @@ func TestDailyTableRemembersHiddenColumns(t *testing.T) {
 	}
 	if !strings.Contains(b, `id="daily-table"`) {
 		t.Error("the picker needs the table to swap")
+	}
+}
+
+// fakeStrengthLevel is a minimal my.strengthlevel.com: one account (a@b.c / pw) with one entry.
+func fakeStrengthLevel(t *testing.T) (posted *[]map[string]any) {
+	t.Helper()
+	const uid = "019474c6-b1b1-7299-bd69-57017308050a"
+	var got []map[string]any
+	in := func(r *http.Request) bool { c, err := r.Cookie("sl"); return err == nil && c.Value == "ok" }
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<input type="hidden" name="csrf_token" value="tok">`))
+	})
+	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("email") != "a@b.c" || r.PostForm.Get("password") != "pw" {
+			w.Write([]byte("login failed"))
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "sl", Value: "ok", Path: "/"})
+		http.Redirect(w, r, "/home", http.StatusFound)
+	})
+	mux.HandleFunc("GET /home", func(w http.ResponseWriter, r *http.Request) {})
+	mux.HandleFunc("GET /{user}/bodyweight", func(w http.ResponseWriter, r *http.Request) {
+		if !in(r) || r.PathValue("user") != "bobby" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`<meta name="csrf-token" content="page"><script>x={"user_id":"` + uid + `"}</script>`))
+	})
+	mux.HandleFunc("GET /api/bodyweights", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"id":"e","date":"` + time.Now().UTC().Format("2006-01-02") + `","bodyweight":80}]}`))
+	})
+	mux.HandleFunc("POST /api/bodyweights", func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		json.NewDecoder(r.Body).Decode(&b)
+		got = append(got, b)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"data":{}}`))
+	})
+	ts := httptest.NewServer(mux)
+	old := strengthLevelBase
+	strengthLevelBase = ts.URL
+	t.Cleanup(func() { ts.Close(); strengthLevelBase = old })
+	return &got
+}
+
+func TestStrengthLevelFlag(t *testing.T) {
+	posted := fakeStrengthLevel(t)
+	ts, c, st := newServerAndStore(t, withings.New(withings.Config{}, nil))
+	signup(t, ts, c, "alice") // first account is the administrator
+	bob := &http.Client{CheckRedirect: c.CheckRedirect}
+	signup(t, ts, bob, "bob")
+	login := url.Values{"username": {"bobby"}, "email": {"a@b.c"}, "password": {"pw"}}
+	stored := func() error { _, err := st.GetIntegration(context.Background(), 2, "strengthlevel"); return err }
+
+	// Off by default: no settings card, and saving or syncing is refused.
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); strings.Contains(b, `id="strengthlevel"`) {
+		t.Fatal("card shown without the flag")
+	}
+	for _, p := range []string{"login", "sync"} {
+		if r := post(t, bob, ts.URL+"/u/2/strengthlevel/"+p, login); r.StatusCode != 403 {
+			t.Fatalf("%s without flag: %d", p, r.StatusCode)
+		}
+	}
+	// Only an administrator can set the flag.
+	if r := post(t, bob, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"1"}}); r.StatusCode != 404 {
+		t.Fatalf("non-admin enable: %d", r.StatusCode)
+	}
+	if r := post(t, c, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"1"}}); r.StatusCode != 303 {
+		t.Fatalf("admin enable: %d", r.StatusCode)
+	}
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, `name="username"`) {
+		t.Fatalf("card missing:\n%s", b)
+	}
+
+	// Incomplete or wrong logins are not stored.
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"email": {"a@b.c"}, "password": {"pw"}})
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"username": {"bobby"}, "email": {"a@b.c"}, "password": {"wrong"}})
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", url.Values{"username": {"nobody"}, "email": {"a@b.c"}, "password": {"pw"}})
+	if err := stored(); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an unusable login was stored: %v", err)
+	}
+	post(t, bob, ts.URL+"/u/2/strengthlevel/login", login)
+	if _, b := body(t, bob, ts.URL+"/u/2/settings"); !strings.Contains(b, "bobby") || strings.Contains(b, "pw</") || strings.Contains(b, `value="pw"`) {
+		t.Fatalf("saved view must show the username and never the password:\n%s", b)
+	}
+
+	// Sync adds the recent days without an entry (today has one on the fake) and nothing older than 90 days.
+	day := func(ago int) string { return time.Now().UTC().AddDate(0, 0, -ago).Format("2006-01-02") }
+	for _, d := range []struct {
+		ago int
+		kg  string
+	}{{0, "80"}, {1, "79.4"}, {200, "90"}} {
+		post(t, bob, ts.URL+"/u/2/scale", url.Values{"measured_at": {day(d.ago) + "T07:30"}, "weight_kg": {d.kg}})
+	}
+	r := post(t, bob, ts.URL+"/u/2/strengthlevel/sync", nil)
+	if r.StatusCode != 303 || !strings.Contains(r.Header.Get("Location"), "added+1+day") {
+		t.Fatalf("sync: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	if len(*posted) != 1 || (*posted)[0]["date"] != day(1) || (*posted)[0]["bodyweight"] != 79.4 {
+		t.Fatalf("posted: %+v", *posted)
+	}
+
+	// Disabling the flag deletes the login and refuses further saves.
+	post(t, c, ts.URL+"/admin/users/2/strengthlevel", url.Values{"enabled": {"0"}})
+	if err := stored(); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("login kept after disabling: %v", err)
+	}
+	if r := post(t, bob, ts.URL+"/u/2/strengthlevel/login", login); r.StatusCode != 403 {
+		t.Fatalf("save after disable: %d", r.StatusCode)
 	}
 }

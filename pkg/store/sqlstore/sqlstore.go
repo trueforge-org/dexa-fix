@@ -407,3 +407,23 @@ func (s *Store) DeleteIntegration(ctx context.Context, userID int64, provider st
 	_, err := s.db.NewDelete().Model((*integrationRow)(nil)).Where("user_id = ?", userID).Where("provider = ?", provider).Exec(ctx)
 	return err
 }
+
+// SetUserStrengthLevelAuto allows or forbids automatic Strength Level sync for a user. Forbidding
+// it deletes the stored login in the same transaction.
+func (s *Store) SetUserStrengthLevelAuto(ctx context.Context, userID int64, enabled bool) error {
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*userRow)(nil)).
+			Set("strengthlevel_auto = ?", enabled).Where("id = ?", userID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return store.ErrNotFound
+		}
+		if !enabled {
+			_, err = tx.NewDelete().Model((*integrationRow)(nil)).
+				Where("user_id = ?", userID).Where("provider = ?", "strengthlevel").Exec(ctx)
+		}
+		return err
+	})
+}

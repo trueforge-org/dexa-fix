@@ -31,6 +31,7 @@
       <td>{{.Created}}</td>
       <td><div class="row-actions">
         <form method="post" action="/admin/users/{{.ID}}/role"><input type="hidden" name="role" value="{{if .Admin}}user{{else}}admin{{end}}"><button class="secondary" type="submit">{{if .Admin}}Remove admin{{else}}Make admin{{end}}</button></form>
+        <form method="post" action="/admin/users/{{.ID}}/strengthlevel"><input type="hidden" name="enabled" value="{{if .StrengthLevel}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user store their Strength Level login and sync body readings to it automatically">{{if .StrengthLevel}}Disable Strength Level sync{{else}}Enable Strength Level sync{{end}}</button></form>
         <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Name}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
         {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Delete {{.Name}} and all their data? This cannot be undone.')"><button class="link" type="submit">Delete</button></form>{{end}}
       </div></td>

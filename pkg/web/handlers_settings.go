@@ -33,8 +33,9 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,
-		Withings: s.withingsView(r, u),
-		Security: sec,
+		Withings:      s.withingsView(r, u),
+		StrengthLevel: s.strengthLevelView(r, u),
+		Security:      sec,
 	})
 }
 
