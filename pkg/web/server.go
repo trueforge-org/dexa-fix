@@ -72,7 +72,7 @@ type Server struct {
 	estCache   *estimateCache
 	proxy      edge.Proxy
 	limiter    *failLimiter      // failed sign-in attempts
-	nonces     *usedNonces       // sealed values that were already used
+	nonces     nonceStore        // sealed values that were already used
 	assetVer   map[string]string // content hash per static file, for cache-busting URLs
 
 	oidcMu    sync.Mutex
