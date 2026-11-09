@@ -40,6 +40,11 @@ type adminView struct {
 	Audit           []auditLine // the latest security events
 	Key             keyView
 	Require2FA      string // off, admins or everyone
+	Server          serverSettingsView
+	SMTP            smtpSettings
+	ResetByEmail    bool // users can ask for a reset e-mail
+	ResetLink       *resetLinkView
+	TLS             tlsView
 }
 
 // keyView describes the encryption key on the Admin page. Rotation is manual (docs/key-rotation.md);
@@ -58,7 +63,7 @@ func (s *Server) keyView(st store.Stats) keyView {
 	if !st.KeySince.IsZero() {
 		v.Since = st.KeySince.UTC().Format(dateLayout)
 		v.AgeDays = int(time.Since(st.KeySince) / (24 * time.Hour))
-		v.Due = s.KeyReminder > 0 && time.Since(st.KeySince) > s.KeyReminder
+		v.Due = s.cfg().keyReminder > 0 && time.Since(st.KeySince) > s.cfg().keyReminder
 	}
 	return v
 }
@@ -102,6 +107,8 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users/{id}/password", s.admin(s.adminSetPassword))
 	mux.HandleFunc("POST /admin/users/{id}/delete", s.admin(s.adminDeleteUser))
 	mux.HandleFunc("POST /admin/password-login", s.admin(s.adminPasswordLogin))
+	s.adminSettingRoutes(mux)
+	s.adminTLSRoutes(mux)
 	mux.HandleFunc("POST /admin/signup", s.admin(s.adminSignup))
 	mux.HandleFunc("POST /admin/providers", s.admin(s.adminSaveProvider))
 	mux.HandleFunc("POST /admin/providers/{slug}/delete", s.admin(s.adminDeleteProvider))
@@ -110,7 +117,25 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 
 // admin restricts a page to administrators. It answers 404 to everyone else so that the page does
 // not advertise itself.
+//
+// An administrator with two-step verification on is also asked for a code (see adminVerified).
 func (s *Server) admin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+	return s.adminBasic(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		need, err := s.needsAdminStepUp(r, u)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if need {
+			http.Redirect(w, r, "/admin/verify", http.StatusSeeOther)
+			return
+		}
+		h(w, r, u)
+	})
+}
+
+// adminBasic is admin without the second step: for the page that asks for it.
+func (s *Server) adminBasic(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -133,6 +158,11 @@ func adminRedirect(w http.ResponseWriter, r *http.Request, msg string) {
 }
 
 func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User) {
+	s.renderAdmin(w, r, u, nil)
+}
+
+// renderAdmin shows the Admin page; extra can add values that are shown once (a reset link).
+func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, u models.User, extra func(*adminView)) {
 	ctx := r.Context()
 	stats, err := s.store.Stats(ctx)
 	if err != nil {
@@ -166,6 +196,19 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 	}
 	if view.Version == "" {
 		view.Version = "dev"
+	}
+	if view.Server, err = s.serverSettingsFor(ctx); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if _, view.SMTP, err = s.loadSMTP(ctx); err != nil {
+		s.fail(w, err)
+		return
+	}
+	view.ResetByEmail = s.selfServiceReset(ctx)
+	if view.TLS, err = s.tlsViewFor(r); err != nil {
+		s.fail(w, err)
+		return
 	}
 	twoFactor, err := s.store.TwoFactorUsers(ctx)
 	if err != nil {
@@ -202,6 +245,9 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 		if p.Slug == edit {
 			view.Form, view.Editing = ap, true
 		}
+	}
+	if extra != nil {
+		extra(view)
 	}
 	s.render(w, "admin.html", http.StatusOK, pageData{Title: "Admin · dexa-fix", Tab: "admin", User: &u, Msg: flashParam(r), Admin: view})
 }

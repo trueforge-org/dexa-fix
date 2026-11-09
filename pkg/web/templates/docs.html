@@ -9,6 +9,7 @@
       <ul>
         <li><a href="#password-login">Password sign-in</a></li>
         <li><a href="#two-step">Two-step verification</a></li>
+        <li><a href="#password-reset">Password reset</a></li>
         <li><a href="#registration">Signing up</a></li>
         <li><a href="#providers">Sign-in providers</a></li>
         <li><a href="#access-tokens">Access tokens</a></li>
@@ -36,9 +37,16 @@
         <li><a href="#admin-users">Users</a></li>
         <li><a href="#admin-providers">Provider form</a></li>
         <li><a href="#withings-app">Withings application</a></li>
+        <li><a href="#admin-network">Network and retention</a></li>
+        <li><a href="#admin-email">E-mail</a></li>
+        <li><a href="#admin-tls">HTTPS</a></li>
       </ul></li>
     <li><a href="#server-config">Server configuration</a></li>
-    <li><a href="#reverse-proxy">Reverse proxy</a></li>
+    <li><a href="#reverse-proxy">Reverse proxy</a>
+      <ul>
+        <li><a href="#proxy-protocol">PROXY protocol</a></li>
+        <li><a href="#https">HTTPS, HTTP/2 and HTTP/3</a></li>
+      </ul></li>
     <li><a href="#database">Database</a></li>
     <li><a href="#encryption">Encryption</a></li>
     <li><a href="#data-export">Data export and GDPR</a></li>
@@ -87,9 +95,19 @@
   <li><strong>Turn off:</strong> your password and a code, or a recovery code. It cannot be turned off while an administrator requires it.</li>
   <li><strong>Sign-in:</strong> the code is asked for on a second page, and the password check is kept for 5 minutes in a signed cookie (not a session). A code works once. Five wrong codes for an account within 15 minutes block its second step.</li>
   <li><strong>Administrators:</strong> on the Admin page, require it for <em>Nobody</em> (default), <em>Administrators</em> or <em>Everyone</em>. Covered people who have no second step set it up at their next password sign-in.</li>
+  <li><strong>Admin pages:</strong> an administrator with two-step verification on is asked for a code again (or a recovery code) before any Admin page. The code entered at sign-in counts. The step-up lasts 15 minutes and is recorded as <code>admin_verified</code>. The JSON API uses access tokens and is not affected.</li>
   <li><strong>API:</strong> HTTP Basic is refused for these accounts. Use an access token.</li>
 </ul>
 
+<h3 id="password-reset">Password reset</h3>
+<ul>
+  <li><strong>Administrator:</strong> in the Users list choose <em>Reset link</em>. The one-time link is shown once on the Admin page, is valid for 24 hours and works once. Only a hash is stored. Tick <em>E-mail it</em> to send it instead, when e-mail is set up.</li>
+  <li><strong>Self-service:</strong> needs an SMTP server and a base URL on the Admin page, and password sign-in on. The sign-in page then shows <em>Forgot your password?</em>. The user enters their e-mail address, and the answer is the same whether or not the address has an account. A link valid for one hour is mailed in the background, built from the base URL only. Accounts that sign in only through a provider get no e-mail. Limits: 3 e-mails per address and 10 per client address in 15 minutes.</li>
+  <li><strong>Using a link:</strong> choose a password of 8 to 72 bytes. With two-step verification on, a code or recovery code is also needed; a reset never bypasses it. The user is signed out everywhere, and all access tokens are revoked. A link stops working when the password or the e-mail address changes.</li>
+  <li><strong>Policy:</strong> a user covered by the two-step requirement who has no second step is asked to set one up after the reset.</li>
+  <li><strong>Audit:</strong> <code>password_reset_link_created</code>, <code>password_reset_requested</code>, <code>password_reset_email_failed</code>, <code>password_reset_completed</code> and <code>password_reset_invalid</code>.</li>
+</ul>
+<p class="docs-note">There are no flags or environment variables for e-mail. Set it on the Admin page.</p>
 <h3 id="registration">Signing up</h3>
 <p>The very first account on an empty server can always be created. After that <strong>sign-up is closed by default</strong>. While it is closed nobody can create their own account, neither with a password nor on first sign-in through a provider. An administrator adds people from the Users list on the Admin page, or opens <strong>New accounts</strong> on the Admin page (the <em>Open new accounts</em> button). Existing accounts keep working either way.</p>
 <p class="docs-note">The sign-up form on the home page only appears when sign-up is open and password sign-in is on.</p>
@@ -97,7 +115,7 @@
 <h3 id="providers">Sign-in providers</h3>
 <p>Administrators add external providers on the <a href="#admin-providers">Admin page</a>. There are three types: OpenID Connect (for example Google), Sign in with Apple, and plain OAuth 2.0. Each provider has a short name, and you register this callback URL with the provider:</p>
 <pre><code>https://your-host/auth/&lt;short name&gt;/callback</code></pre>
-<p>The Admin page shows the exact callback URL for each provider. It is built from <code>--base-url</code>, or else from the request (see <a href="#reverse-proxy">reverse proxy</a>).</p>
+<p>The Admin page shows the exact callback URL for each provider. It is built from the base URL on the Admin page, or else from the request (see <a href="#reverse-proxy">reverse proxy</a>).</p>
 <ul>
   <li><strong>Linking:</strong> users link a provider to their existing account under Settings, <a href="#linked-accounts">Linked accounts</a>.</li>
   <li><strong>Matching:</strong> accounts are matched only by the provider's account id (the subject), never by e-mail address.</li>
@@ -129,7 +147,7 @@
 <p>Responses are 401 when not authenticated and 403 when the role is not enough. A user can reach only their own <code>/users/{id}/...</code> routes; other ids answer 404.</p>
 
 <h3 id="rate-limiting">Rate limiting</h3>
-<p>Failed password sign-ins are counted in memory: <strong>10 per login name and 60 per client address in 15 minutes</strong>. After that sign-in answers 429. Successful sign-ins are never counted. Counters reset when the server restarts. Behind a reverse proxy set <code>--trusted-proxies</code>, or everyone shares the proxy's address and its count. On a public deployment also limit sign-in attempts at the proxy. Form posts are capped at 1 MiB.</p>
+<p>Failed password sign-ins are counted in memory: <strong>10 per login name and 60 per client address in 15 minutes</strong>. After that sign-in answers 429. Successful sign-ins are never counted. Counters reset when the server restarts. Behind a reverse proxy set <strong>Trusted proxies</strong> on the Admin page, or everyone shares the proxy's address and its count. On a public deployment also limit sign-in attempts at the proxy. Form posts are capped at 1 MiB.</p>
 </section>
 
 <section id="dexa-page">
@@ -330,6 +348,7 @@
   <li><strong>Add user:</strong> name, e-mail and password. Works even when sign-up is closed.</li>
   <li><strong>Make admin / Remove admin:</strong> the last administrator cannot be removed.</li>
   <li><strong>Set password:</strong> sets a new password for a user (8 to 72 bytes). The user is signed out everywhere and their access tokens are revoked.</li>
+  <li><strong>Reset link:</strong> makes a one-time password reset link, valid for 24 hours and shown once here (see <a href="#password-reset">Password reset</a>). <em>E-mail it</em> sends it instead, when e-mail is set up.</li>
   <li><strong>Remove two-step:</strong> turns off a user's two-step verification and deletes their recovery codes. Use it for a user who lost their device and their recovery codes.</li>
   <li><strong>Delete:</strong> deletes the user with all their data, immediately and without undo. You cannot delete yourself.</li>
   <li id="strengthlevel-permissions"><strong>Strength Level permissions:</strong> <em>Enable Strength Level sync</em> lets that user store a Strength Level login and send single days. Once enabled, <em>Allow multi-day sync</em> additionally lets them run the background sync of many days.</li>
@@ -342,7 +361,7 @@
 <p>See <a href="#password-login">Password sign-in</a>. Turn it off only after linking your own account to a provider.</p>
 
 <h3 id="admin-two-step">Two-step verification</h3>
-<p>See <a href="#two-step">Two-step verification</a>. Choose who must use it: <em>Nobody</em> (default), <em>Administrators</em> or <em>Everyone</em>.</p>
+<p>See <a href="#two-step">Two-step verification</a>. Choose who must use it: <em>Nobody</em> (default), <em>Administrators</em> or <em>Everyone</em>. Administrators with it on are asked for a code again before any Admin page.</p>
 
 <h3 id="admin-providers">Sign-in providers: the form field by field</h3>
 <p>Register this server with the provider first (callback URL in <a href="#providers">Sign-in providers</a>).</p>
@@ -374,16 +393,31 @@
 </dl>
 
 <h3 id="withings-app">Withings application</h3>
-<p>Client ID, client secret and redirect URL of your Withings application. Values saved here override the environment. Leave a field empty to use the environment value (shown as placeholder). The secret is stored encrypted; leave it empty to keep it, or tick <em>Remove the saved secret</em>. Shown only when the Withings importer is available.</p>
+<p>Client ID, client secret and redirect URL of your Withings application. These are set only here: the old <code>DEXAFIX_WITHINGS_*</code> variables are ignored with a warning. The secret is stored encrypted; leave it empty to keep it, or tick <em>Remove the saved secret</em>. Shown only when the Withings importer is available.</p>
 
+<h3 id="admin-network">Network and retention</h3>
+<ul>
+  <li><strong>Base URL:</strong> the public address, scheme and host only, such as <code>https://dexa.example.com</code>. Saving it is accepted only while you use that address.</li>
+  <li><strong>Trusted proxies:</strong> addresses or ranges of your reverse proxies, as in <a href="#reverse-proxy">Running behind a reverse proxy</a>. Empty trusts nobody.</li>
+  <li><strong>Accept the PROXY protocol from the trusted proxies:</strong> off by default; needs trusted proxies. See <a href="#proxy-protocol">PROXY protocol</a>.</li>
+  <li><strong>Keep the audit log for (days):</strong> 365 by default; <code>0</code> keeps it forever.</li>
+  <li><strong>Remind me to rotate the encryption key after (days):</strong> empty by default, which never reminds. See <a href="#key-rotation">Rotating the key</a>.</li>
+</ul>
+<p>These take effect at once, without a restart, and are stored encrypted in the database. There are no flags or environment variables for them.</p>
+<h3 id="admin-email">E-mail</h3>
+<p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links.</p>
+<h3 id="admin-tls">HTTPS, HTTP/2 and HTTP/3</h3>
+<p>An optional HTTPS listener on its own port, with an uploaded certificate or a generated self-signed one. The page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. See <a href="#https">HTTPS, HTTP/2 and HTTP/3</a>.</p>
 <h3 id="admin-audit">Audit log</h3>
 <p>The latest events on the page. See <a href="#audit-log">Audit log</a>.</p>
 </section>
 
 <section id="server-config">
 <h2>Server configuration</h2>
-<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix user</code> recovers accounts, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix user</code> recovers accounts, <code>dexa-fix settings</code> recovers from server settings that locked you out, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
 
+<h3 id="admin-settings">Settings on the Admin page</h3>
+<p>Some settings are not flags. The base URL, trusted proxies, PROXY protocol, audit log retention, the encryption key reminder, e-mail (SMTP) and HTTPS are stored in the database, encrypted, and take effect at once on the <a href="#admin-page">Admin page</a>. There are no flags or environment variables for them. If <code>DEXAFIX_TRUSTED_PROXIES</code>, <code>DEXAFIX_BASE_URL</code> or <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> is still set, the server logs a warning that it is ignored. If a wrong setting locks you out, see <a href="#settings-reset-network"><code>settings reset-network</code></a>.</p>
 <h3 id="serve-flags"><code>serve</code></h3>
 <div class="scroll"><table>
   <thead><tr><th>Flag</th><th>Environment variable</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -393,10 +427,6 @@
     <tr><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Database connection string. A string that contains a password is rejected on the command line; use the environment variable or <code>--dsn-file</code>.</td></tr>
     <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
     <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
-    <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever. An invalid <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> (not a whole number, or negative) is ignored without a warning, and 365 is used.</td></tr>
-    <tr><td><code>--key-rotation-reminder-days</code></td><td><code>DEXAFIX_KEY_ROTATION_REMINDER_DAYS</code></td><td><code>0</code></td><td>Show a reminder on the Admin page when the encryption key is older than this many days. <code>0</code> never reminds. Rotation stays manual.</td></tr>
-    <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
-    <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
     <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout. Only the exact value <code>true</code> turns it on; <code>1</code> or <code>TRUE</code> does not.</td></tr>
     <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing, but only for a database without encrypted values. Unused when the key variable is set.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
@@ -405,7 +435,7 @@
   </tbody>
 </table></div>
 <p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
-<pre><code>dexa-fix serve --listen 127.0.0.1:8080 --trusted-proxies loopback --base-url https://dexa.example.com
+<pre><code>dexa-fix serve --listen 127.0.0.1:8080
 export DEXAFIX_DSN='postgres://user:secret@localhost/dexafix'
 dexa-fix serve --db-driver postgres</code></pre>
 
@@ -429,22 +459,25 @@ dexa-fix serve --db-driver postgres</code></pre>
 <h3 id="user-reset-2fa"><code>user reset-2fa</code></h3>
 <p>Removes two-step verification and the recovery codes of the account with that e-mail address, for when nobody can sign in to turn it off on the Admin page. It works on the database directly, so it takes the same <code>--db-driver</code>, <code>--dsn</code> (or <code>DEXAFIX_DSN</code>, <code>--dsn-file</code>) and encryption key settings as <code>serve</code>. The server does not have to be stopped, but the change is not written to the audit log. An administrator who requires two-step verification gets the user set up again at the next sign-in.</p>
 <pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexa-fix user reset-2fa you@example.com --db-driver postgres</code></pre>
+<h3 id="settings-reset-network"><code>settings reset-network</code></h3>
+<p>Clears the base URL, the trusted proxies and the PROXY protocol setting, for when a saved value leaves the Admin page unreachable, such as a base URL for an address you no longer use. It works on the database directly, so it takes the same database and encryption key settings as <code>serve</code>. The change is not written to the audit log. Restart the server afterwards.</p>
+<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexa-fix settings reset-network --db-driver postgres</code></pre>
 </section>
 
 <section id="reverse-proxy">
 <h2>Running behind a reverse proxy</h2>
 <p>dexa-fix speaks plain HTTP. For HTTPS put a reverse proxy such as nginx, Caddy or Traefik in front, and bind dexa-fix to a private address so nobody can bypass the proxy: <code>--listen 127.0.0.1:8080</code>.</p>
-<p>A proxy hides who the visitor is and whether they used HTTPS. It passes both on in <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Anyone can send those headers, so dexa-fix only believes them on connections from the proxies in <code>--trusted-proxies</code>; from everyone else they are ignored, and a warning is logged once.</p>
+<p>A proxy hides who the visitor is and whether they used HTTPS. It passes both on in <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Anyone can send those headers, so dexa-fix only believes them on connections from the trusted proxies set on the Admin page; from everyone else they are ignored, and a warning is logged once.</p>
 <ul>
-  <li><code>--trusted-proxies</code>: comma-separated addresses or CIDR ranges, for example <code>127.0.0.1,10.0.0.0/8</code>. The keyword <code>loopback</code> stands for <code>127.0.0.0/8</code> and <code>::1</code>; <code>private</code> adds the RFC 1918 ranges and <code>fc00::/7</code>. Empty trusts nobody.</li>
-  <li><code>--base-url</code>: the public address, scheme and host only (no path). Optional when the proxy forwards <code>Host</code> and <code>X-Forwarded-Proto</code> correctly; set it for a fixed address.</li>
+  <li><strong>Trusted proxies</strong> (Admin page, Network and retention): comma-separated addresses or CIDR ranges, for example <code>127.0.0.1,10.0.0.0/8</code>. The keyword <code>loopback</code> stands for <code>127.0.0.0/8</code> and <code>::1</code>; <code>private</code> adds the RFC 1918 ranges and <code>fc00::/7</code>. Empty trusts nobody.</li>
+  <li><strong>Base URL</strong> (Admin page): the public address, scheme and host only (no path). Optional when the proxy forwards <code>Host</code> and <code>X-Forwarded-Proto</code> correctly; set it for a fixed address. Saving it is accepted only while you use that address, so a typo cannot lock you out.</li>
 </ul>
 <p>What changes when the proxy is trusted:</p>
 <ul>
   <li>Sign-in limits and the audit log use the visitor's address. Without it everyone shares the proxy's address.</li>
   <li>Cookies are marked <code>Secure</code> and <code>Strict-Transport-Security</code> is sent, as soon as the visitor used HTTPS (as reported by the proxy) or the base URL is <code>https</code>.</li>
   <li>Provider callback URLs are built from the base URL, or else from <code>X-Forwarded-Proto</code> and the host.</li>
-  <li>Form posts pass the same-origin check only if the browser's <code>Origin</code> matches the host it visited, so the proxy must pass the original host (as <code>Host</code> or <code>X-Forwarded-Host</code>), or you set <code>--base-url</code>.</li>
+  <li>Form posts pass the same-origin check only if the browser's <code>Origin</code> matches the host it visited, so the proxy must pass the original host (as <code>Host</code> or <code>X-Forwarded-Host</code>), or you set the base URL.</li>
 </ul>
 <p>The address is read from <code>X-Forwarded-For</code> from the right: every address that belongs to a trusted proxy is skipped and the first one after that is the visitor. Make sure the proxy <em>appends</em> to this header instead of passing along what the client sent. Without <code>X-Forwarded-For</code>, <code>X-Real-IP</code> is used.</p>
 <pre><code># nginx
@@ -465,6 +498,43 @@ traefik.http.routers.dexa.rule=Host(`dexa.example.com`)
 traefik.http.routers.dexa.tls=true
 traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
 <p class="docs-warn">dexa-fix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, the redirect URL on the Admin page has to be the public callback address.</p>
+<h3 id="proxy-protocol">PROXY protocol</h3>
+<p>The PROXY protocol (HAProxy versions 1 and 2) passes the visitor's address on the TCP connection itself, before any HTTP. Use it with a balancer that works at TCP level and adds no <code>X-Forwarded-For</code>. Turn on <em>Accept the PROXY protocol from the trusted proxies</em> on the Admin page; it needs trusted proxies.</p>
+<ul>
+  <li>A connection from a trusted proxy may start with the header, and the address in it becomes the visitor's address. The header is optional, so a balancer that does not send it cannot lock anyone out.</li>
+  <li>A connection from any other address may not start with the header. It is refused, so nobody can claim an address.</li>
+  <li>With the setting off, connections pass through untouched. It applies to the plain and the HTTPS listener, to each new connection at once.</li>
+</ul>
+<p>The header does not say whether HTTPS was used, so set an <code>https</code> base URL for <code>Secure</code> cookies.</p>
+<pre><code># haproxy.cfg: TLS ends at HAProxy, which sends the address with PROXY v2
+frontend dexa
+    mode http
+    bind :443 ssl crt /etc/haproxy/dexa.pem
+    http-request set-header X-Forwarded-Proto https
+    default_backend dexa
+
+backend dexa
+    mode http
+    server dexa 127.0.0.1:8080 send-proxy-v2
+
+# nginx.conf, stream context: dexa-fix serves HTTPS on port 8443
+stream {
+    server {
+        listen 443;
+        proxy_pass 127.0.0.1:8443;
+        proxy_protocol on;
+    }
+}</code></pre>
+<p>With an AWS Network Load Balancer, use a TCP listener on port 443 that forwards to a target group on port 8443 (dexa-fix serving HTTPS with a certificate you upload), and turn on <em>Proxy protocol v2</em> for the target group. Trust the address range the load balancer connects from.</p>
+<h3 id="https">HTTPS, HTTP/2 and HTTP/3</h3>
+<p>dexa-fix can serve HTTPS itself. Behind a reverse proxy you usually leave this off. Plain HTTP stays on <code>--listen</code> (HTTP/1.1, and cleartext HTTP/2 for proxies that speak it). Set HTTPS on the Admin page, under <em>HTTPS, HTTP/2 and HTTP/3</em>:</p>
+<ul>
+  <li><strong>Certificate:</strong> upload a PEM certificate chain and a PEM private key (stored encrypted; the key is never shown again; leave both empty to keep the saved one), or let dexa-fix generate a self-signed one: ECDSA P-256, valid 365 days, renewed automatically 30 days before expiry. Its names are the ones you give, or else the base URL's host plus <code>localhost</code>, <code>127.0.0.1</code> and <code>::1</code>.</li>
+  <li><strong>HTTPS port:</strong> 8443 by default, and it must differ from the plain port. HTTPS has its own listener, so a bad certificate or port cannot lock you out of the plain one. HTTP/2 and HTTP/1.1 are offered by ALPN, on TLS 1.2 and later.</li>
+  <li><strong>Also serve HTTP/3 (QUIC):</strong> on the UDP port with the same number as the HTTPS port, advertised with an <code>Alt-Svc</code> header. The UDP port must be reachable.</li>
+</ul>
+<p>The Admin page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. With Docker, publish both ports: <code>-p 8443:8443 -p 8443:8443/udp</code>.</p>
+<p class="docs-note">Browsers and apps trust a self-signed certificate only once you add it, and browsers use HTTP/3 only with a trusted certificate. There is no HTTP to HTTPS redirect yet.</p>
 </section>
 
 <section id="database">
@@ -522,7 +592,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
   <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
 </ol>
 <p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
-<p>Rotation is manual on purpose: the key belongs to the operator, <code>db rekey</code> is offline, and the AES-GCM usage limits are far out of reach. Rotate when the key may have leaked, when someone with access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has been in use (at least). Set <code>--key-rotation-reminder-days</code> (or <code>DEXAFIX_KEY_ROTATION_REMINDER_DAYS</code>) to get a reminder there when the key is older than that; the default 0 gives none. The page also says when <code>db rekey</code> is due after a key change.</p>
+<p>Rotation is manual on purpose: the key belongs to the operator, <code>db rekey</code> is offline, and the AES-GCM usage limits are far out of reach. Rotate when the key may have leaked, when someone with access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has been in use (at least). Set <em>Remind me to rotate the encryption key after (days)</em> on the Admin page to get a reminder there when the key is older than that; empty gives none. The page also says when <code>db rekey</code> is due after a key change.</p>
 </section>
 
 <section id="data-export">
@@ -540,7 +610,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 <p>Security-relevant events are recorded in the database: sign-ins (successful, failed and blocked), sign-outs, account creation, profile, password, token, sign-in method and two-step verification changes, imports, integration connects, data deletions, exports, and every administrator action (users, roles, permissions, providers, server settings). Each event has a time, who did it, whom it concerned, a short detail and the client's IP address. Details never hold passwords, tokens, e-mail addresses or login names.</p>
 <ul>
   <li><strong>Who sees it:</strong> administrators see the latest 100 events on the Admin page and the whole log at <code>GET /api/v1/audit</code>. Everyone sees the latest events about their own account in Settings (<em>Recent account activity</em>) and at <code>GET /api/v1/users/{id}/audit</code>.</li>
-  <li><strong>Retention:</strong> events are deleted after <code>--audit-retention-days</code> (default 365; <code>0</code> keeps them forever). The purge runs at startup and then every few hours.</li>
+  <li><strong>Retention:</strong> events are deleted after the <em>Keep the audit log for (days)</em> setting on the Admin page (default 365; <code>0</code> keeps them forever). The purge runs at startup and then every few hours.</li>
   <li><strong>Noise:</strong> failed and blocked sign-ins are recorded at most once per client address and minute, with a count of the ones left out, so a flood cannot fill the database.</li>
   <li>Recording an event never fails the request that caused it; a failed write is logged.</li>
   <li>API: <code>limit</code>, <code>before_id</code> and, for administrators, <code>user_id</code> query parameters.</li>
@@ -569,7 +639,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
     <tr><td>GET</td><td><code>/audit</code></td><td>The whole audit log. Administrators only.</td></tr>
   </tbody>
 </table></div>
-<p>Scans and readings cannot be deleted through the API, and access tokens cannot be created or revoked through it. Use the website for those. Changing a password revokes all the user's access tokens, and so does an administrator setting it.</p>
+<p>Scans and readings cannot be deleted through the API, and access tokens cannot be created or revoked through it. Use the website for those. Changing a password revokes all the user's access tokens, and so does an administrator setting it or a password reset.</p>
 <p>Also: <code>GET /healthz</code> returns <code>ok</code> without authentication.</p>
 <h3 id="api-pagination">Pagination and filters</h3>
 <p>List endpoints (<code>dexa-scans</code>, <code>scale-readings</code>) take:</p>
@@ -611,6 +681,8 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   <li><strong>Behind a proxy</strong> the proxy should enforce HTTPS, and the Withings redirect URL on the Admin page must be the public URL. Only trust proxy ranges that nothing else can send from.</li>
   <li><strong>The database file</strong> is created with mode <code>0600</code>; a warning is logged if an existing one is group or world readable. Keep the key file at <code>0600</code> as well.</li>
   <li><strong>Tokens</strong> are shown once and stored hashed; revoke any you no longer use. Prefer expiring tokens.</li>
+  <li><strong>HTTPS certificates.</strong> A self-signed certificate is trusted by nobody until you add it, and browsers use HTTP/3 only with a trusted certificate. The private key is stored encrypted. There is no HTTP to HTTPS redirect yet.</li>
+  <li><strong>Password reset links</strong> are bearer credentials: whoever reads the mailbox, or the link, can set a new password. Use STARTTLS or TLS for the SMTP server.</li>
   <li>This is a measurement tool, not a medical device. Estimates correct a scale by a DEXA offset and say nothing about health.</li>
 </ul>
 </section>

@@ -12,7 +12,7 @@ as scale readings with the source `withings`.
    Withings application section of the Admin page. They are stored encrypted in
    the database. The redirect URL defaults to this server's own callback
    address, so set it explicitly only if the address Withings must use differs
-   (for example behind a proxy without `--base-url`). Connecting is possible
+   (for example behind a proxy without a base URL on the Admin page). Connecting is possible
    only when all three are set; until then the Settings page shows Withings as
    not set up. Withings is configured only on the Admin page: the old
    `DEXAFIX_WITHINGS_*` variables and flags no longer exist and are ignored with

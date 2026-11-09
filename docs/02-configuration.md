@@ -5,29 +5,44 @@ overrides the variable.
 
 | Flag                       | Environment variable             | Default                                                               | Description                                            |
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
-| `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on.                                  |
+| `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on for plain HTTP.                   |
 | `--db-driver`              | `DEXAFIX_DB_DRIVER`              | `sqlite`                                                              | `sqlite` or `postgres`.                                |
 | `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
 | `--dsn-file`               | `DEXAFIX_DSN_FILE`               | empty                                                                 | File holding the connection string. |
 | `--auto-migrate`            | `DEXAFIX_AUTO_MIGRATE`           | `true`                                                                | Apply pending migrations on startup; when `false`, `serve` fails if any are pending. |
-| `--trusted-proxies`        | `DEXAFIX_TRUSTED_PROXIES`        | empty                                                                 | Reverse proxies whose `X-Forwarded-*` headers are believed. See [Running behind a reverse proxy](03-reverse-proxy.md). |
-| `--base-url`               | `DEXAFIX_BASE_URL`               | empty                                                                 | Public address, such as `https://dexa.example.com`. |
-| `--audit-retention-days`   | `DEXAFIX_AUDIT_RETENTION_DAYS`   | `365`                                                                 | Delete audit log events, and the IP addresses in them, after this many days. `0` keeps them forever. |
-| `--key-rotation-reminder-days` | `DEXAFIX_KEY_ROTATION_REMINDER_DAYS` | `0` | Show a reminder on the Admin page when the encryption key is older than this many days. `0` never reminds. Rotation stays manual. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
 | `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing, but only for a database without encrypted values. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
 | `--encryption-key-previous-file` | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE` | empty                                                     | File with earlier keys, one per line, for a key rotation. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS` | unset                                                                | Earlier keys, comma separated, for a key rotation. No flag. |
 
-Two variables are read strictly:
+`DEXAFIX_FORCE_PASSWORD_LOGIN` counts as set only when it is exactly `true`.
+`1` or `TRUE` leaves it off.
 
-- `DEXAFIX_FORCE_PASSWORD_LOGIN` counts as set only when it is exactly `true`.
-  `1` or `TRUE` leaves it off.
-- An invalid `DEXAFIX_AUDIT_RETENTION_DAYS` (not a whole number, or negative) is
-  ignored without a warning, and `365` is used.
+## Settings on the Admin page
 
-Other environment variables:
+Some settings are not flags. They are stored in the database, encrypted like
+the other settings, and take effect at once, without a restart. Administrators
+change them on the [Admin page](06-using-the-app.md):
+
+- **Network and retention**
+  - Base URL, such as `https://dexa.example.com`. Empty by default.
+  - Trusted proxies. Empty by default, which trusts nobody. See [Running behind a reverse proxy](03-reverse-proxy.md).
+  - Accept the PROXY protocol from the trusted proxies. Off by default. See [PROXY protocol](03-reverse-proxy.md#proxy-protocol).
+  - Keep the audit log for N days. 365 by default; `0` keeps it forever.
+  - Remind me to rotate the encryption key after N days. Empty or `0` never reminds. Rotation stays manual.
+- **E-mail**: SMTP server, port (587 by default), encryption (`starttls` by default, `tls`, or `none` for a server on localhost only), user name, password (stored encrypted, never shown again) and sender address. See [Password reset](07-accounts-and-sign-in.md#password-reset).
+- **HTTPS, HTTP/2 and HTTP/3**: certificate, HTTPS port (8443 by default) and HTTP/3. Plain HTTP stays on `--listen`. See [HTTPS, HTTP/2 and HTTP/3](03-reverse-proxy.md#https-http2-and-http3).
+
+There are no flags or environment variables for these settings, and none for
+SMTP. If `DEXAFIX_TRUSTED_PROXIES`, `DEXAFIX_BASE_URL` or
+`DEXAFIX_AUDIT_RETENTION_DAYS` is still set, the server logs a warning that it
+is ignored. If a wrong base URL or PROXY protocol setting locks you out, see
+[Settings recovery](05-commands.md#settings-recovery).
+
+The remaining flags are the ones the server needs before it can open the
+database: the listen address, the database, the encryption key and
+`--auto-migrate`.
 
 - `LOGLEVEL` sets the log level: `trace`, `debug`, `info`, `warn`, `error`,
   `fatal` or `panic`. The default is `info`.

@@ -273,7 +273,11 @@ func (s *Server) setPassword(ctx context.Context, userID int64, password string)
 	if err != nil {
 		return err
 	}
-	return s.store.PutIdentity(ctx, models.Identity{UserID: userID, Provider: models.ProviderLocal, Subject: localSubject(userID), Secret: hash})
+	if err := s.store.PutIdentity(ctx, models.Identity{UserID: userID, Provider: models.ProviderLocal, Subject: localSubject(userID), Secret: hash}); err != nil {
+		return err
+	}
+	s.forgetResets(ctx, userID) // a link made before the change must not set the password again
+	return nil
 }
 
 // passwordEnabled reports whether username and password sign-in is allowed.
@@ -383,6 +387,7 @@ type loginView struct {
 	SignupOpen      bool
 	FirstUser       bool
 	Providers       []loginProvider
+	CanReset        bool // people can ask for a reset e-mail
 }
 
 func (s *Server) authRoutes(mux *http.ServeMux) {
@@ -420,7 +425,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		s.fail(w, err)
 		return
 	}
-	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers}
+	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers, CanReset: s.selfServiceReset(ctx)}
 	for _, p := range providers {
 		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
 	}

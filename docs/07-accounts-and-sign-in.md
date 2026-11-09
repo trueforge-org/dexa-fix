@@ -53,7 +53,8 @@ whole log at `GET /api/v1/audit` (`limit`, `before_id` and `user_id` query
 parameters). Everyone sees the latest events about their own account in
 Settings, and at `GET /api/v1/users/{id}/audit`.
 
-Events are deleted after `--audit-retention-days` (365 by default). When a user
+Events are deleted after the **Keep the audit log for N days** setting on the
+Admin page (365 by default; `0` keeps them forever). When a user
 is deleted, the IP addresses in the events about them are cleared and the
 events no longer refer to them. Recording an event never fails the request
 that caused it; a failed write is logged.
@@ -103,6 +104,44 @@ go run . serve --force-password-login
 
 The same is set with `DEXAFIX_FORCE_PASSWORD_LOGIN=true`.
 
+Users who forget their password can get a reset link. See
+[Password reset](#password-reset).
+
+## Password reset
+
+There are two ways to set a new password without the old one. Both make a link
+that works once.
+
+**An administrator** opens the Users list on the Admin page and chooses **Reset
+link** for the user. The link is shown once on the Admin page and is valid for
+24 hours. Tick **E-mail it** to send it by e-mail instead, when e-mail is set
+up.
+
+**The user** can ask for the link when an SMTP server and a base URL are set on
+the Admin page, under **E-mail** and **Network and retention**, and password
+sign-in is on. The sign-in page then shows **Forgot your password?**. The user
+enters their e-mail address, and the page always gives the same answer, whether
+or not an account with a password uses that address. If one does, a link valid
+for one hour is mailed in the background. The link is built from the base URL
+only, never from the Host header. Accounts that sign in only through a provider
+get no e-mail. At most 3 e-mails are sent per address and 10 per client address
+in 15 minutes.
+
+Using a link:
+
+- The user chooses a new password of 8 to 72 bytes.
+- With two-step verification on, the user also enters a code from the app, or a
+  recovery code. A reset never bypasses two-step verification.
+- The user is signed out everywhere: all sessions and access tokens are revoked.
+- The link stops working once the password or the e-mail address changes.
+- A user covered by the administrator's two-step policy who has no second step
+  is sent to set one up after the reset.
+
+The audit log records `password_reset_link_created`, `password_reset_requested`,
+`password_reset_email_failed`, `password_reset_completed` and
+`password_reset_invalid`. The e-mail settings have no flags or environment
+variables; see [Settings on the Admin page](02-configuration.md#settings-on-the-admin-page).
+
 ## Two-step verification
 
 Two-step verification adds a one-time code from an authenticator app to signing
@@ -150,8 +189,15 @@ and deletes their recovery codes. Use it when someone lost their device and
 their recovery codes. If no administrator can sign in to do that, use the
 command in [Commands](05-commands.md#account-commands).
 
-The audit log records `totp_enabled`, `totp_disabled`, `totp_removed_by_admin`,
-`recovery_codes_regenerated`, `recovery_code_used`, `second_factor_failed` and
+An administrator who has two-step verification on is asked for a code again
+before any Admin page (`/admin`). The code entered at sign-in counts, so there is
+no second prompt straight after signing in. The step-up lasts 15 minutes, kept
+in a signed cookie tied to the administrator's account. A recovery code works
+too. The JSON API is not affected: it uses access tokens.
+
+The audit log records `admin_verified` for each step-up, and `totp_enabled`,
+`totp_disabled`, `totp_removed_by_admin`, `recovery_codes_regenerated`,
+`recovery_code_used`, `second_factor_failed` and
 `second_factor_throttled`. The last two are rate-limited, like failed sign-ins.
 
 ## Storage and rate limiting
@@ -161,7 +207,7 @@ which ones and how to manage the key.
 
 Failed password sign-ins are counted in memory: 10 per login name and 60 per
 client address in 15 minutes, after which sign-in answers 429. The address is the
-visitor's: behind a reverse proxy, set `--trusted-proxies` (see
+visitor's: behind a reverse proxy, set **Trusted proxies** on the Admin page (see
 [Running behind a reverse proxy](03-reverse-proxy.md)), or everyone
 shares the proxy's address and its count. Limit sign-in attempts at the proxy as
 well on a public deployment. Form posts are capped at 1 MiB. Wrong second-step

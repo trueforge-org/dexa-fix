@@ -47,13 +47,16 @@ own data. Users sign in with a password or with an external provider.
 | | Each reading records its measurement method (smart scale, caliper, BodPod, hydrostatic, tape, visual AI) and whether athlete mode was on. |
 | | One estimate per day for weight, body fat, fat mass, fat-free mass, lean mass, hydration, bone mass, visceral fat index, BMI, fat mass index (FMI), lean mass index (LMI) and the android/gynoid (A/G) fat ratio. |
 | 🔐 **Accounts and security** | Password sign-in, plus OpenID Connect, Sign in with Apple and OAuth 2.0 providers. See [Accounts and sign-in](docs/07-accounts-and-sign-in.md). |
-| | Optional two-step verification for password sign-in, with an authenticator app and recovery codes, and an administrator policy for who must use it. |
+| | Password reset by one-time link, made by an administrator or requested by e-mail. See [Password reset](docs/07-accounts-and-sign-in.md#password-reset). |
+| | Optional two-step verification for password sign-in, with an authenticator app and recovery codes, and an administrator policy for who must use it. Administrators confirm a code again before each Admin page. |
 | | New accounts are closed by default, and security-relevant events go to an audit log. |
 | 📥 **Imports** | Optional Withings import, so scale readings do not need typing in. See [Withings import](docs/10-withings-import.md). |
 | | Strength Level sync, per day, with multi-day sync for users an administrator allows. |
 | 🗂️ **Data** | Export of settings and personal details, and of all scans and readings, as JSON (GDPR articles 15 and 20). See [Your data](docs/07-accounts-and-sign-in.md#your-data). |
 | | Deleting a user removes their measurements and settings. |
 | 🛠️ **Operations** | SQLite (default) or Postgres. Schema changes are versioned migrations, applied on startup. See [Database](docs/04-database.md). |
+| | Server settings (base URL, trusted proxies, PROXY protocol, audit retention, e-mail) are edited on the Admin page and take effect at once, without a restart. |
+| | Optional HTTPS on its own port, with HTTP/2 and HTTP/3 (QUIC), using an uploaded or a self-signed certificate. See [Running behind a reverse proxy](docs/03-reverse-proxy.md#https-http2-and-http3). |
 | | Container image on a `scratch` base, for amd64 and arm64. |
 | | Signed images and checksums (cosign), published by the [release workflow](docs/12-ci-and-releases.md). |
 
@@ -89,11 +92,11 @@ The full documentation starts at [docs/index.md](docs/index.md).
 | --- | --- |
 | [01 · Getting started](docs/01-getting-started.md) | Build, run and create the first account. |
 | [02 · Configuration](docs/02-configuration.md) | Flags, environment variables and secrets. |
-| [03 · Running behind a reverse proxy](docs/03-reverse-proxy.md) | HTTPS and trusted proxies. |
+| [03 · Running behind a reverse proxy](docs/03-reverse-proxy.md) | Trusted proxies, base URL, PROXY protocol, and HTTPS with HTTP/2 and HTTP/3. |
 | [04 · Database](docs/04-database.md) | SQLite and Postgres, migrations and moving between them. |
-| [05 · Commands](docs/05-commands.md) | The `db` commands for migrations, copies and rekeying. |
+| [05 · Commands](docs/05-commands.md) | The `db` commands for migrations, copies and rekeying, and recovery commands. |
 | [06 · Using the app](docs/06-using-the-app.md) | The pages of the web interface. |
-| [07 · Accounts and sign-in](docs/07-accounts-and-sign-in.md) | Providers, two-step verification, audit log and your data. |
+| [07 · Accounts and sign-in](docs/07-accounts-and-sign-in.md) | Providers, password reset, two-step verification, audit log and your data. |
 | [08 · Encryption](docs/08-encryption.md) | What is encrypted, the key and rotating it. |
 | [09 · Estimates](docs/09-estimates.md) | How the daily estimates are calculated. |
 | [10 · Withings import](docs/10-withings-import.md) | Linking Withings and importing readings. |
@@ -107,8 +110,9 @@ The full documentation starts at [docs/index.md](docs/index.md).
 ## 🔐 Security
 
 - **Encrypted at rest:** e-mail addresses, Withings tokens, the Strength Level
-  login, provider secrets and two-step verification secrets are encrypted with
-  AES-256-GCM.
+  login, provider secrets, two-step verification secrets and every server
+  setting (including the SMTP password and an uploaded HTTPS key) are encrypted
+  with AES-256-GCM.
 - **Hashed secrets:** passwords are hashed with bcrypt, and session and access
   tokens and recovery codes are stored only as hashes.
 - **Optional second step:** two-step verification (authenticator app and
@@ -121,7 +125,7 @@ The full documentation starts at [docs/index.md](docs/index.md).
 
 - [Encryption](docs/08-encryption.md): what is encrypted, how the key is kept and how to rotate it.
 - [Limitations and security](docs/14-limitations-and-security.md): the threat model and what dexa-fix does not do.
-- [Running behind a reverse proxy](docs/03-reverse-proxy.md): HTTPS and trusted proxies, needed for correct client addresses.
+- [Running behind a reverse proxy](docs/03-reverse-proxy.md): trusted proxies, the PROXY protocol and HTTPS, needed for correct client addresses.
 
 </details>
 

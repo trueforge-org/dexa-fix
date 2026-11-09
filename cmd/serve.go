@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -246,28 +247,34 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			return err
 		}
 		srv.Version = Version
-		proxies, _ := cmd.Flags().GetString("trusted-proxies")
-		if srv.TrustedProxies, err = web.ParseTrustedProxies([]string{proxies}); err != nil {
-			return err
+		// These used to be flags or variables. They are Admin settings now (stored in the database,
+		// applied without a restart), so the old ones are ignored, with a warning.
+		for _, name := range []string{"DEXAFIX_TRUSTED_PROXIES", "DEXAFIX_BASE_URL", "DEXAFIX_AUDIT_RETENTION_DAYS"} {
+			if os.Getenv(name) != "" {
+				log.Warn().Str("variable", name).Msg("ignored: this is a setting on the Admin page now")
+			}
 		}
-		baseURL, _ := cmd.Flags().GetString("base-url")
-		if srv.BaseURL, err = web.ParseBaseURL(baseURL); err != nil {
-			return err
-		}
-		if len(srv.TrustedProxies) > 0 || srv.BaseURL != nil {
-			log.Info().Str("trusted_proxies", proxies).Str("base_url", baseURL).Msg("reverse proxy settings")
-		}
-		days, _ := cmd.Flags().GetInt("audit-retention-days")
-		srv.AuditRetention = time.Duration(days) * 24 * time.Hour
-		reminder, _ := cmd.Flags().GetInt("key-rotation-reminder-days")
-		srv.KeyReminder = time.Duration(reminder) * 24 * time.Hour
 		srv.StartMaintenance()
 		srv.ForcePasswordLogin, _ = cmd.Flags().GetBool("force-password-login")
-		httpSrv := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		handler := srv.Handler()
+		httpSrv := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 64 << 10}
+		// HTTP/1.1 and HTTP/2, including cleartext HTTP/2 (h2c) for a proxy that speaks it to this
+		// server. With a certificate (Admin page) the same port also takes TLS, with HTTP/2 through
+		// ALPN, and HTTP/3 runs on the UDP port with the same number.
+		var protocols http.Protocols
+		protocols.SetHTTP1(true)
+		protocols.SetHTTP2(true)
+		protocols.SetUnencryptedHTTP2(true)
+		httpSrv.Protocols = &protocols
 
+		ln, err := net.Listen("tcp", listen)
+		if err != nil {
+			return err
+		}
 		errCh := make(chan error, 1)
-		go func() { errCh <- httpSrv.ListenAndServe() }()
+		go func() { errCh <- httpSrv.Serve(srv.WrapListener(ln)) }()
+		srv.StartListeners(handler)
 		log.Info().Str("listen", listen).Str("db", driver).Msg("serving")
 
 		select {
@@ -290,10 +297,6 @@ func init() {
 	serveCmd.Flags().String("listen", envOr("DEXAFIX_LISTEN", ":8080"), "address to listen on")
 	addDBFlags(serveCmd)
 	serveCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
-	serveCmd.Flags().Int("audit-retention-days", envInt("DEXAFIX_AUDIT_RETENTION_DAYS", 365), "delete audit log events (and the IP addresses in them) after this many days; 0 keeps them forever")
-	serveCmd.Flags().Int("key-rotation-reminder-days", envInt("DEXAFIX_KEY_ROTATION_REMINDER_DAYS", 0), "show a reminder on the Admin page when the encryption key is older than this many days; 0 never reminds (rotation is manual, see docs/key-rotation.md)")
-	serveCmd.Flags().String("trusted-proxies", envOr("DEXAFIX_TRUSTED_PROXIES", ""), "comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-* headers are believed; also \"loopback\" and \"private\"")
-	serveCmd.Flags().String("base-url", envOr("DEXAFIX_BASE_URL", ""), "public address of the app, such as https://dexa.example.com; used for sign-in callback URLs and to decide that cookies are Secure")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")
 	addKeyFlags(serveCmd)
 	RootCmd.AddCommand(serveCmd)

@@ -23,6 +23,8 @@ ENV DEXAFIX_LISTEN=:8080 \
     DEXAFIX_DSN=file:/data/dexa-fix.db \
     DEXAFIX_ENCRYPTION_KEY_FILE=/data/dexa-fix.key
 
-EXPOSE 8080
+# 8080 is plain HTTP. HTTPS (and HTTP/3 on UDP) listen on the port set on the Admin page, 8443 by
+# default, once a certificate is configured; publish it with -p 8443:8443 -p 8443:8443/udp.
+EXPOSE 8080 8443 8443/udp
 ENTRYPOINT ["/dexa-fix"]
 CMD ["serve"]

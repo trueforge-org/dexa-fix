@@ -35,14 +35,19 @@ Settings and Admin are in a menu under your name in the header, which also has
 - `/admin`: administrators only. Administrators can add users and open or
   close new accounts. The page shows the server status and has these
   sections:
-  - **Users**: grant or remove administrator, set a password, remove a user's
-    two-step verification, or delete a user with all their data. The last
-    administrator cannot be removed.
+  - **Users**: grant or remove administrator, set a password, make a one-time
+    password reset link, remove a user's two-step verification, or delete a user
+    with all their data. The last administrator cannot be removed.
   - **Password sign-in**: turn it on or off.
   - **Two-step verification**: who must use it: nobody, administrators or everyone.
   - **Sign-in providers**: add, edit and remove providers.
   - **Withings application**: the client ID, client secret and redirect URL.
-    Values saved here override the environment variables.
+  - **Network and retention**: the base URL, trusted proxies, the PROXY protocol,
+    how long the audit log is kept and the encryption key reminder. See
+    [Settings on the Admin page](02-configuration.md#settings-on-the-admin-page).
+  - **E-mail**: the SMTP server for password reset e-mails, and a test e-mail.
+  - **HTTPS, HTTP/2 and HTTP/3**: an optional HTTPS listener with a certificate.
+    See [Running behind a reverse proxy](03-reverse-proxy.md#https-http2-and-http3).
 
 Numbers may use a decimal comma. Notes are limited to 500 characters.
 

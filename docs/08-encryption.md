@@ -4,15 +4,17 @@ These values are encrypted with AES-256-GCM before they are stored:
 
 - each user's Withings tokens and Strength Level login
 - sign-in provider secrets, including the Apple key
-- Withings application credentials and other server settings
+- Withings application credentials and every other server setting on the Admin
+  page, including the SMTP password and the private key of an uploaded HTTPS
+  certificate
 - e-mail addresses
 - each user's two-step verification secret, the key of their authenticator app
 
 Each value is tied to its row, so copying it to another row makes it unreadable.
 Each e-mail address also gets a keyed hash, derived from the encryption key. The
 hash makes addresses searchable and unique without decrypting them. Passwords,
-access tokens and two-step verification recovery codes are stored only as
-hashes. Names are not encrypted, but addresses are. Measurements and height are
+access tokens, password reset links and two-step verification recovery codes are
+stored only as hashes. Names are not encrypted, but addresses are. Measurements and height are
 not encrypted by the application either. For those, and for names, use disk or
 database encryption.
 
@@ -88,6 +90,6 @@ offline and the AES-GCM usage limits are far out of reach (see
 [key-rotation.md](key-rotation.md)). Rotate when the key may have
 leaked, when someone with access leaves, or when your policy asks for it. The
 Admin page shows the key id and since when it is in use (at least). To get a
-reminder there, set `--key-rotation-reminder-days` or
-`DEXAFIX_KEY_ROTATION_REMINDER_DAYS` (default 0, no reminder). The page also
+reminder there, set **Remind me to rotate the encryption key after (days)** under
+**Network and retention** on the Admin page (default empty, no reminder). The page also
 says when `db rekey` is due after a key change.

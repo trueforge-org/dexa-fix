@@ -58,6 +58,12 @@ const (
 	auditRecoveryUsed          = "recovery_code_used"
 	auditSecondFactorFailed    = "second_factor_failed"
 	auditSecondFactorThrottled = "second_factor_throttled"
+	auditAdminVerified         = "admin_verified"
+	auditResetLinkCreated      = "password_reset_link_created"
+	auditResetRequested        = "password_reset_requested"
+	auditResetEmailFailed      = "password_reset_email_failed"
+	auditResetCompleted        = "password_reset_completed"
+	auditResetInvalid          = "password_reset_invalid"
 )
 
 var auditLabels = map[string]string{
@@ -78,7 +84,10 @@ var auditLabels = map[string]string{
 	auditTOTPEnabled: "Two-step verification turned on", auditTOTPDisabled: "Two-step verification turned off",
 	auditTOTPRemovedByAdmin: "Two-step verification removed by an administrator", auditRecoveryRegenerated: "Recovery codes replaced",
 	auditRecoveryUsed: "Recovery code used", auditSecondFactorFailed: "Wrong two-step code",
-	auditSecondFactorThrottled: "Two-step codes blocked (too many failures)",
+	auditSecondFactorThrottled: "Two-step codes blocked (too many failures)", auditAdminVerified: "Confirmed the second step for the Admin pages",
+	auditResetLinkCreated: "Password reset link made by an administrator", auditResetRequested: "Password reset e-mail requested",
+	auditResetEmailFailed: "Password reset e-mail could not be sent", auditResetCompleted: "Password reset",
+	auditResetInvalid: "Password reset link refused (unknown or expired)",
 }
 
 const (
@@ -124,6 +133,19 @@ func (s *Server) auditAs(r *http.Request, actor, target int64, action, detail st
 		return
 	}
 	log.Info().Str("audit", action).Int64("actor", actor).Int64("target", target).Str("detail", detail).Msg("audit")
+}
+
+// auditBackground records an event from a background job, which has no request and so no address.
+func (s *Server) auditBackground(target int64, action, detail string) {
+	e := models.AuditEvent{Action: action, Detail: detail}
+	if target != 0 {
+		e.TargetID = &target
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.jobCtx), 5*time.Second)
+	defer cancel()
+	if err := s.store.AddAuditEvent(ctx, &e); err != nil {
+		log.Error().Err(err).Str("action", action).Msg("audit log write failed")
+	}
 }
 
 // auditLine is one event as shown on a page.
@@ -199,23 +221,23 @@ func (s *Server) auditRoutes(mux *http.ServeMux) {
 
 // ---- retention ----
 
-// StartMaintenance purges audit events older than AuditRetention now and every few hours, until
-// Close. Without a retention period (zero) the log is kept for good.
+// StartMaintenance purges audit events older than the retention period now and every few hours,
+// until Close. The period is an Admin setting read at every round; zero keeps the log for good.
 func (s *Server) StartMaintenance() {
-	if s.AuditRetention <= 0 {
-		return
-	}
 	s.startJob(func() {
 		t := time.NewTicker(auditPurgeEvery)
 		defer t.Stop()
 		for {
-			cutoff := time.Now().Add(-s.AuditRetention)
-			if n, err := s.store.PurgeAuditEvents(s.jobCtx, cutoff); err != nil {
-				if s.jobCtx.Err() == nil {
-					log.Error().Err(err).Msg("purge audit log")
+			s.renewCertificate(s.jobCtx)
+			if keep := s.cfg().auditRetention; keep > 0 {
+				cutoff := time.Now().Add(-keep)
+				if n, err := s.store.PurgeAuditEvents(s.jobCtx, cutoff); err != nil {
+					if s.jobCtx.Err() == nil {
+						log.Error().Err(err).Msg("purge audit log")
+					}
+				} else if n > 0 {
+					log.Info().Int64("deleted", n).Msg("purged old audit events")
 				}
-			} else if n > 0 {
-				log.Info().Int64("deleted", n).Msg("purged old audit events")
 			}
 			select {
 			case <-s.jobCtx.Done():
@@ -229,7 +251,7 @@ func (s *Server) StartMaintenance() {
 // noisyAudit lists events that anyone, signed in or not, can trigger at will. They are recorded at
 // most once per client address and minute, with a count of the ones left out, so a flood of failed
 // sign-ins cannot fill the database.
-var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true, auditSecondFactorFailed: true, auditSecondFactorThrottled: true}
+var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true, auditSecondFactorFailed: true, auditSecondFactorThrottled: true, auditResetRequested: true, auditResetInvalid: true}
 
 const (
 	auditNoiseWindow = time.Minute

@@ -10,8 +10,6 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
@@ -39,17 +38,21 @@ type Server struct {
 
 	// Version is shown on the admin page.
 	Version string
-	// AuditRetention is how long audit events are kept; zero keeps them for good.
-	AuditRetention time.Duration
-	// KeyReminder is the key age after which the Admin page asks for a rotation; zero never does.
-	KeyReminder time.Duration
-	// TrustedProxies are the reverse proxies whose X-Forwarded-* headers are believed.
-	TrustedProxies []netip.Prefix
-	// BaseURL is the public address of the app (scheme and host); nil derives it from requests.
-	BaseURL *url.URL
 	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
-	// from a lockout.
+	// from a lockout. It is a flag because it is needed when nobody can reach the Admin page.
 	ForcePasswordLogin bool
+
+	listenAddr string     // address of the TCP listener, set by WrapListener; HTTP/3 uses the same port on UDP
+	lmu        sync.Mutex // guards the HTTPS and HTTP/3 servers below
+	handler    http.Handler
+	https      *http.Server
+	httpsPort  string
+	h3         *http3.Server
+	h3port     string
+	bindErr    string
+
+	live atomic.Pointer[liveSettings]               // administrator settings in force, see serversettings.go
+	cop  atomic.Pointer[http.CrossOriginProtection] // rebuilt when the base URL changes
 
 	authChain  []authenticator
 	cookieKey  []byte
@@ -75,7 +78,7 @@ type Server struct {
 	oidcCache map[string]*oidc.Provider
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html", "reset.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
@@ -117,6 +120,9 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 	if err := s.applyWithingsCredentials(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.reloadSettings(ctx); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -128,6 +134,7 @@ func (s *Server) Close() {
 	s.jobsMu.Unlock()
 	s.cancelJob()
 	s.jobs.Wait()
+	s.closeListeners()
 }
 
 // startJob runs f in the background, tracked by Close. It reports false, without running f, once
@@ -165,6 +172,7 @@ func (s *Server) Handler() http.Handler {
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	s.twoFactorRoutes(mux)
+	s.resetRoutes(mux)
 	mux.HandleFunc("GET /u/{id}", s.user(s.home))
 
 	mux.HandleFunc("GET /u/{id}/dexa", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) { s.dexaPage(w, r, u, "", http.StatusOK) }))
@@ -193,14 +201,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.
-	cop := http.NewCrossOriginProtection()
-	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
-	if s.BaseURL != nil {
-		if err := cop.AddTrustedOrigin(s.BaseURL.Scheme + "://" + s.BaseURL.Host); err != nil {
-			log.Error().Err(err).Msg("base URL not accepted as a trusted origin")
-		}
-	}
-	return logRequests(s.proxyHeaders(secureHeaders(compress(limitBody(cop.Handler(s.withAuth(mux)))))))
+	// The check is rebuilt when the base URL changes, so it is looked up for every request.
+	guarded := s.withAuth(mux)
+	sameOrigin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.cop.Load().Handler(guarded).ServeHTTP(w, r)
+	})
+	return logRequests(s.proxyHeaders(s.altSvc(secureHeaders(compress(limitBody(sameOrigin))))))
 }
 
 // integrationView is the state of an OAuth integration for the current user.
@@ -243,6 +249,7 @@ type pageData struct {
 
 	Login     *loginView     // sign-in page
 	TwoFactor *twoFactorView // second step of a sign-in
+	Reset     *resetView     // password reset pages
 
 	SLSend        bool          // estimates page: show the button that sends one day to Strength Level
 	StrengthLevel *slView       // settings page: only for users an administrator has enabled it for

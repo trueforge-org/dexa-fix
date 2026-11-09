@@ -13,13 +13,20 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
+// serverWithReminder is a Server whose key reminder in force is d.
+func serverWithReminder(d time.Duration) *Server {
+	s := &Server{}
+	s.swapSettings(&liveSettings{keyReminder: d})
+	return s
+}
+
 func TestKeyViewDescribesTheKey(t *testing.T) {
 	const day = 24 * time.Hour
 	old := time.Now().UTC().AddDate(0, 0, -100)
 	wantSince := old.Format(dateLayout)
 
 	t.Run("not encrypted is not shown", func(t *testing.T) {
-		s := &Server{KeyReminder: 30 * day}
+		s := serverWithReminder(30 * day)
 		v := s.keyView(store.Stats{Encrypted: false})
 		if v.Shown {
 			t.Errorf("Shown = true for an unencrypted database")
@@ -27,7 +34,7 @@ func TestKeyViewDescribesTheKey(t *testing.T) {
 	})
 
 	t.Run("old key is due and dated", func(t *testing.T) {
-		s := &Server{KeyReminder: 30 * day}
+		s := serverWithReminder(30 * day)
 		v := s.keyView(store.Stats{Encrypted: true, KeyID: "k1", KeySince: old})
 		if !v.Shown || v.ID != "k1" {
 			t.Errorf("Shown/ID = %v/%q, want true/%q", v.Shown, v.ID, "k1")
@@ -44,7 +51,7 @@ func TestKeyViewDescribesTheKey(t *testing.T) {
 	})
 
 	t.Run("zero reminder never makes the key due", func(t *testing.T) {
-		s := &Server{KeyReminder: 0}
+		s := serverWithReminder(0)
 		v := s.keyView(store.Stats{Encrypted: true, KeyID: "k1", KeySince: old})
 		if v.Due {
 			t.Errorf("Due = true with KeyReminder 0")
@@ -55,7 +62,7 @@ func TestKeyViewDescribesTheKey(t *testing.T) {
 	})
 
 	t.Run("previous key asks for a rekey", func(t *testing.T) {
-		s := &Server{KeyReminder: 30 * day}
+		s := serverWithReminder(30 * day)
 		v := s.keyView(store.Stats{Encrypted: true, KeyID: "k2", KeySince: old, KeyPrevious: true})
 		if !v.Rekey {
 			t.Errorf("Rekey = false when KeyPrevious is set")
@@ -63,7 +70,7 @@ func TestKeyViewDescribesTheKey(t *testing.T) {
 	})
 
 	t.Run("unknown key date", func(t *testing.T) {
-		s := &Server{KeyReminder: 30 * day}
+		s := serverWithReminder(30 * day)
 		v := s.keyView(store.Stats{Encrypted: true, KeyID: "k1"})
 		if v.Since != "" {
 			t.Errorf("Since = %q, want empty", v.Since)

@@ -27,7 +27,9 @@ user's role is not enough. See [Authentication](#authentication).
 Scans and readings cannot be deleted through the API, and access tokens cannot
 be created or revoked through it. Use the web interface for those. Changing a
 password revokes all of the user's access tokens, and so does an administrator
-setting it, so create new tokens afterwards if you use the API.
+setting it or a password reset, so create new tokens afterwards if you use the API.
+The administrator's two-step code for the Admin pages does not apply here: API
+calls use access tokens.
 
 The two list endpoints (`dexa-scans` and `scale-readings`) return the newest
 first and are paged. Query parameters: `limit` (default 1000, at most 10000),

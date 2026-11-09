@@ -12,6 +12,7 @@
       <label>E-mail <input type="text" inputmode="email" name="email" maxlength="254" required autocomplete="username"></label>
       <label>Password {{help "password-login"}} <input type="password" name="password" required autocomplete="current-password"></label>
       <button type="submit">Sign in</button>
+      {{if .CanReset}}<p class="help"><a href="/password/forgot">Forgot your password?</a></p>{{end}}
     </form>
     {{end}}{{else if not .Providers}}<p class="help">No sign-in method is available. Ask your administrator.</p>{{end}}
   </div>

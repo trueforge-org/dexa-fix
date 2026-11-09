@@ -46,3 +46,21 @@ requires two-step verification, the user sets it up again at the next sign-in.
 ```bash
 DEXAFIX_DSN=postgres://user:pass@localhost/dexafix go run . user reset-2fa you@example.com --db-driver postgres
 ```
+
+## Settings recovery
+
+| Command                   | Description                                                          |
+| ------------------------- | -------------------------------------------------------------------- |
+| `settings reset-network`  | Clear the base URL, the trusted proxies and the PROXY protocol setting. |
+
+Use it when a saved value leaves the Admin page unreachable: a base URL for an
+address you no longer use, or a PROXY protocol setting that stops your balancer
+from connecting. It works on the database directly, so it takes the same
+database and encryption key settings as `serve`: `--db-driver`, `--dsn` (or
+`DEXAFIX_DSN`, or `--dsn-file`) and the key flags. The change is not written to
+the audit log. Restart the server afterwards, because a running server reads
+these settings at start and when they are saved on the Admin page.
+
+```bash
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix go run . settings reset-network --db-driver postgres
+```

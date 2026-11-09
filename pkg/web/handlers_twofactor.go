@@ -76,6 +76,8 @@ func (s *Server) twoFactorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /u/{id}/2fa/confirm", s.user(s.twoFactorConfirm))
 	mux.HandleFunc("POST /u/{id}/2fa/disable", s.user(s.twoFactorDisable))
 	mux.HandleFunc("POST /u/{id}/2fa/recovery", s.user(s.twoFactorRecovery))
+	mux.HandleFunc("GET /admin/verify", s.adminBasic(s.adminVerifyPage))
+	mux.HandleFunc("POST /admin/verify", s.adminBasic(s.adminVerify))
 	mux.HandleFunc("POST /admin/two-factor", s.admin(s.adminTwoFactorPolicy))
 	mux.HandleFunc("POST /admin/users/{id}/2fa/delete", s.admin(s.adminRemoveTwoFactor))
 }
@@ -167,8 +169,8 @@ func (s *Server) pendingTOTPSecret(ctx context.Context, userID int64) (string, e
 }
 
 func (s *Server) totpIssuer() string {
-	if s.BaseURL != nil && s.BaseURL.Hostname() != "" {
-		return s.BaseURL.Hostname()
+	if base := s.cfg().baseURL; base != nil && base.Hostname() != "" {
+		return base.Hostname()
 	}
 	return defaultTOTPIssuer
 }
@@ -316,6 +318,7 @@ func (s *Server) loginTwoFactor(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.markAdminVerified(w, r, u.ID) // the code just entered counts for the Admin pages too
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -401,6 +404,7 @@ func (s *Server) loginSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.markAdminVerified(w, r, u.ID)
 	// Signed in; the recovery codes are shown once, on this response, never in a redirect.
 	s.renderSecondStep(w, twoFactorView{Mode: "codes", Codes: codes, Continue: target}, http.StatusOK)
 }
@@ -590,4 +594,86 @@ func (s *Server) adminRemoveTwoFactor(w http.ResponseWriter, r *http.Request, _ 
 	}
 	s.audit(r, t.ID, auditTOTPRemovedByAdmin, "")
 	adminRedirect(w, r, "Two-step verification was removed for "+t.Name+".")
+}
+
+// ---- the Admin pages ask again ----
+
+// An administrator with two-step verification on is asked for a code again before the Admin pages,
+// even though they are signed in: the Admin pages can change everyone's account, so a stolen
+// session cookie alone must not be enough. The proof is a signed cookie for 15 minutes, set here
+// and after the second step of a sign-in (so it is not asked twice in a row). It covers /admin only.
+// The JSON API for administrators takes access tokens, which have no second step.
+const (
+	adminCookie    = "dexafix_admin"
+	sealAdminStep  = "admin-step-up"
+	adminStepUpTTL = 15 * time.Minute
+)
+
+type adminStepUp struct {
+	UID int64 `json:"u"`
+}
+
+func (s *Server) markAdminVerified(w http.ResponseWriter, r *http.Request, userID int64) {
+	sealed, _, err := s.sealValue(sealAdminStep, adminStepUp{UID: userID}, adminStepUpTTL)
+	if err != nil {
+		return // the admin is asked again; nothing else depends on it
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: adminCookie, Value: sealed, Path: "/admin", MaxAge: int(adminStepUpTTL.Seconds()),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r),
+	})
+}
+
+func (s *Server) adminVerified(r *http.Request, userID int64) bool {
+	c, err := r.Cookie(adminCookie)
+	if err != nil {
+		return false
+	}
+	var st adminStepUp
+	_, _, ok := s.openValue(sealAdminStep, c.Value, &st)
+	return ok && st.UID == userID
+}
+
+// needsAdminStepUp reports whether the administrator has to enter a code before the Admin pages.
+func (s *Server) needsAdminStepUp(r *http.Request, u models.User) (bool, error) {
+	has, err := s.hasTwoFactor(r.Context(), u.ID)
+	if err != nil || !has {
+		return false, err
+	}
+	return !s.adminVerified(r, u.ID), nil
+}
+
+func (s *Server) adminVerifyPage(w http.ResponseWriter, r *http.Request, u models.User) {
+	if need, err := s.needsAdminStepUp(r, u); err != nil {
+		s.fail(w, err)
+		return
+	} else if !need {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+	s.renderSecondStep(w, twoFactorView{Mode: "admin"}, http.StatusOK)
+}
+
+func (s *Server) adminVerify(w http.ResponseWriter, r *http.Request, u models.User) {
+	if s.secondFactorBlocked(r, u.ID) {
+		s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "admin")
+		s.renderSecondStep(w, twoFactorView{Mode: "admin", Error: "Too many wrong codes. Please wait a few minutes."}, http.StatusTooManyRequests)
+		return
+	}
+	good, _, err := s.verifySecondFactor(r.Context(), u.ID, r.PostFormValue("code"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if !good {
+		s.limiter.fail(mfaKey(u.ID))
+		s.limiter.fail(ipKey(r))
+		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "admin")
+		s.renderSecondStep(w, twoFactorView{Mode: "admin", Error: secondFactorMessage}, http.StatusUnauthorized)
+		return
+	}
+	s.limiter.reset(mfaKey(u.ID))
+	s.markAdminVerified(w, r, u.ID)
+	s.audit(r, u.ID, auditAdminVerified, "")
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }

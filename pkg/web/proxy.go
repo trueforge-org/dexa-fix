@@ -81,7 +81,7 @@ func ParseBaseURL(raw string) (*url.URL, error) {
 
 func (s *Server) trusted(a netip.Addr) bool {
 	a = a.Unmap()
-	for _, p := range s.TrustedProxies {
+	for _, p := range s.cfg().trusted {
 		if p.Contains(a) {
 			return true
 		}
@@ -95,9 +95,9 @@ func (s *Server) proxyHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		secure := r.TLS != nil
-		if s.BaseURL != nil {
-			ctx = context.WithValue(ctx, baseURLKey{}, s.BaseURL)
-			secure = secure || s.BaseURL.Scheme == "https"
+		if base := s.cfg().baseURL; base != nil {
+			ctx = context.WithValue(ctx, baseURLKey{}, base)
+			secure = secure || base.Scheme == "https"
 		}
 		r2 := r.WithContext(ctx)
 
@@ -184,5 +184,5 @@ func externalURL(r *http.Request, path string) string {
 }
 
 func logUntrustedForwarding(peer string) {
-	log.Warn().Str("peer", peer).Msg("ignoring X-Forwarded-* headers from a connection that is not a trusted proxy; behind a reverse proxy, set --trusted-proxies to the proxy's address")
+	log.Warn().Str("peer", peer).Msg("ignoring X-Forwarded-* headers from a connection that is not a trusted proxy; behind a reverse proxy, add the proxy's address to the trusted proxies on the Admin page")
 }

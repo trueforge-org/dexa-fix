@@ -1,0 +1,39 @@
+{{define "content"}}
+{{with .Reset}}
+<div class="login-stack">
+{{if eq .Mode "forgot"}}
+  <form method="post" action="/password/forgot" class="card fields">
+    <h1>Forgot your password?</h1>
+    <small>Enter the e-mail address of your account. If it has a password, we send a link to choose a new one. The link works once, for an hour.</small>
+    <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="username" autofocus></label>
+    <button type="submit">Send the link</button>
+    <p class="help"><a href="/">Back to sign-in</a></p>
+  </form>
+{{else if eq .Mode "sent"}}
+  <div class="card fields">
+    <h1>Check your e-mail</h1>
+    <p>If an account with a password exists for that address, we sent a link to reset it. It works once, for an hour. Nothing arrived after a few minutes? Check your spam folder, or ask your administrator for a link.</p>
+    <p class="help"><a href="/">Back to sign-in</a></p>
+  </div>
+{{else if eq .Mode "form"}}
+  <form method="post" action="/password/reset" class="card fields">
+    <h1>Choose a new password</h1>
+    {{if .Error}}<p class="notice error" role="alert">{{.Error}}</p>{{end}}
+    <input type="hidden" name="t" value="{{.Token}}">
+    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password" autofocus></label>
+    <label>Repeat new password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    {{if .NeedsCode}}<label>Two-step code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required>
+      <small>The 6-digit code from your authenticator app, or a recovery code.</small></label>{{end}}
+    <button type="submit">Change password and sign in</button>
+    <p class="help">You are signed out everywhere else, and your access tokens stop working.</p>
+  </form>
+{{else}}
+  <div class="card fields">
+    <h1>This link does not work</h1>
+    {{if .Error}}<p class="notice error" role="alert">{{.Error}}</p>{{else}}<p>The reset link is unknown, was already used, or has expired. Ask for a new one.</p>{{end}}
+    <p class="help"><a href="/">Back to sign-in</a></p>
+  </div>
+{{end}}
+</div>
+{{end}}
+{{end}}

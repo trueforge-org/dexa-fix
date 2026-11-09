@@ -86,6 +86,16 @@ CREATE TABLE user_totp (
   confirmed_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL
 );
+-- Single-use password reset links. Only a hash of the token is stored, like sessions. A link is
+-- deleted when it is used, replaced or expires, and with the user. Not copied by `db copy`.
+CREATE TABLE password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL,
+  expires_at TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_password_resets_user ON password_resets(user_id);
 -- Single-use recovery codes, stored as hashes of long random values.
 CREATE TABLE user_recovery_codes (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -145,6 +155,7 @@ CREATE INDEX idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX idx_audit_target ON audit_log(target_id);
 
 -- +goose Down
+DROP TABLE password_resets;
 DROP TABLE user_recovery_codes;
 DROP TABLE user_totp;
 DROP TABLE audit_log;DROP TABLE auth_providers;

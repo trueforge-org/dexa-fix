@@ -10,6 +10,14 @@
     <button type="submit">Verify</button>
     <p class="help"><a href="/">Back to sign-in</a></p>
   </form>
+{{else if eq .Mode "admin"}}
+  <form method="post" action="/admin/verify" class="card fields">
+    <h1>Confirm it is you</h1>
+    <small>The Admin pages ask for your two-step code again. Enter the 6-digit code from your authenticator app, or a recovery code.</small>
+    {{if .Error}}<p class="notice error" role="alert">{{.Error}}</p>{{end}}
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required autofocus></label>
+    <button type="submit">Continue</button>
+  </form>
 {{else if eq .Mode "setup"}}
   <form method="post" action="/login/2fa/setup" class="card fields">
     <h1>Set up two-step verification</h1>

@@ -25,12 +25,16 @@ func newProxyServer(t *testing.T, proxies, base string) (*httptest.Server, *sqls
 	if err != nil {
 		t.Fatal(err)
 	}
-	if srv.TrustedProxies, err = ParseTrustedProxies([]string{proxies}); err != nil {
+	trusted, err := ParseTrustedProxies([]string{proxies})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if srv.BaseURL, err = ParseBaseURL(base); err != nil {
+	baseURL, err := ParseBaseURL(base)
+	if err != nil {
 		t.Fatal(err)
 	}
+	srv.SetTrustedProxies(trusted)
+	srv.SetBaseURL(baseURL)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
@@ -165,7 +169,8 @@ func TestBaseURL(t *testing.T) {
 	}
 
 	srv := &Server{}
-	srv.BaseURL, _ = ParseBaseURL("https://dexa.example.com/")
+	base, _ := ParseBaseURL("https://dexa.example.com/")
+	srv.swapSettings(&liveSettings{baseURL: base})
 	var got string
 	h := srv.proxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = externalURL(r, "/auth/x/callback") }))
 	req := httptest.NewRequest("GET", "http://10.0.0.5:8080/", nil)

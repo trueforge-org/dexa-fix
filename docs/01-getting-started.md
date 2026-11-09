@@ -24,5 +24,11 @@ go build -o dexa-fix .
 ./dexa-fix serve
 ```
 
+The server speaks plain HTTP on the `--listen` port. To serve HTTPS, with HTTP/2
+and optionally HTTP/3, turn it on under **HTTPS, HTTP/2 and HTTP/3** on the Admin
+page. See [Running behind a reverse proxy](03-reverse-proxy.md#https-http2-and-http3).
+Settings such as the base URL, trusted proxies and the e-mail server are also
+on the Admin page, not in flags: see [Configuration](02-configuration.md#settings-on-the-admin-page).
+
 `.goreleaser.yaml` builds release binaries for linux, darwin and windows on
 amd64 and arm64.

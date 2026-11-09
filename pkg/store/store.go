@@ -160,6 +160,12 @@ type Store interface {
 	UseRecoveryCode(ctx context.Context, userID int64, hash string) (bool, error)
 	CountRecoveryCodes(ctx context.Context, userID int64) (int, error)
 	TwoFactorUsers(ctx context.Context) (map[int64]bool, error)
+	// Password reset links. CompletePasswordReset sets the password and signs the user out
+	// everywhere in one transaction; a link works once.
+	CreatePasswordReset(ctx context.Context, tokenHash string, userID int64, createdBy *int64, expires time.Time) error
+	PasswordResetUser(ctx context.Context, tokenHash string) (models.User, error)
+	CompletePasswordReset(ctx context.Context, tokenHash, passwordHash string) (int64, error)
+	DeletePasswordResets(ctx context.Context, userID int64) error
 	// GetSession returns an unexpired session, or ErrNotFound.
 	GetSession(ctx context.Context, tokenHash string) (models.Session, error)
 	DeleteSession(ctx context.Context, tokenHash string) error

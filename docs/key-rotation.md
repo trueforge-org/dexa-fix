@@ -114,8 +114,8 @@ We considered rotating the key automatically every month and decided against it.
 Rotate by hand (see [Rotating the key](08-encryption.md#rotating-the-key)) when the key may have leaked, when someone with
 access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has
 been in use, as a lower bound: databases created before the key check only learned the date when the
-check was first written. Set `--key-rotation-reminder-days` (`DEXAFIX_KEY_ROTATION_REMINDER_DAYS`) to
-show a reminder when the key is older than that many days. The page also says when the database still
+check was first written. Set the Admin page setting "Remind me to rotate the encryption key after
+(days)" (default empty, no reminder) to show a reminder when the key is older than that many days. The page also says when the database still
 belongs to a previous key and `db rekey` is due. Neither the reminder nor the notice changes anything.
 
 ## Open questions

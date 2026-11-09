@@ -140,6 +140,9 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 	case err != nil:
 		s.fail(w, err)
 	default:
+		if email != u.Email {
+			s.forgetResets(r.Context(), u.ID) // links made for the old address must not work
+		}
 		if timezone != u.Timezone {
 			if err := s.store.UpdateUserTimezone(r.Context(), u.ID, timezone); err != nil {
 				s.fail(w, err)
