@@ -49,16 +49,6 @@ type slLogin struct {
 	Password string `json:"password"`
 }
 
-// slView is the Strength Level card of the settings page.
-type slView struct {
-	UserID int64
-	Saved  bool
-	Email  string // the saved login's e-mail address; the password is never sent back
-	Msg    string
-	Bulk   bool       // the multi-day sync is allowed
-	Job    *slJobView // the latest multi-day sync, if any
-}
-
 // strengthLevelView returns the settings card, or nil when an administrator has not enabled
 // automatic sync for the user.
 func (s *Server) strengthLevelView(r *http.Request, u models.User) *slView {

@@ -23,33 +23,6 @@ const (
 	maxHeightCm     = 280
 )
 
-// securityView is the settings page's sign-in section.
-type securityView struct {
-	Activity        []auditLine // the latest events about this account
-	PasswordEnabled bool
-	HasPassword     bool
-	ConfirmPassword bool // sensitive changes ask for the current password
-	Tokens          []tokenView
-	NewToken        string // shown once, right after it was created
-	Linked          []linkedProvider
-	TwoFactor       twoFactorSettings
-	Passkeys        passkeysView
-}
-
-type tokenView struct {
-	ID       int64
-	Name     string
-	Prefix   string
-	Created  string
-	LastUsed string
-	Expires  string
-}
-
-type linkedProvider struct {
-	Slug, Label string
-	Linked      bool
-}
-
 func dayOrDash(t *time.Time, none string) string {
 	if t == nil {
 		return none
@@ -94,7 +67,7 @@ func (s *Server) securityView(r *http.Request, u models.User, newToken string) (
 		return nil, err
 	}
 	for _, p := range providers {
-		view.Linked = append(view.Linked, linkedProvider{p.Slug, p.Label, slices.Contains(mine, p.Slug)})
+		view.Linked = append(view.Linked, linkedProvider{Slug: p.Slug, Label: p.Label, Linked: slices.Contains(mine, p.Slug)})
 	}
 	return view, nil
 }

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -201,8 +203,41 @@ func (s *Server) exportData(w http.ResponseWriter, r *http.Request, u models.Use
 }
 
 func (s *Server) exportRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /u/{id}/export/profile", s.user(s.exportProfile))
-	mux.HandleFunc("GET /u/{id}/export/data", s.user(s.exportData))
+	mux.HandleFunc("GET /u/{id}/export/profile", s.user(s.exportPage("profile")))
+	mux.HandleFunc("GET /u/{id}/export/data", s.user(s.exportPage("data")))
 	mux.HandleFunc("GET /api/v1/users/{id}/export/profile", s.apiUser(s.exportProfile))
 	mux.HandleFunc("GET /api/v1/users/{id}/export/data", s.apiUser(s.exportData))
+}
+
+// exportPage streams an export from the backend, with the headers that make it a download.
+func (s *Server) exportPage(kind string) func(http.ResponseWriter, *http.Request, models.User) {
+	return func(w http.ResponseWriter, r *http.Request, u models.User) {
+		resp, err := s.api.Raw(r.Context(), http.MethodGet, "/users/"+strconv.FormatInt(u.ID, 10)+"/export/"+kind, nil, nil)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		defer resp.Body.Close()
+		switch {
+		case resp.StatusCode == http.StatusOK:
+		case resp.StatusCode >= 500:
+			s.fail(w, apiclient.ErrUnavailable)
+			return
+		case resp.StatusCode == http.StatusNotFound:
+			http.NotFound(w, r)
+			return
+		default:
+			http.Error(w, "export not available", resp.StatusCode)
+			return
+		}
+		h := w.Header()
+		for _, k := range []string{"Content-Type", "Content-Disposition"} {
+			if v := resp.Header.Get(k); v != "" {
+				h.Set(k, v)
+			}
+		}
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			log.Error().Err(err).Str("export", kind).Msg("export failed")
+		}
+	}
 }

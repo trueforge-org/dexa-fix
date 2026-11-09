@@ -28,13 +28,6 @@ type slJobs struct {
 	jobs map[int64]*slJob
 }
 
-// slJobView is what the settings page shows about a job.
-type slJobView struct {
-	Running     bool
-	Text        string
-	Done, Total int
-}
-
 // begin registers a new running job, or reports false when the user already has one running.
 func (j *slJobs) begin(userID int64, days int, update bool, cancel context.CancelFunc) (*slJob, bool) {
 	j.mu.Lock()

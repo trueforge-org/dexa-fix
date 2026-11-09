@@ -44,16 +44,6 @@ type passkeyCeremony struct {
 	Session webauthn.SessionData `json:"s"`
 }
 
-// passkeysView is the passkey section of the settings page.
-type passkeysView struct {
-	Ready bool // the browser can use passkeys here: HTTPS or localhost
-	Items []passkeyItem
-}
-
-type passkeyItem struct {
-	ID, Name, Created, LastUsed string
-}
-
 func (s *Server) passkeyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /passkey/login/begin", s.passkeyLoginBegin)
 	mux.HandleFunc("POST /passkey/login/finish", s.passkeyLoginFinish)

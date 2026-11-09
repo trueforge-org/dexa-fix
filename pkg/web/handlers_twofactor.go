@@ -51,22 +51,6 @@ type twoFactorView struct {
 	Continue string // where to go after the recovery codes were seen
 }
 
-// twoFactorSetup is a secret waiting to be confirmed.
-type twoFactorSetup struct {
-	QR     template.HTML
-	Secret string
-}
-
-// twoFactorSettings is the two-step part of the settings page.
-type twoFactorSettings struct {
-	Available    bool // the user signs in with a password, so there is something to protect
-	Enabled      bool
-	Required     bool // an administrator requires it for this user
-	RecoveryLeft int
-	Setup        *twoFactorSetup
-	NewCodes     []string // shown once
-}
-
 func (s *Server) twoFactorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login/2fa", s.loginTwoFactorPage)
 	mux.HandleFunc("POST /login/2fa", s.loginTwoFactor)

@@ -59,7 +59,9 @@ func TestErrorsAndUnavailable(t *testing.T) {
 	}
 }
 
-func isUnavailable(err error) bool { return err != nil && strings.Contains(err.Error(), ErrUnavailable.Error()) }
+func isUnavailable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), ErrUnavailable.Error())
+}
 
 func TestInProcessPanicBecomes500AndStreams(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

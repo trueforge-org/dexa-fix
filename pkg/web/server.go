@@ -218,12 +218,6 @@ func (s *Server) Handler() http.Handler {
 	return edge.LogRequests(s.proxyHeaders(s.altSvc(edge.SecureHeaders(edge.Compress(edge.LimitBody(sameOrigin))))))
 }
 
-// integrationView is the state of an OAuth integration for the current user.
-type integrationView struct {
-	Configured bool // the server has the provider's credentials
-	Connected  bool // the user has linked their account
-}
-
 // pageData is the data passed to every template.
 type pageData struct {
 	Title  string

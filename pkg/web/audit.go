@@ -154,12 +154,6 @@ func (s *Server) auditBackground(target int64, action, detail string) {
 	}
 }
 
-// auditLine is one event as shown on a page.
-type auditLine struct {
-	When, Action, Detail, IP string
-	Actor, Target            string
-}
-
 // auditLines turns events into display lines. name resolves a user id; events that no longer
 // refer to a user (deleted) show "—".
 func auditLines(events []models.AuditEvent, name func(int64) string) []auditLine {

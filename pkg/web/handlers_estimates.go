@@ -82,7 +82,7 @@ func (s *Server) columnsSave(w http.ResponseWriter, r *http.Request, u models.Us
 			hidden = append(hidden, f.Key)
 		}
 	}
-	if err := s.store.UpdateUserHiddenColumns(r.Context(), u.ID, hidden); err != nil {
+	if err := s.api.SaveHiddenColumns(r.Context(), u.ID, hidden); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -94,11 +94,12 @@ func (s *Server) columnsSave(w http.ResponseWriter, r *http.Request, u models.Us
 }
 
 func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
-	res, err := s.computeEstimates(r, u)
+	pg, err := s.api.EstimatesPage(r.Context(), u.ID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+	res := pg.Result
 	window := selectedRange(r.URL.Query().Get("range"))
 	visible := daysInRange(res.Days, window.Days)
 	hidden := make(map[string]bool, len(u.HiddenColumns))
@@ -162,8 +163,8 @@ func (s *Server) estimatesPage(w http.ResponseWriter, r *http.Request, u models.
 		EstFields: shown, EstColumns: columns, EstRows: rows, EstRange: window.Desc, EstRangeKey: window.Key, Cals: cals, Msg: msg,
 		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}
-	data.SLSend = s.strengthLevelReady(r, u)
-	data.Withings = s.withingsView(r, u)
+	data.SLSend = pg.SLReady
+	data.Withings = pg.Withings
 	data.Resync = data.Withings != nil && data.Withings.Connected
 	s.render(w, "estimates.html", http.StatusOK, data)
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
@@ -31,23 +32,21 @@ func (s *Server) renderSettingsWith(w http.ResponseWriter, r *http.Request, u mo
 	for i, k := range u.MethodRanking {
 		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
 	}
-	sec, err := s.securityView(r, u, newToken)
+	pg, err := s.api.SettingsPage(r.Context(), u.ID, flashParam(r))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	if sec.Activity, err = s.activityFor(r.Context(), u); err != nil {
-		s.fail(w, err)
-		return
-	}
+	sec := pg.Security
+	sec.NewToken = newToken
 	if extra != nil {
 		extra(sec)
 	}
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,
-		Withings:      s.withingsView(r, u),
-		StrengthLevel: s.strengthLevelView(r, u),
+		Withings:      pg.Withings,
+		StrengthLevel: pg.StrengthLevel,
 		Security:      sec,
 	})
 }
@@ -79,7 +78,7 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request, u models.U
 		keys[i] = x.key
 	}
 	athlete := r.PostFormValue("athlete_default") != ""
-	if err := s.store.UpdateUserSettings(r.Context(), u.ID, athlete, keys); err != nil {
+	if err := s.api.SaveSettings(r.Context(), u.ID, apiclient.Settings{AthleteDefault: athlete, MethodRanking: keys}); err != nil {
 		s.fail(w, err)
 		return
 	}
