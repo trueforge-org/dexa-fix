@@ -172,7 +172,9 @@ func (s *Server) internalSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // internalRoutes registers the endpoints of the pages, one group per file.
-func (s *Server) internalRoutes(mux *http.ServeMux) {}
+func (s *Server) internalRoutes(mux *http.ServeMux) {
+	s.internalMeasureRoutes(mux)
+}
 
 // ---- the frontend side ----
 

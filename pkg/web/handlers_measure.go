@@ -4,14 +4,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // ---- DEXA scans ----
 
 func (s *Server) dexaPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
-	scans, err := s.store.ListDexaScans(r.Context(), u.ID)
+	scans, err := s.api.DexaScans(r.Context(), u.ID)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -39,7 +39,11 @@ func (s *Server) dexaCreate(w http.ResponseWriter, r *http.Request, u models.Use
 		s.dexaPage(w, r, u, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	if err := s.store.CreateDexaScan(r.Context(), scan); err != nil {
+	if err := s.api.CreateDexaScan(r.Context(), u.ID, *scan); err != nil {
+		if apiclient.IsCode(err, apiclient.CodeInvalid) {
+			s.dexaPage(w, r, u, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		s.fail(w, err)
 		return
 	}
@@ -52,38 +56,26 @@ func (s *Server) dexaDelete(w http.ResponseWriter, r *http.Request, u models.Use
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.store.DeleteDexaScan(r.Context(), u.ID, id); err != nil {
+	if err := s.api.DeleteDexaScan(r.Context(), u.ID, id); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.audit(r, u.ID, auditScanDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "dexa"), http.StatusSeeOther)
 }
 
 // ---- scale readings ----
 
 func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
-	f := store.ListFilter{Limit: scalePageSize}
-	if raw := r.URL.Query().Get("before"); raw != "" {
-		c, err := store.ParseCursor(raw)
-		if err != nil {
-			http.Error(w, "invalid page", http.StatusBadRequest)
-			return
-		}
-		f.After = &c
-	}
-	readings, next, err := s.store.ListScaleReadingsPage(r.Context(), u.ID, f)
+	before := r.URL.Query().Get("before")
+	page, err := s.api.ScalePage(r.Context(), u.ID, before)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	pager := &pager{Paged: f.After != nil}
-	if next != nil {
-		pager.Next = next.String()
-	}
-	rows := make([]row, 0, len(readings))
-	for i := range readings {
-		rd := &readings[i]
+	pager := &pager{Paged: before != "", Next: page.Next}
+	rows := make([]row, 0, len(page.Readings))
+	for i := range page.Readings {
+		rd := &page.Readings[i]
 		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.In(u.Location()).Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Method: methodLabel(rd.Method), Athlete: rd.AthleteMode, Notes: rd.Notes})
 	}
 	s.render(w, "scale.html", status, pageData{
@@ -116,7 +108,11 @@ func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.Us
 		s.scalePage(w, r, u, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	if _, err := s.store.UpsertScaleReadings(r.Context(), u.ID, []models.ScaleReading{rd}); err != nil {
+	if err := s.api.CreateScaleReading(r.Context(), u.ID, rd); err != nil {
+		if apiclient.IsCode(err, apiclient.CodeInvalid) {
+			s.scalePage(w, r, u, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		s.fail(w, err)
 		return
 	}
@@ -129,10 +125,9 @@ func (s *Server) scaleDelete(w http.ResponseWriter, r *http.Request, u models.Us
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.store.DeleteScaleReading(r.Context(), u.ID, id); err != nil {
+	if err := s.api.DeleteScaleReading(r.Context(), u.ID, id); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.audit(r, u.ID, auditReadingDeleted, "")
 	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
 }

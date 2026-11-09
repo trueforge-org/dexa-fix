@@ -279,7 +279,21 @@ func (s *Server) render(w http.ResponseWriter, page string, status int, data pag
 }
 
 func (s *Server) fail(w http.ResponseWriter, err error) {
+	var apiErr *apiclient.Error
 	switch {
+	case errors.Is(err, apiclient.ErrUnavailable):
+		log.Error().Err(err).Msg("backend request failed")
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "dexa-fix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
+	case errors.As(err, &apiErr):
+		switch apiErr.Status {
+		case http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
+			http.Error(w, apiErr.Message, apiErr.Status)
+		case http.StatusInternalServerError:
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		default:
+			http.Error(w, apiErr.Message, http.StatusBadRequest)
+		}
 	case errors.Is(err, store.ErrNotFound):
 		http.Error(w, "not found", http.StatusNotFound)
 	case errors.Is(err, store.ErrInvalid), errors.Is(err, store.ErrExists):
