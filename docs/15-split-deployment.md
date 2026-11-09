@@ -188,11 +188,15 @@ listener.
 
 Some limits apply:
 
-- **Load budgets are per listener.** The public listener admits 32 requests at
-  once, queues 64 and allows 20 requests per second per client. The internal
-  listener admits 128, queues 256 and allows 50 requests per second per
-  client. So a flood on the public API cannot starve web. Excess requests get
-  503 or 429 with `Retry-After`.
+- **Load budgets are per listener.** The public listener admits up to 32
+  requests at once (never more than half of the database connections: 2 with
+  SQLite, 10 with Postgres), queues 64 and allows 20 requests per second per
+  client. The internal listener admits 128, queues 256 and allows 50 requests
+  per second per client. So a flood on the public API cannot starve web, and
+  it always leaves database connections for it. Excess requests get 503 or 429
+  with `Retry-After`. Password checks for Basic-auth API requests are limited
+  to a quarter of the CPUs (at least one) at a time, so a flood of
+  credentials cannot use up all the CPU.
 - **Settings reload.** A process reloads settings that another process changed,
   for example with `dexa-fix settings reset-network`, within about 5 seconds.
 - **Memory is per process.** Failed-login throttling, single-use nonces and the

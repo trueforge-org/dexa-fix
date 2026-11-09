@@ -44,6 +44,9 @@ const (
 //
 // Every way of proving who someone is lives in this chain, so another one, such as a header set by
 // a trusted reverse proxy, is one more entry in Server.authChain.
+// bcryptWait is how long a Basic-auth request waits for a password check slot.
+var bcryptWait = 2 * time.Second
+
 type authenticator func(r *http.Request) (u models.User, ok bool, err error)
 
 type userKey struct{}
@@ -101,6 +104,16 @@ func (s *Server) authBearer(r *http.Request) (models.User, bool, error) {
 func (s *Server) authBasic(r *http.Request) (models.User, bool, error) {
 	login, password, found := r.BasicAuth()
 	if !found || !strings.HasPrefix(r.URL.Path, "/api/") || !s.passwordEnabled(r.Context()) {
+		return models.User{}, false, nil
+	}
+	// Checking a password costs a lot of CPU. A flood of Basic credentials must not use all of it,
+	// so only a few run at once; the rest wait a moment and then give up.
+	select {
+	case s.bcryptSlots <- struct{}{}:
+		defer func() { <-s.bcryptSlots }()
+	case <-time.After(bcryptWait):
+		return models.User{}, false, nil
+	case <-r.Context().Done():
 		return models.User{}, false, nil
 	}
 	u, ok, err := s.throttledVerify(r, login, password)

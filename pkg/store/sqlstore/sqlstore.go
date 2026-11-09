@@ -32,12 +32,17 @@ const (
 
 // Store is a bun backed store.Store.
 type Store struct {
-	db     *bun.DB
-	driver string
-	cipher *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
+	db       *bun.DB
+	driver   string
+	maxConns int     // size of the connection pool
+	cipher   *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
 }
 
 var _ store.Store = (*Store)(nil)
+
+// MaxConns is the size of the connection pool. A server uses it to keep one class of requests from
+// taking every connection.
+func (s *Store) MaxConns() int { return s.maxConns }
 
 type migrateMode int
 
@@ -87,15 +92,19 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 	if err != nil {
 		return nil, err
 	}
+	maxConns := 0
 	switch {
 	case driver == DriverSQLite && sqliteInMemory(dsn):
+		maxConns = 1
 		sqlDB.SetMaxOpenConns(1) // every connection to an in-memory database would be a separate database
 	case driver == DriverSQLite:
+		maxConns = sqliteMaxConns
 		// WAL lets readers run next to the single writer, so a long import no longer blocks page
 		// loads. Writers queue on busy_timeout; transactions start with BEGIN IMMEDIATE (see
 		// sqliteDSN) so they never fail while upgrading from reader to writer.
 		sqlDB.SetMaxOpenConns(sqliteMaxConns)
 	case driver == DriverPostgres:
+		maxConns = postgresMaxConns
 		sqlDB.SetMaxOpenConns(postgresMaxConns)
 		sqlDB.SetMaxIdleConns(postgresMaxConns)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
@@ -104,7 +113,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		sqlDB.Close()
 		return nil, err
 	}
-	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, cipher: cfg.cipher}
+	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, maxConns: maxConns, cipher: cfg.cipher}
 
 	switch cfg.migrate {
 	case migrateUp:

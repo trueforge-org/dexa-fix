@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httputil"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,6 +64,8 @@ type Server struct {
 	configETag     string                 // of the frontend config in force (frontend only)
 	apiUpstream    *httputil.ReverseProxy // frontend only: where /api/ goes, if set
 	onSettings     func()                 // called after the settings in force change (tests)
+	publicSlots    int                    // in-flight limit of the public API, from the database pool
+	bcryptSlots    chan struct{}          // limits password checks running at the same time
 	internalBudget *edge.Limiter          // load budget of the internal API; nil in the combined process
 	warnedVersion  bool
 	serviceSecrets [][32]byte // accepted by the internal API, see internal.go
@@ -129,15 +132,16 @@ func newServer() (*Server, error) {
 	}
 	static, _ := fs.Sub(assets, "static")
 	s := &Server{
-		tmpl:       map[string]*template.Template{},
-		httpClient: &http.Client{Timeout: providerTimeout},
-		oidcCache:  map[string]*oidc.Provider{},
-		limiter:    newFailLimiter(),
-		nonces:     newUsedNonces(),
-		slSlots:    make(chan struct{}, maxStrengthLevelJobs),
-		auditNoise: newAuditNoise(),
-		estCache:   newEstimateCache(),
-		assetVer:   staticVersions(static),
+		tmpl:        map[string]*template.Template{},
+		httpClient:  &http.Client{Timeout: providerTimeout},
+		oidcCache:   map[string]*oidc.Provider{},
+		limiter:     newFailLimiter(),
+		nonces:      newUsedNonces(),
+		slSlots:     make(chan struct{}, maxStrengthLevelJobs),
+		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
+		auditNoise:  newAuditNoise(),
+		estCache:    newEstimateCache(),
+		assetVer:    staticVersions(static),
 	}
 	funcs["asset"] = s.assetURL
 	s.jobCtx, s.cancelJob = context.WithCancel(context.Background())

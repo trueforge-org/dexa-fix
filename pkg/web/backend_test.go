@@ -164,3 +164,56 @@ func TestBackendPicksUpSettingsChangedByAnotherProcess(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+type fakePool struct {
+	store.Store
+	n int
+}
+
+func (f fakePool) MaxConns() int { return f.n }
+
+func TestPublicAPIGetsAtMostHalfOfTheDatabaseConnections(t *testing.T) {
+	for conns, want := range map[int]int{1: 1, 4: 2, 20: 10, 100: publicMaxInFlight} {
+		if got := publicInFlight(fakePool{n: conns}); got != want {
+			t.Errorf("%d connections: %d public requests in flight, want %d", conns, got, want)
+		}
+	}
+	if got := publicInFlight(nil); got != publicMaxInFlight { // a store that does not say
+		t.Errorf("unknown pool: %d", got)
+	}
+}
+
+func TestBasicAuthFloodCannotTakeEveryPasswordCheck(t *testing.T) {
+	ts, c, _ := newAuthServer(t)
+	signup(t, ts, c, "root")
+	srv := serverOf(ts)
+	old := bcryptWait
+	bcryptWait = 50 * time.Millisecond
+	t.Cleanup(func() { bcryptWait = old })
+
+	for range cap(srv.bcryptSlots) { // every slot is busy
+		srv.bcryptSlots <- struct{}{}
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/users/1/settings", nil)
+	req.SetBasicAuth("root@example.com", testPassword)
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || time.Since(start) > time.Second {
+		t.Errorf("with every slot busy: %d after %v", resp.StatusCode, time.Since(start))
+	}
+	for range cap(srv.bcryptSlots) { // free again
+		<-srv.bcryptSlots
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("with free slots: %d", resp.StatusCode)
+	}
+}

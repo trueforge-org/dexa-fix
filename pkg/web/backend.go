@@ -33,6 +33,19 @@ const (
 	budgetMaxWait = 2 * time.Second
 )
 
+// poolSizer is implemented by stores that know their connection pool size.
+type poolSizer interface{ MaxConns() int }
+
+// publicInFlight is how many public API requests are served at once: at most half of the database
+// connections, so the internal API (the pages) always finds some free however hard the public one
+// is pushed. Stores that do not say how many connections they have get the default.
+func publicInFlight(st store.Store) int {
+	if p, ok := st.(poolSizer); ok && p.MaxConns() > 0 {
+		return max(1, min(publicMaxInFlight, p.MaxConns()/2))
+	}
+	return publicMaxInFlight
+}
+
 // NewBackend builds a backend: the database side only. There is no in-process frontend; the
 // internal API serves a separate frontend process (see SetServiceSecrets and InternalHandler), and
 // PublicHandler serves /api/v1.
@@ -52,6 +65,7 @@ func NewBackend(st store.Store, importers *importer.Registry) (*Server, error) {
 	if err := s.reloadSettings(ctx); err != nil {
 		return nil, err
 	}
+	s.publicSlots = publicInFlight(st)
 	s.internalBudget = &edge.Limiter{
 		MaxInFlight: internalMaxInFlight, MaxQueue: internalMaxQueue, MaxWait: budgetMaxWait,
 		Rate: internalRate, Burst: internalBurst,
@@ -77,7 +91,7 @@ func (s *Server) PublicHandler() http.Handler {
 		mux.ServeHTTP(w, r)
 	})
 	budget := &edge.Limiter{
-		MaxInFlight: publicMaxInFlight, MaxQueue: publicMaxQueue, MaxWait: budgetMaxWait,
+		MaxInFlight: s.publicInFlightOrDefault(), MaxQueue: publicMaxQueue, MaxWait: budgetMaxWait,
 		Rate: publicRate, Burst: publicBurst,
 		Skip: func(r *http.Request) bool { return r.URL.Path == "/healthz" },
 	}
@@ -117,4 +131,11 @@ func (s *Server) StartSettingsPoll() {
 			seen = g
 		}
 	})
+}
+
+func (s *Server) publicInFlightOrDefault() int {
+	if s.publicSlots > 0 {
+		return s.publicSlots
+	}
+	return publicMaxInFlight
 }
