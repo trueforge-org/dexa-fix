@@ -103,41 +103,19 @@ func (s *Server) loginSetup(w http.ResponseWriter, r *http.Request) {
 // ---- administration ----
 
 func (s *Server) adminTwoFactorPolicy(w http.ResponseWriter, r *http.Request, _ models.User) {
-	v := r.PostFormValue("require")
-	switch v {
-	case require2FAOff, require2FAAdmins, require2FAEveryone:
-	default:
-		adminRedirect(w, r, "Choose who must use two-step verification.")
-		return
-	}
-	if err := s.store.PutSetting(r.Context(), settingRequire2FA, v); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, 0, auditSettingChanged, "require_2fa="+v)
-	switch v {
-	case require2FAAdmins:
-		adminRedirect(w, r, "Administrators must now use two-step verification when they sign in with a password. They set it up at their next sign-in.")
-	case require2FAEveryone:
-		adminRedirect(w, r, "Everyone must now use two-step verification when they sign in with a password. They set it up at their next sign-in.")
-	default:
-		adminRedirect(w, r, "Two-step verification is optional.")
-	}
+	res, err := s.api.AdminTwoFactorPolicy(r.Context(), r.PostFormValue("require"))
+	s.adminDone(w, r, res, err)
 }
 
 // adminRemoveTwoFactor lets an administrator remove the second step of a user who lost their
 // device and their recovery codes. The user is asked to set it up again if the policy requires it.
 func (s *Server) adminRemoveTwoFactor(w http.ResponseWriter, r *http.Request, _ models.User) {
-	t, ok := s.targetUser(w, r)
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteTOTP(r.Context(), t.ID); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, t.ID, auditTOTPRemovedByAdmin, "")
-	adminRedirect(w, r, "Two-step verification was removed for "+t.Name+".")
+	res, err := s.api.AdminRemoveTwoFactor(r.Context(), id)
+	s.adminDone(w, r, res, err)
 }
 
 // ---- settings ----

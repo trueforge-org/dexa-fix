@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/mailer"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -56,11 +57,7 @@ type liveSettings struct {
 }
 
 // smtpSettings is what the Admin page shows and saves for e-mail.
-type smtpSettings struct {
-	Host, Username, From, TLS string
-	Port                      int
-	PasswordSaved             bool
-}
+type smtpSettings = apiclient.SMTPView
 
 // cfg returns the settings in force. It is never nil.
 func (s *Server) cfg() *liveSettings { return s.live.Load() }

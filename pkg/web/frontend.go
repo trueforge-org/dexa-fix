@@ -38,7 +38,12 @@ func NewFrontend(api *apiclient.Client) (*Server, error) {
 func (s *Server) isFrontendOnly() bool { return s.store == nil }
 
 // RefreshConfig fetches the settings from the backend and puts them in force if they changed.
+//
+// In the combined process the settings are already in force, so it does nothing there.
 func (s *Server) RefreshConfig(ctx context.Context) error {
+	if s.store != nil {
+		return nil
+	}
 	cfg, etag, err := s.api.FrontendConfig(ctx, s.configETag)
 	if err != nil {
 		return err

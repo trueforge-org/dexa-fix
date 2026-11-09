@@ -36,15 +36,6 @@ type resetView struct {
 	NeedsCode bool // the account has two-step verification
 }
 
-// resetLinkView is the one-time link shown to the administrator who made it.
-type resetLinkView struct {
-	For     string
-	URL     string
-	Expires string
-	Emailed bool
-	Warning bool // made from the request's host, which the request controls
-}
-
 func (s *Server) resetRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /password/forgot", s.forgotPage)
 	mux.HandleFunc("POST /password/forgot", s.forgot)
@@ -91,33 +82,7 @@ func resetMail(name, link string, ttl time.Duration) (subject, body string) {
 
 // ---- administrator ----
 
-func (s *Server) adminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
-	ctx := r.Context()
-	if !s.passwordEnabled(ctx) {
-		adminRedirect(w, r, "Password sign-in is off, so there is nothing to reset.")
-		return
-	}
-	t, ok := s.targetUser(w, r)
-	if !ok {
-		return
-	}
-	token, expires, err := s.newResetToken(ctx, t.ID, &admin.ID, resetAdminTTL)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	emailed := false
-	if r.PostFormValue("email") != "" && s.cfg().mailer != nil && s.cfg().baseURL != nil && t.Email != "" {
-		if link, _ := s.resetURL(r, token, true); link != "" {
-			emailed = s.sendResetMail(t, link, resetAdminTTL)
-		}
-	}
-	link, fromRequest := s.resetURL(r, token, false)
-	s.audit(r, t.ID, auditResetLinkCreated, "")
-	s.renderAdmin(w, r, admin, func(v *adminView) {
-		v.ResetLink = &resetLinkView{For: t.Name, URL: link, Expires: expires.UTC().Format("2006-01-02 15:04 UTC"), Emailed: emailed, Warning: fromRequest}
-	})
-}
+// The one-time link of the Admin page is made by internalAdminResetLink; adminResetLink shows it.
 
 // sendResetMail sends the mail now and reports whether it went out.
 func (s *Server) sendResetMail(u models.User, link string, ttl time.Duration) bool {

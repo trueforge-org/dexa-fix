@@ -220,10 +220,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /u/{id}/strengthlevel/day", s.user(s.strengthLevelDay))
 	mux.HandleFunc("POST /u/{id}/strengthlevel/login/delete", s.user(s.strengthLevelDeleteLogin))
 
-	s.apiRoutes(mux)
-	s.integrationRoutes(mux)
-	s.exportRoutes(mux)
-	s.auditRoutes(mux)
+	s.integrationPageRoutes(mux)
+	s.exportPageRoutes(mux)
+	if s.store != nil { // the combined process also serves the public API
+		s.apiRoutes(mux)
+		s.integrationAPIRoutes(mux)
+		s.exportAPIRoutes(mux)
+		s.auditRoutes(mux)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.

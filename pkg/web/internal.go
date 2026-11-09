@@ -184,6 +184,8 @@ func (s *Server) internalRoutes(mux *http.ServeMux) {
 	s.internalSecurityRoutes(mux)
 	s.internalTwoFactorRoutes(mux)
 	s.internalPasskeyRoutes(mux)
+	s.internalAdminRoutes(mux)
+	s.internalIntegrationRoutes(mux)
 }
 
 // ---- the frontend side ----

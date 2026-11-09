@@ -202,9 +202,13 @@ func (s *Server) exportData(w http.ResponseWriter, r *http.Request, u models.Use
 	sendExport(w, "data", u.ID, e)
 }
 
-func (s *Server) exportRoutes(mux *http.ServeMux) {
+func (s *Server) exportPageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /u/{id}/export/profile", s.user(s.exportPage("profile")))
 	mux.HandleFunc("GET /u/{id}/export/data", s.user(s.exportPage("data")))
+}
+
+// exportAPIRoutes registers the public API exports; the backend serves them.
+func (s *Server) exportAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users/{id}/export/profile", s.apiUser(s.exportProfile))
 	mux.HandleFunc("GET /api/v1/users/{id}/export/data", s.apiUser(s.exportData))
 }

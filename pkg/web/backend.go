@@ -65,8 +65,8 @@ func NewBackend(st store.Store, importers *importer.Registry) (*Server, error) {
 func (s *Server) PublicHandler() http.Handler {
 	mux := http.NewServeMux()
 	s.apiRoutes(mux)
-	s.integrationRoutes(mux)
-	s.exportRoutes(mux)
+	s.integrationAPIRoutes(mux)
+	s.exportAPIRoutes(mux)
 	s.auditRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	apiOnly := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

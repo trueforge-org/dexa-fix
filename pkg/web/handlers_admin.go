@@ -1,101 +1,32 @@
 package web
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"net/url"
-	"regexp"
 	"runtime"
-	"slices"
 	"strconv"
-	"strings"
-	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
+	"github.com/rs/zerolog/log"
+
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
-const (
-	settingWithingsClientID = "withings.client_id"
-	settingWithingsSecret   = "withings.client_secret"
-	settingWithingsRedirect = "withings.redirect_url"
+// The Admin pages. The frontend parses the forms and renders the page; the backend (internal_admin.go)
+// does every check and change. The page's data comes from one call, and the frontend adds only what
+// it alone knows: its own version and whether its listener could bind.
+
+type (
+	resetLinkView = apiclient.ResetLink
 )
 
-var providerSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
-
+// adminView is the data of the Admin page: the backend's page plus the frontend's own parts.
 type adminView struct {
-	Status          store.Stats
-	Version         string
-	GoVersion       string
-	Users           []adminUser
-	PasswordEnabled bool
-	PasswordForced  bool
-	SignupOpen      bool
-	Providers       []adminProvider
-	Form            adminProvider // the add or edit form
-	Editing         bool
-	Withings        adminWithings
-	Audit           []auditLine // the latest security events
-	Key             keyView
-	Require2FA      string // off, admins or everyone
-	Server          serverSettingsView
-	SMTP            smtpSettings
-	ResetByEmail    bool // users can ask for a reset e-mail
-	ResetLink       *resetLinkView
-	TLS             tlsView
-}
-
-// keyView describes the encryption key on the Admin page. Rotation is manual (docs/key-rotation.md);
-// the page only shows the key's age and asks for a rotation when a reminder is configured.
-type keyView struct {
-	Shown   bool
-	ID      string
-	Since   string // date the key was introduced, at least; empty when unknown
-	AgeDays int
-	Due     bool // older than the reminder
-	Rekey   bool // the database still belongs to a previous key
-}
-
-func (s *Server) keyView(st store.Stats) keyView {
-	v := keyView{Shown: st.Encrypted, ID: st.KeyID, Rekey: st.KeyPrevious}
-	if !st.KeySince.IsZero() {
-		v.Since = st.KeySince.UTC().Format(dateLayout)
-		v.AgeDays = int(time.Since(st.KeySince) / (24 * time.Hour))
-		v.Due = s.cfg().keyReminder > 0 && time.Since(st.KeySince) > s.cfg().keyReminder
-	}
-	return v
-}
-
-type adminUser struct {
-	ID      int64
-	Name    string
-	Email   string
-	Admin   bool
-	Self    bool
-	Created string
-	SignIn  string
-	// StrengthLevel is whether the user may sync to Strength Level automatically.
-	StrengthLevel bool
-	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
-	StrengthLevelBulk bool
-	TwoFactor         bool // two-step verification is on
-}
-
-type adminProvider struct {
-	models.AuthProvider
-	CallbackURL string
-	HasSecret   bool
-}
-
-type adminWithings struct {
-	Available       bool
-	Configured      bool
-	ClientID        string
-	RedirectURL     string
-	DefaultRedirect string // used when the field is left empty
-	SecretSaved     bool
+	apiclient.AdminPage
+	Version   string
+	GoVersion string
+	TLS       tlsView
+	ResetLink *resetLinkView
 }
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
@@ -162,534 +93,156 @@ func adminRedirect(w http.ResponseWriter, r *http.Request, msg string) {
 	http.Redirect(w, r, "/admin?msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
+// adminDone answers a change: it shows the backend's message on the Admin page. A change of the
+// settings this process acts on (base URL, proxies, TLS) is fetched first, so it applies before
+// the redirect.
+func (s *Server) adminDone(w http.ResponseWriter, r *http.Request, res apiclient.AdminResult, err error) {
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.afterAdminChange(r, res)
+	adminRedirect(w, r, res.Message)
+}
+
+func (s *Server) afterAdminChange(r *http.Request, res apiclient.AdminResult) {
+	if !res.ConfigChanged {
+		return
+	}
+	if err := s.RefreshConfig(r.Context()); err != nil {
+		log.Warn().Err(err).Msg("could not fetch the new settings from the backend; the poll will retry")
+	}
+}
+
 func (s *Server) adminHome(w http.ResponseWriter, r *http.Request, u models.User) {
 	s.renderAdmin(w, r, u, nil)
 }
 
-// renderAdmin shows the Admin page; extra can add values that are shown once (a reset link).
-func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, u models.User, extra func(*adminView)) {
-	ctx := r.Context()
-	stats, err := s.store.Stats(ctx)
+// renderAdmin shows the Admin page; link is a reset link that is shown once.
+func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, u models.User, link *resetLinkView) {
+	page, err := s.api.AdminPage(r.Context(), r.URL.Query().Get("edit"))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	users, err := s.store.ListUsers(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	ids, err := s.store.IdentityProviders(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	providers, err := s.store.ListAuthProviders(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	view := &adminView{
-		Status: stats, Version: s.Version, GoVersion: runtime.Version(),
-		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
-		Withings: s.adminWithingsView(r), Key: s.keyView(stats), Require2FA: s.twoFactorPolicy(ctx),
-		Form: adminProvider{AuthProvider: models.AuthProvider{Kind: models.ProviderKindOIDC}},
-	}
-	if view.SignupOpen, err = s.signupOpen(ctx); err != nil {
-		s.fail(w, err)
-		return
-	}
+	view := &adminView{AdminPage: page, Version: s.Version, GoVersion: runtime.Version(), ResetLink: link,
+		TLS: tlsView{TLSView: page.TLS, ListenError: s.listenError()}}
 	if view.Version == "" {
 		view.Version = "dev"
-	}
-	if view.Server, err = s.serverSettingsFor(ctx); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if _, view.SMTP, err = s.loadSMTP(ctx); err != nil {
-		s.fail(w, err)
-		return
-	}
-	view.ResetByEmail = s.selfServiceReset(ctx)
-	if view.TLS, err = s.tlsViewFor(r); err != nil {
-		s.fail(w, err)
-		return
-	}
-	twoFactor, err := s.store.TwoFactorUsers(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	for _, x := range users {
-		signIn := strings.Join(ids[x.ID], ", ")
-		if signIn == "" {
-			signIn = "None"
-		}
-		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto, x.StrengthLevelBulk, twoFactor[x.ID]})
-	}
-	events, err := s.store.ListAuditEvents(ctx, store.AuditFilter{Limit: auditPageSize})
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	names := make(map[int64]string, len(users))
-	for _, x := range users {
-		names[x.ID] = x.Name
-	}
-	view.Audit = auditLines(events, func(id int64) string {
-		if n, ok := names[id]; ok {
-			return n
-		}
-		return "deleted user"
-	})
-	edit := r.URL.Query().Get("edit")
-	for _, p := range providers {
-		ap := adminProvider{AuthProvider: p, CallbackURL: externalURL(r, "/auth/"+p.Slug+"/callback"), HasSecret: p.ClientSecret != ""}
-		ap.ClientSecret = "" // never sent back to the browser
-		view.Providers = append(view.Providers, ap)
-		if p.Slug == edit {
-			view.Form, view.Editing = ap, true
-		}
-	}
-	if extra != nil {
-		extra(view)
 	}
 	s.render(w, "admin.html", http.StatusOK, pageData{Title: "Admin · dexa-fix", Tab: "admin", User: &u, Msg: flashParam(r), Admin: view})
 }
 
-func (s *Server) targetUser(w http.ResponseWriter, r *http.Request) (models.User, bool) {
+// targetID reads the user id of the path; it answers 404 when it is not a number.
+func targetID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.NotFound(w, r)
-		return models.User{}, false
+		return 0, false
 	}
-	t, err := s.store.GetUser(r.Context(), id)
-	if err != nil {
-		s.fail(w, err)
-		return models.User{}, false
-	}
-	return t, true
+	return id, true
 }
 
 func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
-	email, ok := parseEmail(r.PostFormValue("email"))
-	if !ok {
-		adminRedirect(w, r, "Please enter a valid e-mail address.")
-		return
-	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, password); msg != "" {
-		adminRedirect(w, r, msg)
-		return
-	}
-	hash, err := hashPassword(password)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
-	switch {
-	case errors.Is(err, store.ErrExists):
-		adminRedirect(w, r, "An account with that e-mail address already exists.")
-	case errors.Is(err, store.ErrInvalid):
-		adminRedirect(w, r, "Please enter a name of 1-64 characters.")
-	case err != nil:
-		s.fail(w, err)
-	default:
-		s.audit(r, u.ID, auditUserAdded, "")
-		adminRedirect(w, r, u.Name+" was added.")
-	}
+	res, err := s.api.AdminAddUser(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"))
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
-	ctx := r.Context()
-	if r.PostFormValue("enabled") == "1" {
-		if err := s.store.PutSetting(ctx, settingSignup, valueEnabled); err != nil {
-			s.fail(w, err)
-			return
-		}
-		s.audit(r, 0, auditSettingChanged, "signup=open")
-		adminRedirect(w, r, "New accounts are open.")
-		return
-	}
-	if err := s.store.DeleteSetting(ctx, settingSignup); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, 0, auditSettingChanged, "signup=closed")
-	adminRedirect(w, r, "New accounts are closed. Add people from the Users list.")
+	res, err := s.api.AdminSignup(r.Context(), r.PostFormValue("enabled") == "1")
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.User) {
-	t, ok := s.targetUser(w, r)
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	role := models.RoleUser
-	if r.PostFormValue("role") == models.RoleAdmin {
-		role = models.RoleAdmin
-	}
-	switch err := s.store.SetUserRole(r.Context(), t.ID, role); {
-	case errors.Is(err, store.ErrLastAdmin):
-		adminRedirect(w, r, "There must be at least one administrator.")
-	case err != nil:
-		s.fail(w, err)
-	default:
-		s.audit(r, t.ID, auditRoleChanged, role)
-		adminRedirect(w, r, t.Name+" is now "+role+".")
-	}
+	res, err := s.api.AdminSetRole(r.Context(), id, r.PostFormValue("role"))
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
-	t, ok := s.targetUser(w, r)
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	on := r.PostFormValue("enabled") == "1"
-	if err := s.store.SetUserStrengthLevelAuto(r.Context(), t.ID, on); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, t.ID, auditStrengthLevel, onOff(on))
-	if on {
-		adminRedirect(w, r, t.Name+" may now store a Strength Level login and send single days.")
-		return
-	}
-	s.sl.stop(t.ID)
-	adminRedirect(w, r, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
+	res, err := s.api.AdminSetStrengthLevel(r.Context(), id, r.PostFormValue("enabled") == "1")
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
-	t, ok := s.targetUser(w, r)
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	if !t.StrengthLevelAuto {
-		adminRedirect(w, r, "Enable Strength Level sync for "+t.Name+" first.")
-		return
-	}
-	on := r.PostFormValue("enabled") == "1"
-	if err := s.store.SetUserStrengthLevelBulk(r.Context(), t.ID, on); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, t.ID, auditStrengthLevelBlk, onOff(on))
-	if on {
-		adminRedirect(w, r, t.Name+" may now run the multi-day Strength Level sync from Settings.")
-		return
-	}
-	s.sl.stop(t.ID)
-	adminRedirect(w, r, "The multi-day Strength Level sync is off for "+t.Name+".")
+	res, err := s.api.AdminSetStrengthLevelBulk(r.Context(), id, r.PostFormValue("enabled") == "1")
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
-	t, ok := s.targetUser(w, r)
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, password); msg != "" {
-		adminRedirect(w, r, msg)
-		return
-	}
-	if err := s.setPassword(r.Context(), t.ID, password); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := s.store.DeleteUserSessions(r.Context(), t.ID); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := s.store.DeleteUserAccessTokens(r.Context(), t.ID); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, t.ID, auditPasswordSet, "")
-	adminRedirect(w, r, "Password set for "+t.Name+".")
+	res, err := s.api.AdminSetPassword(r.Context(), id, r.PostFormValue("password"))
+	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request, u models.User) {
-	t, ok := s.targetUser(w, r)
+func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request, _ models.User) {
+	id, ok := targetID(w, r)
 	if !ok {
 		return
 	}
-	if t.ID == u.ID {
-		adminRedirect(w, r, "You cannot delete your own account.")
-		return
-	}
-	switch err := s.store.DeleteUser(r.Context(), t.ID); {
-	case errors.Is(err, store.ErrLastAdmin):
-		adminRedirect(w, r, "There must be at least one administrator.")
-	case err != nil:
-		s.fail(w, err)
-	default:
-		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
-		adminRedirect(w, r, t.Name+" and their data were deleted.")
-	}
+	res, err := s.api.AdminDeleteUser(r.Context(), id)
+	s.adminDone(w, r, res, err)
 }
 
-// hasExternalSignIn reports whether the user can sign in through a provider other than excluded.
-func hasExternalSignIn(providers []string, excluded string) bool {
-	return slices.ContainsFunc(providers, func(p string) bool { return p != models.ProviderLocal && p != excluded })
-}
-
-func (s *Server) adminPasswordLogin(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	if r.PostFormValue("enabled") == "1" {
-		if err := s.store.DeleteSetting(ctx, settingPasswordOn); err != nil {
-			s.fail(w, err)
-			return
-		}
-		s.audit(r, 0, auditSettingChanged, "password_login=on")
-		adminRedirect(w, r, "Password sign-in is on.")
-		return
-	}
-	ids, err := s.store.IdentityProviders(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !hasExternalSignIn(ids[u.ID], "") {
-		adminRedirect(w, r, "Link your account to a sign-in provider in Settings first, so you are not locked out.")
-		return
-	}
-	if err := s.store.PutSetting(ctx, settingPasswordOn, valueDisabled); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, 0, auditSettingChanged, "password_login=off")
-	adminRedirect(w, r, "Password sign-in is off. People sign in through a provider, and scripts use access tokens.")
-}
-
-func validProviderURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	h := u.Hostname()
-	return u.Scheme == "https" || (u.Scheme == "http" && (h == "localhost" || h == "127.0.0.1" || h == "::1"))
+func (s *Server) adminPasswordLogin(w http.ResponseWriter, r *http.Request, _ models.User) {
+	res, err := s.api.AdminPasswordLogin(r.Context(), r.PostFormValue("enabled") == "1")
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
-	ctx := r.Context()
-	field := func(n string) string { return strings.TrimSpace(r.PostFormValue(n)) }
-	p := models.AuthProvider{
-		Slug: field("slug"), Label: field("label"), Kind: field("kind"), Issuer: strings.TrimRight(field("issuer"), "/"),
-		AuthURL: field("auth_url"), TokenURL: field("token_url"), UserinfoURL: field("userinfo_url"),
-		ClientID: field("client_id"), ClientSecret: strings.TrimSpace(r.PostFormValue("client_secret")),
-		AppleTeamID: field("apple_team_id"), AppleKeyID: field("apple_key_id"),
-		Scopes: field("scopes"), SubjectClaim: field("subject_claim"), NameClaim: field("name_claim"),
-		AllowSignup: r.PostFormValue("allow_signup") != "",
-	}
-	if !providerSlug.MatchString(p.Slug) || p.Slug == models.ProviderLocal || p.Slug == models.ProviderPasskey {
-		adminRedirect(w, r, "The short name may use lowercase letters, digits and dashes, up to 32 characters.")
-		return
-	}
-	if p.Label == "" || p.ClientID == "" {
-		adminRedirect(w, r, "A display name and client ID are required.")
-		return
-	}
-	old, err := s.store.GetAuthProvider(ctx, p.Slug)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		s.fail(w, err)
-		return
-	}
-	if p.ClientSecret == "" {
-		p.ClientSecret = old.ClientSecret
-	}
-	if msg := s.prepareProvider(ctx, &p); msg != "" {
-		adminRedirect(w, r, msg)
-		return
-	}
-	if err := s.store.PutAuthProvider(ctx, p); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.forgetOIDCProvider(old.Issuer)
-	s.audit(r, 0, auditProviderSaved, p.Slug)
-	adminRedirect(w, r, p.Label+" saved.")
+	f := r.PostFormValue
+	res, err := s.api.AdminSaveProvider(r.Context(), apiclient.ProviderForm{
+		Slug: f("slug"), Label: f("label"), Kind: f("kind"), Issuer: f("issuer"),
+		AuthURL: f("auth_url"), TokenURL: f("token_url"), UserinfoURL: f("userinfo_url"),
+		ClientID: f("client_id"), ClientSecret: f("client_secret"),
+		AppleTeamID: f("apple_team_id"), AppleKeyID: f("apple_key_id"),
+		Scopes: f("scopes"), SubjectClaim: f("subject_claim"), NameClaim: f("name_claim"),
+		AllowSignup: f("allow_signup") != "",
+	})
+	s.adminDone(w, r, res, err)
 }
 
-// prepareProvider validates a provider by kind and fills in defaults. It returns a message for the
-// administrator, or "" when the provider is ready to save.
-func (s *Server) prepareProvider(ctx context.Context, p *models.AuthProvider) string {
-	switch p.Kind {
-	case models.ProviderKindOIDC:
-		if !validProviderURL(p.Issuer) {
-			return "OpenID Connect needs an https issuer URL."
-		}
-		if p.ClientSecret == "" {
-			return "A client secret is required."
-		}
-		if p.Scopes == "" {
-			p.Scopes = "openid email profile"
-		}
-		s.forgetOIDCProvider(p.Issuer)
-		if _, err := s.oidcProvider(ctx, *p); err != nil {
-			return "Could not read the OpenID configuration from that issuer: " + err.Error()
-		}
-	case models.ProviderKindApple:
-		p.Issuer = appleIssuer
-		if p.AppleTeamID == "" || p.AppleKeyID == "" {
-			return "Apple needs a team ID and key ID."
-		}
-		if _, err := parseAppleKey(p.ClientSecret); err != nil {
-			return "Paste the contents of the .p8 key file from Apple as the secret."
-		}
-		if p.Scopes == "" {
-			p.Scopes = "name email"
-		}
-	case models.ProviderKindOAuth2:
-		if !validProviderURL(p.AuthURL) || !validProviderURL(p.TokenURL) || !validProviderURL(p.UserinfoURL) {
-			return "OAuth 2.0 needs https authorisation, token and userinfo URLs."
-		}
-		if p.ClientSecret == "" {
-			return "A client secret is required."
-		}
-		if p.SubjectClaim == "" {
-			p.SubjectClaim = "sub"
-		}
-		p.Issuer = ""
-	default:
-		return "Unknown provider type."
-	}
-	return ""
-}
-
-func (s *Server) adminDeleteProvider(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	slug := r.PathValue("slug")
-	p, err := s.store.GetAuthProvider(ctx, slug)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !s.passwordEnabled(ctx) {
-		ids, err := s.store.IdentityProviders(ctx)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		if !hasExternalSignIn(ids[u.ID], slug) {
-			adminRedirect(w, r, "Password sign-in is off and this is your only way in. Turn passwords on or link another provider first.")
-			return
-		}
-	}
-	if err := s.store.DeleteAuthProvider(ctx, slug); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.forgetOIDCProvider(p.Issuer)
-	s.audit(r, 0, auditProviderRemoved, slug)
-	adminRedirect(w, r, p.Label+" removed.")
-}
-
-// ---- Withings application credentials ----
-
-func (s *Server) withingsConfigurable() (importer.Configurable, bool) {
-	imp, ok := s.importers.Get(providerWithings)
-	if !ok {
-		return nil, false
-	}
-	c, ok := imp.(importer.Configurable)
-	return c, ok
-}
-
-func (s *Server) settingOrEmpty(ctx context.Context, name string) (string, error) {
-	v, err := s.store.GetSetting(ctx, name)
-	if errors.Is(err, store.ErrNotFound) {
-		return "", nil
-	}
-	return v, err
-}
-
-// applyWithingsCredentials loads the credentials saved by an administrator into the importer.
-func (s *Server) applyWithingsCredentials(ctx context.Context) error {
-	c, ok := s.withingsConfigurable()
-	if !ok {
-		return nil
-	}
-	var creds importer.Credentials
-	for _, f := range []struct {
-		name string
-		dst  *string
-	}{{settingWithingsClientID, &creds.ClientID}, {settingWithingsSecret, &creds.ClientSecret}, {settingWithingsRedirect, &creds.RedirectURL}} {
-		v, err := s.settingOrEmpty(ctx, f.name)
-		if err != nil {
-			return err
-		}
-		*f.dst = v
-	}
-	c.SetCredentials(creds)
-	return nil
-}
-
-// withingsCallback is this server's Withings OAuth callback URL, the one to register with Withings.
-func withingsCallback(r *http.Request) string {
-	return externalURL(r, "/integrations/withings/callback")
-}
-
-func (s *Server) adminWithingsView(r *http.Request) adminWithings {
-	ctx := r.Context()
-	if _, ok := s.withingsConfigurable(); !ok {
-		return adminWithings{}
-	}
-	id, _ := s.settingOrEmpty(ctx, settingWithingsClientID)
-	secret, _ := s.settingOrEmpty(ctx, settingWithingsSecret)
-	redirect, _ := s.settingOrEmpty(ctx, settingWithingsRedirect)
-	v := adminWithings{
-		Available: true, ClientID: id, RedirectURL: redirect, DefaultRedirect: withingsCallback(r),
-		SecretSaved: secret != "",
-	}
-	if p, ok := s.oauthProvider(providerWithings); ok {
-		v.Configured = p.Configured()
-	}
-	return v
+func (s *Server) adminDeleteProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
+	res, err := s.api.AdminDeleteProvider(r.Context(), r.PathValue("slug"))
+	s.adminDone(w, r, res, err)
 }
 
 func (s *Server) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
-	ctx := r.Context()
-	if _, ok := s.withingsConfigurable(); !ok {
-		http.NotFound(w, r)
+	res, err := s.api.AdminSaveWithings(r.Context(), apiclient.WithingsForm{
+		ClientID: r.PostFormValue("client_id"), RedirectURL: r.PostFormValue("redirect_url"),
+		ClientSecret: r.PostFormValue("client_secret"), ClearSecret: r.PostFormValue("clear_secret") != "",
+	})
+	s.adminDone(w, r, res, err)
+}
+
+// adminResetLink makes a one-time reset link and shows it on the Admin page.
+func (s *Server) adminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
+	id, ok := targetID(w, r)
+	if !ok {
 		return
 	}
-	save := func(name, value string) error {
-		if value == "" {
-			return s.store.DeleteSetting(ctx, name)
-		}
-		return s.store.PutSetting(ctx, name, value)
-	}
-	id, redirect := strings.TrimSpace(r.PostFormValue("client_id")), strings.TrimSpace(r.PostFormValue("redirect_url"))
-	if redirect != "" && !validProviderURL(redirect) {
-		adminRedirect(w, r, "The redirect URL must use https, or http on localhost.")
-		return
-	}
-	if redirect == "" && id != "" {
-		redirect = withingsCallback(r) // this server's own callback, as the browser reaches it
-	}
-	err := save(settingWithingsClientID, id)
-	if err == nil {
-		err = save(settingWithingsRedirect, redirect)
-	}
-	if secret := strings.TrimSpace(r.PostFormValue("client_secret")); err == nil && secret != "" {
-		err = save(settingWithingsSecret, secret)
-	} else if err == nil && r.PostFormValue("clear_secret") != "" {
-		err = save(settingWithingsSecret, "")
-	}
-	if err == nil {
-		err = s.applyWithingsCredentials(ctx)
-	}
+	res, err := s.api.AdminResetLink(r.Context(), id, r.PostFormValue("email") != "")
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.audit(r, 0, auditSettingChanged, "withings")
-	adminRedirect(w, r, "Withings settings saved.")
-}
-
-func onOff(on bool) string {
-	if on {
-		return "on"
+	if res.ResetLink == nil {
+		adminRedirect(w, r, res.Message)
+		return
 	}
-	return "off"
+	s.renderAdmin(w, r, admin, res.ResetLink)
 }
