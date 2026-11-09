@@ -178,7 +178,25 @@ CREATE INDEX idx_audit_created ON audit_log(created_at);
 CREATE INDEX idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX idx_audit_target ON audit_log(target_id);
 
+-- Single-use values and failed attempts live here, not in memory, so that every backend process
+-- sees the same: a sealed value that was spent on one cannot be spent again on another, and a
+-- lock-out counts the attempts made against all of them.
+CREATE TABLE used_nonces (
+  nonce TEXT PRIMARY KEY,
+  expires_at TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_used_nonces_expires ON used_nonces(expires_at);
+CREATE TABLE auth_failures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fail_key TEXT NOT NULL,
+  failed_at TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_auth_failures_key ON auth_failures(fail_key, failed_at);
+CREATE INDEX idx_auth_failures_at ON auth_failures(failed_at);
+
 -- +goose Down
+DROP TABLE auth_failures;
+DROP TABLE used_nonces;
 DROP TABLE passkeys;
 DROP TABLE password_resets;
 DROP TABLE user_recovery_codes;

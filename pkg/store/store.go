@@ -208,6 +208,21 @@ type Store interface {
 	AddAuditEvent(ctx context.Context, e *models.AuditEvent) error
 	// ListAuditEvents returns events newest first.
 	ListAuditEvents(ctx context.Context, f AuditFilter) ([]models.AuditEvent, error)
+	// UseNonce records the nonce of a single-use value until it expires and reports whether this
+	// is the first use. NonceSeen only looks. The state is in the database, so every backend
+	// process agrees on what was spent.
+	UseNonce(ctx context.Context, nonce string, expires time.Time) (first bool, err error)
+	NonceSeen(ctx context.Context, nonce string) (bool, error)
+	// PurgeNonces forgets nonces that expired before the cutoff and returns how many.
+	PurgeNonces(ctx context.Context, before time.Time) (int64, error)
+
+	// RecordFailure notes a failed attempt under key; CountFailures counts those since a time;
+	// ClearFailures forgets a key's attempts (after a success). PurgeFailures drops old ones.
+	RecordFailure(ctx context.Context, key string, at time.Time) error
+	CountFailures(ctx context.Context, key string, since time.Time) (int, error)
+	ClearFailures(ctx context.Context, key string) error
+	PurgeFailures(ctx context.Context, before time.Time) (int64, error)
+
 	// PurgeAuditEvents deletes events older than the cutoff and returns how many.
 	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)
 
