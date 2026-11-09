@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -222,17 +223,14 @@ func applyWithingsImport(ctx context.Context, s *Backend, j models.Job, result j
 	if err != nil {
 		return "", err
 	}
-	seen := make(map[string]bool, len(res.Seen))
-	for _, id := range res.Seen {
-		seen[id] = true
-	}
-	var day time.Time
 	if in.Day != "" {
-		if day, err = time.Parse(dateLayout, in.Day); err != nil {
+		if _, err = time.Parse(dateLayout, in.Day); err != nil {
 			return "", errBadResult
 		}
 	}
-	out, err := s.reconcileReadings(ctx, u, providerWithings, res.Readings, seen, in.Day != "", day)
+	out, err := s.body.Reconcile(ctx, u, bodyapi.ReconcileRequest{
+		Source: providerWithings, Fetched: res.Readings, Seen: res.Seen, DayMode: in.Day != "", Day: in.Day,
+	})
 	if err != nil {
 		return "", err
 	}

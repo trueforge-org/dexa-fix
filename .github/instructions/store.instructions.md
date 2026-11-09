@@ -28,7 +28,11 @@ Sensitive columns (settings values, secrets, TOTP seeds, tokens) go through the 
 
 ## Body data
 
-`BodyStore` (`sqlstore/body.go`) is the DEXA scans and scale readings, kept apart so the domain can later leave this database. Its methods take a user id as an opaque reference and never read `users`. Every change to them bumps `body_user_state.data_version` in the same transaction (`bumpBodyVersion`); `users.data_version` only follows the user's settings, height and time zone. A new body table or write path must bump the counter and be in `Copy`.
+`BodyStore` (`sqlstore/body.go`) is the DEXA scans and scale readings, kept apart so the domain can live in a database of its own. Its methods take a user id as an opaque reference and never read `users`; the tables have **no foreign key** to it, so deleting a user does not delete their scans (`DeleteUserBodyData` does, called by the main backend, which also sweeps for orphans with `BodyUserIDs`).
+
+- Every change bumps `body_user_state.data_version` in the same transaction (`bumpBodyVersion`); `users.data_version` only follows the user's settings, height and time zone. A new body write path must bump the counter, and a new body table must be in `Copy`.
+- What identifies and orders a row stays in plain columns (indexes, paging and the upsert need them). The measured values and the notes are one JSON document in `data`, sealed with the **body cipher** (`s.bodyCipher`, derived from the master key under its own HKDF label), with a context that names the user and `row_uid` (`scaleContext`, `dexaContext`). `row_uid` is new on every write. Without an encryption key the document stays readable and is encrypted at the next start with a key.
+- Because notes are inside the ciphertext, an upsert cannot leave a column out of the update: `keepNotes` reads the existing rows in the transaction. Rekey (`Rekey`), `encryptExisting` and `firstEncrypted` all cover body rows; keep them in step when you add an encrypted field.
 
 ## Settings and counters
 

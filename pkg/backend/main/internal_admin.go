@@ -15,6 +15,7 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/mailer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -92,10 +93,15 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		internalError(w, err)
 		return
 	}
-	body, err := s.store.BodyStats(ctx)
-	if err != nil {
-		internalError(w, err)
+	// The page still works when the body service does not answer: its two counts say so.
+	body, bodyDown := bodyapi.Stats{}, false
+	if bs, berr := s.body.Stats(ctx); errors.Is(berr, bodyapi.ErrUnavailable) {
+		bodyDown = true
+	} else if berr != nil {
+		internalError(w, berr)
 		return
+	} else {
+		body = bs
 	}
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
@@ -115,7 +121,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 	view := apiclient.AdminPage{
 		Status: apiclient.AdminStatus{
 			Driver: stats.Driver, Encrypted: stats.Encrypted, SchemaVersion: stats.SchemaVersion, Users: stats.Users,
-			Admins: stats.Admins, DexaScans: body.DexaScans, ScaleReadings: body.ScaleReadings,
+			Admins: stats.Admins, DexaScans: body.DexaScans, ScaleReadings: body.ScaleReadings, BodyUnavailable: bodyDown,
 			Sessions: stats.Sessions, AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
 		},
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
@@ -355,6 +361,7 @@ func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request
 	case err != nil:
 		internalError(w, err)
 	default:
+		s.deleteBodyData(r.Context(), t.ID)
 		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
 		adminMsg(w, t.Name+" and their data were deleted.")
 	}

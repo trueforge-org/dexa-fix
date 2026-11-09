@@ -11,6 +11,7 @@ These are the instructions for AI coding agents working in the dexa-fix reposito
 | --- | --- |
 | `pkg/frontend/**` (pages, listeners) | [`frontend.instructions.md`](.github/instructions/frontend.instructions.md), plus [templates and static files](.github/instructions/frontend-templates.instructions.md) for `templates/**` and `static/**` |
 | `pkg/backend/**` (the main backend) | [`backend.instructions.md`](.github/instructions/backend.instructions.md), plus [the internal API](.github/instructions/backend-internal-api.instructions.md) for `internal*.go` and `pkg/shared/apiclient/**` |
+| `pkg/backend/body/**` (readings, scans, estimates) | [`body.instructions.md`](.github/instructions/body.instructions.md), and [`shared.instructions.md`](.github/instructions/shared.instructions.md) for the contract `pkg/shared/bodyapi` |
 | `pkg/shared/**` (what both sides use) | [`shared.instructions.md`](.github/instructions/shared.instructions.md) |
 | `pkg/store/**` (interfaces, SQL, migrations) | [`store.instructions.md`](.github/instructions/store.instructions.md) |
 | `cmd/**`, `main.go`, `pkg/app/**` (flags, processes) | [`process-wiring.instructions.md`](.github/instructions/process-wiring.instructions.md) |
@@ -29,6 +30,8 @@ dexa-fix corrects smart-scale body-composition readings with DEXA scan results. 
 
 ```text
 browser ──> web (pkg/frontend, no database) ──internal API, service secret (+ mutual TLS)──> api (pkg/backend/main)
+                                                                                                   │ signed token per call
+                                                                                                   └──> body (pkg/backend/body): readings, scans, estimates
 scripts ──────────────── public JSON API /api/v1 ───────────────────────────────────────────> api ──> SQLite or PostgreSQL
                                                                                                ^
 worker (pkg/workers, no database) ──worker API /internal/v1/worker, worker secret (+ mutual TLS)┘
@@ -38,8 +41,9 @@ worker (pkg/workers, no database) ──worker API /internal/v1/worker, worker s
 | Path | Contents |
 | --- | --- |
 | `pkg/frontend/` | The web process: HTML pages (Go templates and htmx), static files, the plain/HTTPS/HTTP3 listeners, request limits. **Has no database access**; it asks the backend through `pkg/shared/apiclient`. |
-| `pkg/backend/main/` | The main backend (package `mainbackend`): store, keys, every security decision, the internal API (`/internal/v1`) and the public API (`/api/v1`), the job queue and its scheduler, the backend side of each provider, maintenance. `pkg/backend/` itself has no Go files: it is the parent folder, so further backend services can sit next to `main` later. |
-| `pkg/shared/` | What both sides need, as small packages named by function: `apiclient` (the contract between the web and the api), `workerapi` (the contract between the api and the workers), `edge` (proxy headers, PROXY protocol, limiter, security headers), `mtls`, `jobs`, `timezones`, `tlsutil`. |
+| `pkg/backend/main/` | The main backend (package `mainbackend`): store, keys, every security decision, the internal API (`/internal/v1`) and the public API (`/api/v1`), the job queue and its scheduler, the backend side of each provider, maintenance. `pkg/backend/` itself has no Go files: it is the parent folder, with a service in each subfolder. |
+| `pkg/backend/body/` | The body service (package `bodybackend`): a user's scale readings and DEXA scans (encrypted with a key of their own), the estimates computed from them and their cache, and the rules for importing readings from a source. It knows nothing about people: the main backend calls it with a short-lived signed token for one user and one scope (`pkg/shared/bodyapi`). It runs inside the api process for now (`bodybackend.NewInProcess`). |
+| `pkg/shared/` | What both sides need, as small packages named by function: `apiclient` (the contract between the web and the api), `workerapi` (the contract between the api and the workers), `bodyapi` (the contract between the api and the body service, with its tokens), `inproc` (the in-process transport), `edge` (proxy headers, PROXY protocol, limiter, security headers), `mtls`, `jobs`, `timezones`, `tlsutil`. |
 | `pkg/app/` | The single-process mode: `app.New` wires a backend and a frontend together in memory. |
 | `pkg/store/` | The `Store` interface and `sqlstore` (bun; SQLite and PostgreSQL; migrations; encryption of sensitive columns). |
 | `pkg/workers/` | The workers: processes **without a database** that talk to Withings, Strength Level and the like for the backend. One package per provider (`withings`, `strengthlevel`), the generic loop (`runner`) and the built-in list (`builtin`). Their jobs come from the queue in the backend's database, over `pkg/shared/workerapi`. |
@@ -48,7 +52,7 @@ worker (pkg/workers, no database) ──worker API /internal/v1/worker, worker s
 | `deploy/` | The recommended Docker Compose deployment (web, api, workers, PostgreSQL) and `init-secrets.sh`. |
 | `docs/` | User and developer documentation (numbered pages and `index.md`). The same content is served in-app from `pkg/frontend/templates/docs.html`. |
 
-The dependency rules are enforced by tests (`go list -deps`), see [`shared.instructions.md`](.github/instructions/shared.instructions.md): the frontend and `pkg/shared` never import the backend, the store, a database library or anything that talks to the outside; the backend never imports the frontend or the workers; the workers never import the backend, the frontend, the store or a database library.
+The dependency rules are enforced by tests (`go list -deps`), see [`shared.instructions.md`](.github/instructions/shared.instructions.md): the frontend and `pkg/shared` never import the backend, the store, a database library or anything that talks to the outside; the backend never imports the frontend, the workers or the body service (it uses `pkg/shared/bodyapi`); the body service never imports the backend, the frontend, the workers, the mailer or a sign-in library; the workers never import the backend, the frontend, the store or a database library.
 
 ## Golden rules
 

@@ -42,7 +42,7 @@ func newBackendPair(t *testing.T) (pub, internal *httptest.Server, slow *slowSto
 		t.Fatal(err)
 	}
 	slow = &slowStore{Store: st, release: make(chan struct{}), started: make(chan struct{})}
-	b, err := NewBackend(slow)
+	b, err := NewBackend(slow, testBody(slow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestBackendPicksUpSettingsChangedByAnotherProcess(t *testing.T) {
 	settingsPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() { settingsPollInterval = old })
 	_, _, slow, _, _ := newBackendPair(t)
-	b, err := NewBackend(slow.Store)
+	b, err := NewBackend(slow.Store, testBody(slow.Store))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
 	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/frontend"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
@@ -31,7 +32,8 @@ import (
 type Server struct {
 	*frontend.Frontend
 	*mainbackend.Backend
-	stopWorkers func() // stops the workers that run inside this process
+	body        *bodybackend.Service // the scans, readings and estimates, in this process
+	stopWorkers func()               // stops the workers that run inside this process
 }
 
 // New builds the combined Server.
@@ -46,7 +48,13 @@ func New(st store.Store) (*Server, error) {
 
 // NewWithWorkers is New with options for the workers; tests point them at fake services.
 func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
-	b, err := mainbackend.NewBackend(st)
+	// The body service runs in this process too, and the backend calls it through the same handler,
+	// headers and tokens as it would a separate one.
+	bodyClient, bodySvc, err := bodybackend.NewInProcess(st)
+	if err != nil {
+		return nil, err
+	}
+	b, err := mainbackend.NewBackend(st, mainbackend.WithBody(bodyClient))
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +100,7 @@ func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 		b.Close()
 		return nil, err
 	}
-	return &Server{Frontend: f, Backend: b, stopWorkers: stop}, nil
+	return &Server{Frontend: f, Backend: b, body: bodySvc, stopWorkers: stop}, nil
 }
 
 // startEmbeddedWorkers runs the built-in workers inside this process, talking to the backend over
@@ -120,6 +128,7 @@ func startEmbeddedWorkers(b *mainbackend.Backend, secret string, wo builtin.Opti
 // SetVersion sets the version both halves report.
 func (s *Server) SetVersion(v string) {
 	s.Frontend.Version, s.Backend.Version = v, v
+	s.body.SetVersion(v)
 }
 
 // Close stops the background jobs of both halves and the HTTPS and HTTP/3 servers. Call it after

@@ -2,7 +2,7 @@
 applyTo: "pkg/backend/**"
 paths:
   - "pkg/backend/**"
-description: "Rules for the main backend: owns the database, keys and every security decision; state in the database; internal and public API; several backends; future services."
+description: "Rules for the main backend: owns the database, keys and every security decision; state in the database; internal and public API; several backends; calls the body service for readings, scans and estimates."
 ---
 
 # Backend instructions
@@ -15,7 +15,9 @@ The only owner of the store, the encryption keys, the cookie sealing key, the jo
 
 ## Hard rules
 
-- **Never import** `pkg/frontend` or `pkg/workers`. (`pkg/app` imports all of them and is the only place that wires them.) `boundary_test.go` checks it.
+- **Never import** `pkg/frontend`, `pkg/workers` or `pkg/backend/body`. (`pkg/app` imports all of them and is the only place that wires them.) `boundary_test.go` checks it.
+- **Scans, readings and estimates are the body service's.** Reach them only through `s.body` (`body.go`, a wrapper of `bodyapi.Client` that makes a token for the user of each call and maps the service's errors onto the store's). Never read them from the store, never compute estimates here, and never put a user's data in a token beyond the settings in `bodyapi.EstimateParams`. A backend is built `WithBody`; tests use `testBody`. When the service is down the pages say so (`ErrUnavailable`, 503) and everything else keeps working.
+- **Deleting a user** deletes their body data too (`deleteBodyData`); the maintenance loop sweeps for what a failure left (`sweepBodyOrphans`).
 - **Never call an outside service** (Withings, Strength Level, ...) yourself: queue a job (`enqueueJob`, then `waitJob` if somebody waits) and let a worker do it. The backend's half of a provider is a descriptor, `workerprovider_<name>.go`; see [`workers.instructions.md`](workers.instructions.md).
 - **Authorise on every request, again.** Own data only (`internalUser` / `apiUser`), admin role plus step-up proof for admin endpoints (`internalAdmin`). Never take a user id, role or ownership from a request body.
 - **Validate again.** Values from forms were parsed by the frontend; check ranges and formats here (`validate.go`).
@@ -39,7 +41,7 @@ The public API admits at most half of the database connections (`publicInFlight`
 
 ## Layout
 
-`pkg/backend` is a parent folder; the current single backend is `pkg/backend/main`. Another backend service would be a sibling folder with its own package. Do not create shared "backend common" packages or empty service folders in advance; put what both sides need in `pkg/shared`.
+`pkg/backend` is a parent folder: the main backend is `pkg/backend/main`, the body service `pkg/backend/body` ([`body.instructions.md`](body.instructions.md)). A further service would be a sibling folder with its own package. Do not create shared "backend common" packages or empty service folders in advance; put what both sides need in `pkg/shared`.
 
 ## Tests
 

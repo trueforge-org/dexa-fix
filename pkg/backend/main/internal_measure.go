@@ -6,6 +6,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -31,7 +32,7 @@ func internalItemID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 func (s *Backend) internalDexaList(w http.ResponseWriter, r *http.Request, u models.User) {
-	scans, err := s.store.ListDexaScans(r.Context(), u.ID)
+	scans, _, err := s.body.Scans(r.Context(), u, bodyapi.Page{})
 	if err != nil {
 		internalError(w, err)
 		return
@@ -49,7 +50,7 @@ func (s *Backend) internalDexaCreate(w http.ResponseWriter, r *http.Request, u m
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, err.Error())
 		return
 	}
-	if err := s.store.CreateDexaScan(r.Context(), &sc); err != nil {
+	if err := s.body.CreateScan(r.Context(), u, &sc); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -61,7 +62,7 @@ func (s *Backend) internalDexaDelete(w http.ResponseWriter, r *http.Request, u m
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteDexaScan(r.Context(), u.ID, id); err != nil {
+	if err := s.body.DeleteScan(r.Context(), u, id); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -70,25 +71,20 @@ func (s *Backend) internalDexaDelete(w http.ResponseWriter, r *http.Request, u m
 }
 
 func (s *Backend) internalScaleList(w http.ResponseWriter, r *http.Request, u models.User) {
-	f := store.ListFilter{Limit: scalePageSize}
+	p := bodyapi.Page{Limit: scalePageSize}
 	if raw := r.URL.Query().Get("before"); raw != "" {
-		c, err := store.ParseCursor(raw)
-		if err != nil {
+		if _, err := store.ParseCursor(raw); err != nil {
 			internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, "invalid page")
 			return
 		}
-		f.After = &c
+		p.Before = raw
 	}
-	readings, next, err := s.store.ListScaleReadingsPage(r.Context(), u.ID, f)
+	readings, next, err := s.body.Readings(r.Context(), u, p)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	page := apiclient.ScalePage{Readings: orEmpty(readings)}
-	if next != nil {
-		page.Next = next.String()
-	}
-	internalJSON(w, http.StatusOK, page)
+	internalJSON(w, http.StatusOK, apiclient.ScalePage{Readings: orEmpty(readings), Next: next})
 }
 
 func (s *Backend) internalScaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -101,7 +97,7 @@ func (s *Backend) internalScaleCreate(w http.ResponseWriter, r *http.Request, u 
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, err.Error())
 		return
 	}
-	if _, err := s.store.UpsertScaleReadings(r.Context(), u.ID, []models.ScaleReading{rd}); err != nil {
+	if _, err := s.body.UpsertReadings(r.Context(), u, []models.ScaleReading{rd}); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -113,7 +109,7 @@ func (s *Backend) internalScaleDelete(w http.ResponseWriter, r *http.Request, u 
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteScaleReading(r.Context(), u.ID, id); err != nil {
+	if err := s.body.DeleteReading(r.Context(), u, id); err != nil {
 		internalError(w, err)
 		return
 	}

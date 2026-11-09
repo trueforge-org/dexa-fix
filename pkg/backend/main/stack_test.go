@@ -76,7 +76,7 @@ func startTestWorkers(b *Backend, wc *workerapi.Client, wo builtin.Options) (sto
 }
 
 func newStack(st store.Store, wo builtin.Options, opts ...Option) (*Server, error) {
-	b, err := NewBackend(st, opts...)
+	b, err := NewBackend(st, append([]Option{testBody(st)}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func splitTests() bool { return os.Getenv("DEXAFIX_TEST_SPLIT") != "" }
 // serverOf(ts) is a Server with the backend only: tests reach the store and the live settings through it.
 func newSplitServer(t *testing.T, st store.Store, wo builtin.Options) *httptest.Server {
 	t.Helper()
-	b, err := NewBackend(st)
+	b, err := NewBackend(st, testBody(st))
 	if err != nil {
 		t.Fatal(err)
 	}

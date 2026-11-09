@@ -18,8 +18,8 @@
     <div><dt>Encryption</dt><dd>{{if .Status.Encrypted}}On{{else}}Off{{end}}</dd></div>
     {{if .Key.Shown}}<div><dt>Encryption key</dt><dd>{{.Key.ID}}{{if .Key.Since}}, in use since at least {{.Key.Since}} ({{.Key.AgeDays}} days){{end}}</dd></div>{{end}}
     <div><dt>Users</dt><dd>{{.Status.Users}} ({{.Status.Admins}} admin)</dd></div>
-    <div><dt>DEXA scans</dt><dd>{{.Status.DexaScans}}</dd></div>
-    <div><dt>Scale readings</dt><dd>{{.Status.ScaleReadings}}</dd></div>
+    <div><dt>DEXA scans</dt><dd>{{if .Status.BodyUnavailable}}Unavailable{{else}}{{.Status.DexaScans}}{{end}}</dd></div>
+    <div><dt>Scale readings</dt><dd>{{if .Status.BodyUnavailable}}Unavailable{{else}}{{.Status.ScaleReadings}}{{end}}</dd></div>
     <div><dt>Active sessions</dt><dd>{{.Status.Sessions}}</dd></div>
     <div><dt>Access tokens</dt><dd>{{.Status.AccessTokens}}</dd></div>
     <div><dt>Withings</dt><dd>{{if .Withings.Configured}}Configured{{else}}Not set up{{end}}</dd></div>

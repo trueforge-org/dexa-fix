@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -42,6 +43,9 @@ func apiError(w http.ResponseWriter, err error) {
 		status, msg = http.StatusConflict, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
+	case errors.Is(err, bodyapi.ErrUnavailable):
+		log.Warn().Err(err).Msg("the body service is unavailable")
+		status, msg = http.StatusServiceUnavailable, "the readings and scans are unavailable, try again shortly"
 	default:
 		log.Error().Err(err).Msg("api request failed")
 	}
@@ -164,7 +168,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		scans, next, err := s.store.ListDexaScansPage(r.Context(), u.ID, f)
+		scans, next, err := s.body.Scans(r.Context(), u, pageOf(f))
 		if err != nil {
 			apiError(w, err)
 			return
@@ -188,7 +192,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 		// A scan is a calendar date: take the date the client's timestamp has in the user's zone.
 		scan.MeasuredAt = calendarDate(scan.MeasuredAt, u.Location())
 		scan.ID, scan.UserID = 0, u.ID
-		if err := s.store.CreateDexaScan(r.Context(), &scan); err != nil {
+		if err := s.body.CreateScan(r.Context(), u, &scan); err != nil {
 			apiError(w, err)
 			return
 		}
@@ -200,7 +204,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		rs, next, err := s.store.ListScaleReadingsPage(r.Context(), u.ID, f)
+		rs, next, err := s.body.Readings(r.Context(), u, pageOf(f))
 		if err != nil {
 			apiError(w, err)
 			return
@@ -235,7 +239,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 				batch[i].AthleteMode = *in[i].AthleteMode
 			}
 		}
-		n, err := s.store.UpsertScaleReadings(r.Context(), u.ID, batch)
+		n, err := s.body.UpsertReadings(r.Context(), u, batch)
 		if err != nil {
 			apiError(w, err)
 			return
@@ -269,23 +273,19 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users/{id}/estimates", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		// The response only changes with the user's data and the day, so a client that kept an
 		// earlier copy can ask whether it is still good without the server computing anything.
-		key, err := s.estimateKeyFor(r.Context(), u, time.Now())
+		// The body service decides, and names the copy.
+		reply, err := s.body.Estimates(r.Context(), u, r.Header.Get("If-None-Match"))
 		if err != nil {
 			apiError(w, err)
 			return
 		}
-		etag := s.estimateETag(u.ID, key)
-		w.Header().Set("ETag", etag)
+		w.Header().Set("ETag", reply.ETag)
 		w.Header().Set("Cache-Control", "private, no-cache")
-		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		if reply.NotModified {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		res, err := s.computeEstimates(r.Context(), u)
-		if err != nil {
-			apiError(w, err)
-			return
-		}
+		res := reply.Result
 		res.Days, res.Calibrations = orEmpty(res.Days), orEmpty(res.Calibrations)
 		writeJSON(w, http.StatusOK, res)
 	}))
@@ -345,10 +345,19 @@ func listFilter(w http.ResponseWriter, r *http.Request) (store.ListFilter, bool)
 }
 
 // setNextCursor tells the client how to fetch the next, older page. It is absent on the last page.
-func setNextCursor(w http.ResponseWriter, next *store.Cursor) {
-	if next != nil {
-		w.Header().Set("X-Next-Cursor", next.String())
+func setNextCursor(w http.ResponseWriter, next string) {
+	if next != "" {
+		w.Header().Set("X-Next-Cursor", next)
 	}
+}
+
+// pageOf turns the window of a list request into what the body service takes.
+func pageOf(f store.ListFilter) bodyapi.Page {
+	p := bodyapi.Page{Limit: f.Limit, Since: f.Since, Until: f.Until}
+	if f.After != nil {
+		p.Before = f.After.String()
+	}
+	return p
 }
 
 // etagMatches reports whether an If-None-Match header lists the tag (or is "*"). The comparison is

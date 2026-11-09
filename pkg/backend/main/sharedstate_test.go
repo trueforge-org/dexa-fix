@@ -30,12 +30,12 @@ func twoBackends(t *testing.T, optsB ...Option) (a, b *Backend, st *sqlstore.Sto
 
 func twoBackendsOn(t *testing.T, st *sqlstore.Store, optsB ...Option) (a, b *Backend, _ *sqlstore.Store) {
 	t.Helper()
-	a, err := NewBackend(st)
+	a, err := NewBackend(st, testBody(st))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.Close)
-	b, err = NewBackend(st, optsB...)
+	b, err = NewBackend(st, append([]Option{testBody(st)}, optsB...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestSelfSignedCertificateIsMadeOnlyByTheBackendThatMayGenerate(t *testing.T
 	if err := st.PutSetting(ctx, settingTLSMode, apiclient.TLSSelfSigned); err != nil {
 		t.Fatal(err)
 	}
-	restricted, err := NewBackend(st, WithoutCertificateGeneration())
+	restricted, err := NewBackend(st, testBody(st), WithoutCertificateGeneration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestSelfSignedCertificateIsMadeOnlyByTheBackendThatMayGenerate(t *testing.T
 		t.Fatal("the restricted backend generated in its maintenance round")
 	}
 
-	maintainer, err := NewBackend(st)
+	maintainer, err := NewBackend(st, testBody(st))
 	if err != nil {
 		t.Fatal(err)
 	}

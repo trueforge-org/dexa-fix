@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
+	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
 	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/frontend"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
@@ -234,7 +235,13 @@ API and another the internal one on the same database.`,
 				log.Warn().Str("variable", name).Msg("ignored: this is a setting on the Admin page now")
 			}
 		}
-		var backendOpts []mainbackend.Option
+		// Until the body service runs as a process of its own, this process runs it too.
+		bodyClient, bodySvc, err := bodybackend.NewInProcess(st)
+		if err != nil {
+			return err
+		}
+		bodySvc.SetVersion(Version)
+		backendOpts := []mainbackend.Option{mainbackend.WithBody(bodyClient)}
 		if !maintenance {
 			// Only the process that runs the maintenance loop creates and renews the self-signed
 			// certificate; the others load what it stored.

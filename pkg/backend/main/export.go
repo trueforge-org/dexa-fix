@@ -142,14 +142,11 @@ func (s *Backend) buildProfileExport(r *http.Request, u models.User) (profileExp
 
 func (s *Backend) buildDataExport(ctx context.Context, u models.User) (dataExport, error) {
 	e := dataExport{FormatVersion: exportFormatVersion, ExportedAt: time.Now().UTC(), UserID: u.ID}
-	var err error
-	if e.DexaScans, err = s.store.ListDexaScans(ctx, u.ID); err != nil {
+	body, err := s.body.Export(ctx, u)
+	if err != nil {
 		return e, err
 	}
-	if e.ScaleReadings, err = s.store.ListScaleReadings(ctx, u.ID); err != nil {
-		return e, err
-	}
-	e.DexaScans, e.ScaleReadings = orEmpty(e.DexaScans), orEmpty(e.ScaleReadings)
+	e.DexaScans, e.ScaleReadings = orEmpty(body.DexaScans), orEmpty(body.ScaleReadings)
 	return e, nil
 }
 

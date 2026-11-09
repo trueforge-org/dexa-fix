@@ -244,6 +244,9 @@ func (s *Backend) StartMaintenance() {
 				}
 			}
 			s.purgeState(s.bg.Ctx)
+			if err := s.sweepBodyOrphans(s.bg.Ctx); err != nil && s.bg.Ctx.Err() == nil {
+				log.Warn().Err(err).Msg("look for readings and scans of deleted users")
+			}
 			select {
 			case <-s.bg.Ctx.Done():
 				return

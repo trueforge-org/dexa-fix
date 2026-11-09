@@ -7,6 +7,7 @@ package mainbackend
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -65,6 +66,7 @@ type Backend struct {
 	bg *jobs.Group // background jobs, stopped by Close
 
 	store store.Store
+	body  bodyService // scans, readings and estimates live in the body service, see body.go
 
 	// Version is shown on the admin page.
 	Version string
@@ -93,7 +95,6 @@ type Backend struct {
 	lastSweep     atomic.Int64  // when this process last ended expired leases (UnixNano)
 
 	auditNoise *auditNoise
-	estCache   *estimateCache
 	proxy      edge.Proxy
 	limiter    *dbLimiter // failed sign-in attempts, counted in the database
 	nonces     nonceStore // sealed values that were already used, recorded in the database
@@ -128,10 +129,12 @@ func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 		leasePolls:  make(chan struct{}, maxLeasePolls),
 		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
 		auditNoise:  newAuditNoise(),
-		estCache:    newEstimateCache(),
 	}
 	for _, o := range opts {
 		o(s)
+	}
+	if s.body.c == nil {
+		return nil, errors.New("a backend needs a body service for the scans, readings and estimates: pass WithBody")
 	}
 	// The providers that ship with the program; their settings are read below.
 	s.addWorkerProvider(withingsProvider())

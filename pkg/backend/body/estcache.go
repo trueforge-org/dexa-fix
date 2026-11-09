@@ -1,13 +1,14 @@
-package mainbackend
+package bodybackend
 
 import (
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 )
 
+// The body service owns this cache: it computes the estimates and sees every write to the data.
+//
 // Estimates are computed from a user's whole history, which gets expensive after years of daily
 // readings, and every visit to the Estimates page and every API call asks for them again. They
 // only change when the data does, so the result is kept in memory.
@@ -19,7 +20,8 @@ import (
 //     request, so a change made by any path (web form, API, import, another process on the same
 //     Postgres) is seen at once, and there is no list of places to remember to invalidate from.
 //   - a hash of the user's settings the estimates depend on (time zone, height, method ranking,
-//     athlete default), because those are not part of the body data.
+//     athlete default). They are not body data: the main backend sends them in the signed token
+//     of each call.
 //   - the date, because the series runs up to today and holds the last value forward.
 //
 // A server upgrade starts with an empty cache, so a change in the algorithm is never masked.
@@ -99,6 +101,13 @@ func (c *estimateCache) count(hit bool) {
 	c.mu.Unlock()
 }
 
+// drop forgets a user's result, for when their data is removed.
+func (c *estimateCache) drop(userID int64) {
+	c.mu.Lock()
+	delete(c.entries, userID)
+	c.mu.Unlock()
+}
+
 // evictOldest drops the least recently used user. The caller holds c.mu.
 func (c *estimateCache) evictOldest() {
 	var oldest int64
@@ -109,10 +118,4 @@ func (c *estimateCache) evictOldest() {
 		}
 	}
 	delete(c.entries, oldest)
-}
-
-// estimateETag identifies the estimates API response of a user: it changes with their data, the
-// day and the running version of the program, and so lets clients keep their own copy.
-func (s *Backend) estimateETag(userID int64, k estimateKey) string {
-	return `W/"est-` + strconv.FormatInt(userID, 10) + "-" + strconv.FormatInt(k.version, 10) + "-" + k.params + "-" + k.day + "-" + hashToken(s.Version)[:8] + `"`
 }

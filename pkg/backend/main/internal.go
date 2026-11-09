@@ -14,6 +14,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
@@ -133,6 +134,9 @@ func internalError(w http.ResponseWriter, err error) {
 		internalFail(w, http.StatusConflict, apiclient.CodeExists, err.Error())
 	case errors.Is(err, store.ErrInvalid):
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, err.Error())
+	case errors.Is(err, bodyapi.ErrUnavailable):
+		log.Warn().Err(err).Msg("the body service is unavailable")
+		internalFail(w, http.StatusServiceUnavailable, apiclient.CodeUnavailable, "the readings and scans are unavailable, try again shortly")
 	default:
 		log.Error().Err(err).Msg("internal request failed")
 		internalFail(w, http.StatusInternalServerError, apiclient.CodeInternal, "internal error")

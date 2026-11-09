@@ -35,16 +35,19 @@ type ResetLink struct {
 
 // AdminStatus is the database and usage figures of the Admin page.
 type AdminStatus struct {
-	Driver         string
-	Encrypted      bool
-	SchemaVersion  int64
-	Users          int
-	Admins         int
-	DexaScans      int
-	ScaleReadings  int
-	Sessions       int
-	AccessTokens   int
-	TwoFactorUsers int
+	Driver        string
+	Encrypted     bool
+	SchemaVersion int64
+	Users         int
+	Admins        int
+	DexaScans     int
+	ScaleReadings int
+	// BodyUnavailable is set when the service that holds the scans and readings did not answer, so
+	// the two counts above are unknown and not zero.
+	BodyUnavailable bool
+	Sessions        int
+	AccessTokens    int
+	TwoFactorUsers  int
 }
 
 // KeyView describes the encryption key on the Admin page.

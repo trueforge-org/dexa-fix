@@ -30,14 +30,16 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE UNIQUE INDEX idx_users_passkey_handle ON users(passkey_handle);
--- The body domain: a user's scale readings and DEXA scans. What identifies and orders a row stays in
+-- The body domain: a user's scale readings and DEXA scans. user_id is an opaque reference with no
+-- foreign key: this domain can live in a database of its own, so deleting a user is an explicit call
+-- (the main backend makes it, and a maintenance sweep removes what was missed). What identifies and orders a row stays in
 -- plain columns (indexes, paging and the upsert need them). The measured values and the notes are
 -- one JSON document in data, encrypted with the body key when an encryption key is configured. The
 -- context of the encryption names the user and row_uid, so a value cannot be moved to another row.
 -- row_uid is random and set whenever data is written.
 CREATE TABLE scale_readings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL,
   measured_at TIMESTAMP NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
   method TEXT NOT NULL DEFAULT 'scale',
@@ -51,7 +53,7 @@ CREATE TABLE scale_readings (
 CREATE INDEX idx_scale_user_time ON scale_readings(user_id, measured_at);
 CREATE TABLE dexa_scans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL,
   measured_at DATE NOT NULL,
   created_at TIMESTAMP NOT NULL,
   row_uid TEXT NOT NULL UNIQUE,
@@ -61,7 +63,7 @@ CREATE INDEX idx_dexa_user_time ON dexa_scans(user_id, measured_at);
 -- Counts changes to a user's scans and readings, so cached estimates can tell when they are out of
 -- date (see bumpBodyVersion). The body domain's own counter: it does not touch the users table.
 CREATE TABLE body_user_state (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER PRIMARY KEY,
   data_version INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE user_integrations (

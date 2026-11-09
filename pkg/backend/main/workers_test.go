@@ -85,7 +85,7 @@ func newWorkerFixture(t *testing.T) *workerFixture {
 	}
 	t.Cleanup(func() { st.Close() })
 	d := &demoProvider{}
-	b, err := NewBackend(st, withWorkerProvider(d.provider()))
+	b, err := NewBackend(st, testBody(st), withWorkerProvider(d.provider()))
 	if err != nil {
 		t.Fatal(err)
 	}

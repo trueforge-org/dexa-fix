@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
 	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
@@ -35,7 +36,11 @@ func newBackendServer(t *testing.T) (*httptest.Server, *mainbackend.Backend, *sq
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	b, err := mainbackend.NewBackend(st)
+	bodyClient, _, err := bodybackend.NewInProcess(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := mainbackend.NewBackend(st, mainbackend.WithBody(bodyClient))
 	if err != nil {
 		t.Fatal(err)
 	}

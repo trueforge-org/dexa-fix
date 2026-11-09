@@ -8,8 +8,9 @@ dexa-fix is one Go binary that corrects smart-scale readings with DEXA scans. It
 
 - `pkg/frontend`: the web process. Pages (Go templates and htmx), static files, HTTP/HTTPS/HTTP3 listeners. **No database access.**
 - `pkg/backend/main`: the main backend. Store, keys, every security decision, internal API (`/internal/v1`), public API (`/api/v1`).
+- `pkg/backend/body`: the body service. A user's scale readings, DEXA scans (encrypted with a key of their own), estimates and the import rules. It knows nothing about people and trusts only the short-lived signed token the main backend sends (`pkg/shared/bodyapi`).
 - `pkg/workers`: the workers, processes **without a database** that talk to Withings, Strength Level and the like. They lease jobs from the backend's queue and report back; nothing else touches those services.
-- `pkg/shared`: what they need in common (`apiclient` is the web/api contract, `workerapi` the api/worker contract, `edge`, `mtls`, small helpers).
+- `pkg/shared`: what they need in common (`apiclient` is the web/api contract, `workerapi` the api/worker contract, `bodyapi` the api/body contract, `edge`, `mtls`, small helpers).
 - `pkg/store`: the `Store` interface and the SQL implementation for SQLite and PostgreSQL.
 - `pkg/app`, `cmd`: the single-process mode and the command line.
 
@@ -17,7 +18,7 @@ dexa-fix is one Go binary that corrects smart-scale readings with DEXA scans. It
 
 - Keep changes minimal and within the requested area.
 - The frontend never imports the backend, the store, a database library, `go-oidc` or `go-webauthn` (tests enforce it). Data comes through `pkg/shared/apiclient` from an internal API endpoint.
-- The backend authorises and validates every request again and never trusts the frontend or a worker; it never imports the frontend or the workers. It never calls an outside service: it queues a job. Workers never import the backend, the store or a database library, and see a user's credentials only inside one job's lease.
+- The backend authorises and validates every request again and never trusts the frontend or a worker; it never imports the frontend, the workers or the body service. The body service never imports the backend. It never calls an outside service: it queues a job. Workers never import the backend, the store or a database library, and see a user's credentials only inside one job's lease.
 - State that must agree across processes (single-use nonces, failed-attempt counters, the job queue) lives in the database, not in memory. Security checks fail closed.
 - Settings live on the Admin page (stored in the database), not in flags or environment variables. A flag is only for boot-critical things: addresses, database, key and secret files, backend URL, TLS files.
 - Secrets are never flag values or URL parts; flags take file paths. Do not log secrets, tokens or cookies.

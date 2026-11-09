@@ -155,9 +155,6 @@ func (s *Store) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
 		return bumpBodyVersion(ctx, tx, d.UserID)
 	})
 	if err != nil {
-		if isFK(err) {
-			return store.ErrNotFound
-		}
 		return err
 	}
 	d.ID = row.ID
@@ -296,9 +293,6 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 		return bumpBodyVersion(ctx, tx, userID)
 	})
 	if err != nil {
-		if isFK(err) {
-			return 0, store.ErrNotFound
-		}
 		return 0, err
 	}
 	return len(rs), nil

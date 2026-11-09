@@ -109,8 +109,10 @@ func TestDexaRoundTrip(t *testing.T) {
 	if err := s.DeleteDexaScan(ctx, u.ID, d.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateDexaScan(ctx, &models.DexaScan{UserID: 999, MeasuredAt: d.MeasuredAt}); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown user: %v", err)
+	// The body tables have no foreign key to users (the domain can live in a database of its own), so
+	// the store does not check that the user exists: the caller has authorised them already.
+	if err := s.CreateDexaScan(ctx, &models.DexaScan{UserID: 999, MeasuredAt: d.MeasuredAt}); err != nil {
+		t.Fatalf("a user id the store does not know: %v", err)
 	}
 }
 
@@ -139,8 +141,8 @@ func TestScaleUpsertIdempotent(t *testing.T) {
 	if got[0].Source != "manual" || *got[1].WeightKg != 81.4 || *got[1].ExternalID != "grp-1" {
 		t.Fatalf("unexpected: %+v", got)
 	}
-	if _, err := s.UpsertScaleReadings(ctx, 999, batch[:1]); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown user: %v", err)
+	if _, err := s.UpsertScaleReadings(ctx, 999, batch[:1]); err != nil { // see TestDexaRoundTrip: no foreign key
+		t.Fatalf("a user id the store does not know: %v", err)
 	}
 	if err := s.DeleteScaleReading(ctx, u.ID, got[0].ID); err != nil {
 		t.Fatal(err)

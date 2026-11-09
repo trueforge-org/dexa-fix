@@ -2,7 +2,6 @@ package sqlstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -213,13 +212,6 @@ func TestVersionsFollowTheirOwnData(t *testing.T) {
 	if bodyVersion() != b0 || userVersion() != u0 {
 		t.Error("a write that changed nothing bumped a version")
 	}
-	// A write for a user that does not exist fails and leaves no counter behind.
-	if _, err := s.UpsertScaleReadings(ctx, 9999, []models.ScaleReading{{MeasuredAt: day}}); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("readings for an unknown user: %v", err)
-	}
-	if v, _ := s.BodyVersion(ctx, 9999); v != 0 {
-		t.Errorf("unknown user has body version %d", v)
-	}
 }
 
 func TestDeleteUserBodyDataAndBodyUserIDs(t *testing.T) {
@@ -262,12 +254,20 @@ func TestDeleteUserBodyDataAndBodyUserIDs(t *testing.T) {
 	if rs, _ := s.ListScaleReadings(ctx, b.ID); len(rs) != 1 {
 		t.Errorf("another user's readings were touched: %v", rs)
 	}
-	// Deleting the user removes the rest through the foreign key, counter included.
+	// The body tables have no foreign key to users, so they can live in a database of their own:
+	// deleting the user leaves their data until it is removed explicitly (the main backend does that
+	// right away and sweeps for what it missed), which is what BodyUserIDs is for.
 	if err := s.DeleteUser(ctx, b.ID); err != nil {
 		t.Fatal(err)
 	}
+	if ids, _ := s.BodyUserIDs(ctx); len(ids) != 1 || ids[0] != b.ID {
+		t.Errorf("BodyUserIDs after deleting the user = %v, want the deleted user's id %d", ids, b.ID)
+	}
+	if err := s.DeleteUserBodyData(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	}
 	if ids, _ := s.BodyUserIDs(ctx); len(ids) != 0 {
-		t.Errorf("BodyUserIDs after deleting the user = %v", ids)
+		t.Errorf("BodyUserIDs after removing their data = %v", ids)
 	}
 }
 
