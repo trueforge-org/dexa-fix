@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -380,16 +381,10 @@ func (s *Server) user(h func(http.ResponseWriter, *http.Request, models.User)) h
 
 // ---- sign-in page ----
 
-type loginProvider struct{ Slug, Label string }
-
-type loginView struct {
-	PasswordEnabled bool
-	SignupOpen      bool
-	FirstUser       bool
-	Providers       []loginProvider
-	CanReset        bool // people can ask for a reset e-mail
-	Passkeys        bool // the browser can use passkeys here
-}
+type (
+	loginProvider = apiclient.LoginProvider
+	loginView     = apiclient.LoginPage
+)
 
 func (s *Server) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /login", s.login)
@@ -415,49 +410,31 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg string, status int) {
-	ctx := r.Context()
-	hasUsers, err := s.store.HasUsers(ctx)
+	view, err := s.api.LoginPage(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	providers, err := s.store.ListAuthProviders(ctx)
+	s.render(w, "index.html", status, pageData{Title: "Sign in · dexa-fix", Error: errMsg, Login: &view})
+}
+
+// signInOutcome continues after a step of signing in: to the page the backend named, or back to the
+// sign-in page with its message. The backend's cookies are relayed with either.
+func (s *Server) signInOutcome(w http.ResponseWriter, r *http.Request, o apiclient.SignInOutcome, err error) {
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers, CanReset: s.selfServiceReset(ctx), Passkeys: passkeysReady(r)}
-	for _, p := range providers {
-		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
-	}
-	if view.SignupOpen, err = s.signupOpen(ctx); err != nil {
-		s.fail(w, err)
+	if o.Redirect != "" {
+		http.Redirect(w, r, o.Redirect, http.StatusSeeOther)
 		return
 	}
-	s.render(w, "index.html", status, pageData{Title: "Sign in · dexa-fix", Error: errMsg, Login: view})
+	s.renderLogin(w, r, o.Error, o.Status)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if !s.passwordEnabled(r.Context()) {
-		s.renderLogin(w, r, "Signing in with a password is turned off.", http.StatusForbidden)
-		return
-	}
-	u, ok, err := s.throttledVerify(r, r.PostFormValue("email"), r.PostFormValue("password"))
-	if errors.Is(err, errThrottled) {
-		s.auditAs(r, 0, 0, auditLoginThrottled, "")
-		s.renderLogin(w, r, "Too many failed attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !ok {
-		s.auditAs(r, 0, 0, auditLoginFailed, "")
-		s.renderLogin(w, r, "Wrong e-mail address or password.", http.StatusUnauthorized)
-		return
-	}
-	s.signIn(w, r, u, models.ProviderLocal)
+	o, err := s.api.Login(r.Context(), r.PostFormValue("email"), r.PostFormValue("password"))
+	s.signInOutcome(w, r, o, err)
 }
 
 // signIn is where every way of signing in ends, once the user has proved who they are by method
@@ -507,49 +484,8 @@ func (s *Server) completeSignIn(w http.ResponseWriter, r *http.Request, u models
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
-		s.renderLogin(w, r, "Too many attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
-		return
-	}
-	if !s.passwordEnabled(r.Context()) {
-		s.renderLogin(w, r, "Creating an account with a password is turned off.", http.StatusForbidden)
-		return
-	}
-	if open, err := s.signupOpen(r.Context()); err != nil {
-		s.fail(w, err)
-		return
-	} else if !open {
-		s.renderLogin(w, r, "New accounts are closed. Ask your administrator for one.", http.StatusForbidden)
-		return
-	}
-	email, ok := parseEmail(r.PostFormValue("email"))
-	if !ok {
-		s.renderLogin(w, r, "Please enter a valid e-mail address.", http.StatusUnprocessableEntity)
-		return
-	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, r.PostFormValue("confirm")); msg != "" {
-		s.renderLogin(w, r, msg, http.StatusUnprocessableEntity)
-		return
-	}
-	hash, err := hashPassword(password)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
-	switch {
-	case errors.Is(err, store.ErrExists):
-		s.limiter.Fail(ipKey(r)) // repeated probing for registered addresses is throttled
-		s.renderLogin(w, r, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
-	case errors.Is(err, store.ErrInvalid):
-		s.renderLogin(w, r, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
-	case err != nil:
-		s.fail(w, err)
-	default:
-		s.auditAs(r, u.ID, u.ID, auditSignup, models.ProviderLocal)
-		s.signIn(w, r, u, models.ProviderLocal)
-	}
+	o, err := s.api.Signup(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"), r.PostFormValue("confirm"))
+	s.signInOutcome(w, r, o, err)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

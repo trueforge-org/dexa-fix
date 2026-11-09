@@ -174,6 +174,7 @@ func (s *Server) internalSession(w http.ResponseWriter, r *http.Request) {
 // internalRoutes registers the endpoints of the pages, one group per file.
 func (s *Server) internalRoutes(mux *http.ServeMux) {
 	s.internalMeasureRoutes(mux)
+	s.internalSignInRoutes(mux)
 	s.internalSettingsRoutes(mux)
 	s.internalSecurityRoutes(mux)
 }
