@@ -6,21 +6,13 @@ import (
 	"context"
 	"embed"
 	"errors"
-	"fmt"
-	"html/template"
 	"io/fs"
+	"net"
 	"net/http"
-	"net/http/httputil"
-	"runtime"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 	"unicode/utf8"
 
-	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
@@ -34,157 +26,86 @@ import (
 //go:embed templates static
 var assets embed.FS
 
-// Server wires the store to HTTP handlers.
-type Server struct {
-	store     store.Store
-	importers *importer.Registry
-	tmpl      map[string]*template.Template
-
-	// Version is shown on the admin page.
-	Version string
-	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
-	// from a lockout. It is a flag because it is needed when nobody can reach the Admin page.
-	ForcePasswordLogin bool
-
-	listenAddr string     // address of the TCP listener, set by WrapListener; HTTP/3 uses the same port on UDP
-	lmu        sync.Mutex // guards the HTTPS and HTTP/3 servers below
-	handler    http.Handler
-	https      *http.Server
-	httpsPort  string
-	h3         *http3.Server
-	h3port     string
-	bindErr    string
-
-	live atomic.Pointer[liveSettings]               // administrator settings in force, see serversettings.go
-	cop  atomic.Pointer[http.CrossOriginProtection] // rebuilt when the base URL changes
-
-	authChain []authenticator
-
-	api            *apiclient.Client      // how the page handlers reach the backend
-	configETag     string                 // of the frontend config in force (frontend only)
-	apiUpstream    *httputil.ReverseProxy // frontend only: where /api/ goes, if set
-	onSettings     func()                 // called after the settings in force change (tests)
-	publicSlots    int                    // in-flight limit of the public API, from the database pool
-	bcryptSlots    chan struct{}          // limits password checks running at the same time
-	internalBudget *edge.Limiter          // load budget of the internal API; nil in the combined process
-	warnedVersion  bool
-	serviceSecrets [][32]byte // accepted by the internal API, see internal.go
-	cookieKey      []byte
-	httpClient     *http.Client
-
-	sl slJobs // background Strength Level syncs
-
-	jobCtx    context.Context // parent of background jobs; cancelled by Close
-	cancelJob context.CancelFunc
-	jobs      sync.WaitGroup
-	jobsMu    sync.Mutex // guards jobsDone and the Add in startJob against Close's Wait
-	jobsDone  bool
-	slSlots   chan struct{} // limits Strength Level syncs running at the same time
-
-	auditNoise *auditNoise
-	estCache   *estimateCache
-	proxy      edge.Proxy
-	limiter    *failLimiter      // failed sign-in attempts
-	nonces     nonceStore        // sealed values that were already used
-	assetVer   map[string]string // content hash per static file, for cache-busting URLs
-
-	oidcMu    sync.Mutex
-	oidcCache map[string]*oidc.Provider
-}
-
 var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html", "reset.html"}
 
-// New builds a Server and parses the embedded templates. importers may be nil.
+// Server is the application as one process: a Frontend and a Backend that talk to each other
+// through the internal API over an in-process transport, exactly as two processes would over the
+// network. The two halves are separate types, so the compiler keeps the frontend from reaching the
+// database, the keys and the other state of the backend; see boundary_test.go.
 //
-// In this form the process is both halves: the page handlers call the backend (the internal API)
-// through an in-process transport.
+// Names that both halves have are defined here, so they act on the combined process.
+type Server struct {
+	*Frontend
+	*Backend
+}
+
+// New builds the combined Server. importers may be nil.
+//
+// The page handlers call the backend (the internal API) through an in-process transport, and the
+// public API is served on the same handler, without the load budget of a separate backend.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
-	s, err := newServer()
+	b, err := NewBackend(st, importers)
 	if err != nil {
 		return nil, err
 	}
-	s.store, s.importers = st, importers
-	ctx := context.Background()
-	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
+	b.internalBudget = nil // no flood protection between the halves of one process
+	secret, err := randomHex(32)
+	if err != nil {
+		b.Close()
 		return nil, err
 	}
-	if err := s.applyWithingsCredentials(ctx); err != nil {
+	b.SetServiceSecrets(secret)
+	client, err := apiclient.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret)
+	if err != nil {
+		b.Close()
 		return nil, err
 	}
-	if err := s.reloadSettings(ctx); err != nil {
+	f, err := NewFrontend(client)
+	if err != nil {
+		b.Close()
 		return nil, err
 	}
-	if err := s.connectInProcess(); err != nil {
+	f.unlimited = true
+	f.SetAPIHandler(b.apiHandler())
+	if err := f.RefreshConfig(context.Background()); err != nil {
+		f.Close()
+		b.Close()
 		return nil, err
 	}
-	return s, nil
-}
-
-// newServer builds what both halves need: the templates, the static asset hashes and the defaults.
-func newServer() (*Server, error) {
-	funcs := template.FuncMap{
-		"day": func(t time.Time) string { return t.Format("2006-01-02") },
-		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
-
-		"initial":   initial,
-		"help":      help,
-		"timezones": func() []string { return commonTimezones },
-	}
-	static, _ := fs.Sub(assets, "static")
-	s := &Server{
-		tmpl:        map[string]*template.Template{},
-		httpClient:  &http.Client{Timeout: providerTimeout},
-		oidcCache:   map[string]*oidc.Provider{},
-		limiter:     newFailLimiter(),
-		nonces:      newUsedNonces(),
-		slSlots:     make(chan struct{}, maxStrengthLevelJobs),
-		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
-		auditNoise:  newAuditNoise(),
-		estCache:    newEstimateCache(),
-		assetVer:    staticVersions(static),
-	}
-	funcs["asset"] = s.assetURL
-	s.jobCtx, s.cancelJob = context.WithCancel(context.Background())
-	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
-	for _, p := range pages {
-		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", p, err)
+	// A setting changed in the backend (the Admin page, a test) reaches the frontend at once.
+	b.onSettings = func() {
+		if err := f.RefreshConfig(context.Background()); err != nil {
+			log.Error().Err(err).Msg("could not pass the changed settings to the frontend")
 		}
-		s.tmpl[p] = t
 	}
-	return s, nil
+	return &Server{Frontend: f, Backend: b}, nil
 }
 
-// Close cancels the background jobs and waits for them to stop. Call it after the HTTP server has
-// been shut down.
+// SetVersion sets the version both halves report.
+func (s *Server) SetVersion(v string) {
+	s.Frontend.Version, s.Backend.Version = v, v
+}
+
+// Close stops the background jobs of both halves and the HTTPS and HTTP/3 servers. Call it after
+// the HTTP server has been shut down.
 func (s *Server) Close() {
-	s.jobsMu.Lock()
-	s.jobsDone = true
-	s.jobsMu.Unlock()
-	s.cancelJob()
-	s.jobs.Wait()
-	s.closeListeners()
+	s.Backend.Close()
+	s.Frontend.Close()
 }
 
-// startJob runs f in the background, tracked by Close. It reports false, without running f, once
-// the server is closing.
-func (s *Server) startJob(f func()) bool {
-	s.jobsMu.Lock()
-	defer s.jobsMu.Unlock()
-	if s.jobsDone {
-		return false
-	}
-	s.jobs.Add(1)
-	go func() {
-		defer s.jobs.Done()
-		f()
-	}()
-	return true
-}
+// cfg returns the backend's settings in force.
+func (s *Server) cfg() *liveSettings { return s.Backend.cfg() }
+
+// swapSettings puts settings in force in the backend, which passes them on to the frontend.
+func (s *Server) swapSettings(l *liveSettings) { s.Backend.swapSettings(l) }
+
+// WrapListener wraps the listener of the pages.
+func (s *Server) WrapListener(ln net.Listener) net.Listener { return s.Frontend.WrapListener(ln) }
+
+func (s *Server) proxyHeaders(next http.Handler) http.Handler { return s.Frontend.proxyHeaders(next) }
 
 // assetURL returns the cache-busting URL of an embedded static file.
-func (s *Server) assetURL(name string) string {
+func (s *Frontend) assetURL(name string) string {
 	if v, ok := s.assetVer[name]; ok {
 		return "/static/" + name + "?v=" + v
 	}
@@ -192,7 +113,7 @@ func (s *Server) assetURL(name string) string {
 }
 
 // Handler returns the root HTTP handler.
-func (s *Server) Handler() http.Handler {
+func (s *Frontend) Handler() http.Handler {
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(assets, "static")
 	mux.Handle("GET /static/", staticHandler(static, s.assetVer))
@@ -227,16 +148,8 @@ func (s *Server) Handler() http.Handler {
 
 	s.integrationPageRoutes(mux)
 	s.exportPageRoutes(mux)
-	if s.store != nil { // the combined process also serves the public API
-		s.apiRoutes(mux)
-		s.integrationAPIRoutes(mux)
-		s.exportAPIRoutes(mux)
-		s.auditRoutes(mux)
-	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	if s.isFrontendOnly() {
-		s.frontendOnlyRoutes(mux)
-	}
+	s.frontendAPIRoutes(mux)
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.
 	// The check is rebuilt when the base URL changes, so it is looked up for every request.
@@ -245,7 +158,7 @@ func (s *Server) Handler() http.Handler {
 		s.cop.Load().Handler(guarded).ServeHTTP(w, r)
 	})
 	var h http.Handler = s.altSvc(edge.SecureHeaders(edge.Compress(edge.LimitBody(sameOrigin))))
-	if s.isFrontendOnly() && limitFrontend { // shed floods here, before they become calls to the backend
+	if limitFrontend && !s.unlimited { // shed floods here, before they become calls to the backend
 		h = s.frontendLimiter()(h)
 	}
 	return edge.LogRequests(s.proxyHeaders(h))
@@ -293,7 +206,7 @@ type pageData struct {
 	Admin         *adminView    // admin page
 }
 
-func (s *Server) render(w http.ResponseWriter, page string, status int, data pageData) {
+func (s *Frontend) render(w http.ResponseWriter, page string, status int, data pageData) {
 	var buf bytes.Buffer
 	if err := s.tmpl[page].ExecuteTemplate(&buf, "layout", data); err != nil {
 		log.Error().Err(err).Str("page", page).Msg("render failed")
@@ -305,7 +218,7 @@ func (s *Server) render(w http.ResponseWriter, page string, status int, data pag
 	w.Write(buf.Bytes())
 }
 
-func (s *Server) fail(w http.ResponseWriter, err error) {
+func (s *Frontend) fail(w http.ResponseWriter, err error) {
 	var apiErr *apiclient.Error
 	switch {
 	case errors.Is(err, apiclient.ErrUnavailable):
@@ -353,6 +266,6 @@ func userPath(id int64, tab string) string {
 	return p
 }
 
-func (s *Server) home(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) home(w http.ResponseWriter, r *http.Request, u models.User) {
 	http.Redirect(w, r, userPath(u.ID, "estimates"), http.StatusSeeOther)
 }

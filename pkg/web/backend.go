@@ -2,10 +2,17 @@ package web
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/edge"
@@ -46,16 +53,64 @@ func publicInFlight(st store.Store) int {
 	return publicMaxInFlight
 }
 
-// NewBackend builds a backend: the database side only. There is no in-process frontend; the
-// internal API serves a separate frontend process (see SetServiceSecrets and InternalHandler), and
-// PublicHandler serves /api/v1.
-func NewBackend(st store.Store, importers *importer.Registry) (*Server, error) {
-	s, err := newServer()
-	if err != nil {
-		return nil, err
+// Backend is the half of the application that owns the database, the keys and every security
+// decision. It never renders a page. Nothing in the frontend can reach its fields: the Frontend is
+// another type, and the two meet only in the internal API (see internal.go).
+type Backend struct {
+	*jobGroup // background jobs, stopped by Close
+
+	store     store.Store
+	importers *importer.Registry
+
+	// Version is shown on the admin page.
+	Version string
+	// ForcePasswordLogin keeps password sign-in on regardless of the admin setting, to recover
+	// from a lockout. It is a flag because it is needed when nobody can reach the Admin page.
+	ForcePasswordLogin bool
+
+	live       atomic.Pointer[liveSettings] // administrator settings in force, see serversettings.go
+	onSettings func()                       // called after the settings in force change
+
+	authChain      []authenticator
+	cookieKey      []byte
+	httpClient     *http.Client
+	serviceSecrets [][32]byte    // accepted by the internal API, see internal.go
+	publicSlots    int           // in-flight limit of the public API, from the database pool
+	bcryptSlots    chan struct{} // limits password checks running at the same time
+	internalBudget *edge.Limiter // load budget of the internal API; nil in the combined process
+
+	sl      slJobs        // background Strength Level syncs
+	slSlots chan struct{} // limits Strength Level syncs running at the same time
+
+	auditNoise *auditNoise
+	estCache   *estimateCache
+	proxy      edge.Proxy
+	limiter    *failLimiter // failed sign-in attempts
+	nonces     nonceStore   // sealed values that were already used
+
+	oidcMu    sync.Mutex
+	oidcCache map[string]*oidc.Provider
+}
+
+// NewBackend builds a backend: the database side only. The internal API serves a frontend (see
+// SetServiceSecrets and InternalHandler), and PublicHandler serves /api/v1.
+func NewBackend(st store.Store, importers *importer.Registry) (*Backend, error) {
+	s := &Backend{
+		jobGroup:    newJobGroup(),
+		store:       st,
+		importers:   importers,
+		httpClient:  &http.Client{Timeout: providerTimeout},
+		oidcCache:   map[string]*oidc.Provider{},
+		limiter:     newFailLimiter(),
+		nonces:      newUsedNonces(),
+		slSlots:     make(chan struct{}, maxStrengthLevelJobs),
+		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
+		auditNoise:  newAuditNoise(),
+		estCache:    newEstimateCache(),
 	}
-	s.store, s.importers = st, importers
+	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
 	ctx := context.Background()
+	var err error
 	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
 		return nil, err
 	}
@@ -74,14 +129,35 @@ func NewBackend(st store.Store, importers *importer.Registry) (*Server, error) {
 	return s, nil
 }
 
+// Close cancels the background jobs and waits for them to stop. Call it after the HTTP servers
+// have been shut down.
+func (s *Backend) Close() { s.stopJobs() }
+
+// WrapListener makes ln understand the PROXY protocol according to the current settings. Wrap the
+// listener once at start; it costs nothing while the setting is off.
+func (s *Backend) WrapListener(ln net.Listener) net.Listener {
+	return edge.ProxyListener(ln, s.proxyProtocolPolicy)
+}
+
+// proxyProtocolPolicy is read by the listener wrapper.
+func (s *Backend) proxyProtocolPolicy() (enabled bool, trusted []netip.Prefix) {
+	l := s.cfg()
+	return l.proxyProtocol, l.trusted
+}
+
+func (s *Backend) trusted(a netip.Addr) bool { return edge.Trusted(s.cfg().trusted, a) }
+
+func (s *Backend) proxyHeaders(next http.Handler) http.Handler {
+	return s.proxy.Headers(func() (*url.URL, []netip.Prefix) {
+		l := s.cfg()
+		return l.baseURL, l.trusted
+	}, next)
+}
+
 // PublicHandler serves the public API, /api/v1, and /healthz. Everything else is not found: pages
 // belong to the frontend.
-func (s *Server) PublicHandler() http.Handler {
-	mux := http.NewServeMux()
-	s.apiRoutes(mux)
-	s.integrationAPIRoutes(mux)
-	s.exportAPIRoutes(mux)
-	s.auditRoutes(mux)
+func (s *Backend) PublicHandler() http.Handler {
+	mux := s.apiMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	apiOnly := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/healthz" {
@@ -98,12 +174,26 @@ func (s *Server) PublicHandler() http.Handler {
 	return edge.LogRequests(s.proxyHeaders(edge.SecureHeaders(edge.Compress(budget.Middleware(s.withAuth(apiOnly))))))
 }
 
+// apiMux has the routes of the public API.
+func (s *Backend) apiMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	s.apiRoutes(mux)
+	s.integrationAPIRoutes(mux)
+	s.exportAPIRoutes(mux)
+	s.auditRoutes(mux)
+	return mux
+}
+
+// apiHandler serves the public API, authenticated, without the load budget and the edge handling of
+// PublicHandler: the combined process mounts it on the pages' handler, which does both.
+func (s *Backend) apiHandler() http.Handler { return s.withAuth(s.apiMux()) }
+
 // settingsPollInterval is how often a backend checks whether another process changed the settings.
 var settingsPollInterval = 5 * time.Second
 
 // StartSettingsPoll reloads the settings when another process (a second backend, or the
 // `settings reset-network` command) changed them, until Close.
-func (s *Server) StartSettingsPoll() {
+func (s *Backend) StartSettingsPoll() {
 	s.startJob(func() {
 		seen, _ := s.store.SettingsGeneration(s.jobCtx)
 		t := time.NewTicker(settingsPollInterval)
@@ -133,7 +223,7 @@ func (s *Server) StartSettingsPoll() {
 	})
 }
 
-func (s *Server) publicInFlightOrDefault() int {
+func (s *Backend) publicInFlightOrDefault() int {
 	if s.publicSlots > 0 {
 		return s.publicSlots
 	}

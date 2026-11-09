@@ -20,7 +20,7 @@ import (
 func splitTests() bool { return os.Getenv("DEXAFIX_TEST_SPLIT") != "" }
 
 // newSplitServer starts a backend on st and returns the test server of a frontend that follows it.
-// serverOf(ts) is the backend: tests reach the store and the live settings through it.
+// serverOf(ts) is a Server with the backend only: tests reach the store and the live settings through it.
 func newSplitServer(t *testing.T, st store.Store, wi *withings.Importer) *httptest.Server {
 	t.Helper()
 	old := limitFrontend
@@ -59,7 +59,7 @@ func newSplitServer(t *testing.T, st store.Store, wi *withings.Importer) *httpte
 	b.onSettings = func() { f.RefreshConfig(context.Background()) }
 	ts := httptest.NewServer(f.Handler())
 	t.Cleanup(ts.Close)
-	testServers.Store(ts, b)
+	testServers.Store(ts, &Server{Backend: b}) // no Frontend: it is a separate process here
 	return ts
 }
 

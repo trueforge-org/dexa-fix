@@ -11,7 +11,7 @@ import (
 
 // Internal endpoints for the DEXA scan and scale reading pages.
 
-func (s *Server) internalMeasureRoutes(mux *http.ServeMux) {
+func (s *Backend) internalMeasureRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix + "/users/{id}"
 	mux.HandleFunc("GET "+p+"/pages/dexa", s.internalUser(s.internalDexaList))
 	mux.HandleFunc("POST "+p+"/dexa", s.internalUser(s.internalDexaCreate))
@@ -30,7 +30,7 @@ func internalItemID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-func (s *Server) internalDexaList(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalDexaList(w http.ResponseWriter, r *http.Request, u models.User) {
 	scans, err := s.store.ListDexaScans(r.Context(), u.ID)
 	if err != nil {
 		internalError(w, err)
@@ -39,7 +39,7 @@ func (s *Server) internalDexaList(w http.ResponseWriter, r *http.Request, u mode
 	internalJSON(w, http.StatusOK, orEmpty(scans))
 }
 
-func (s *Server) internalDexaCreate(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalDexaCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	var sc models.DexaScan
 	if !internalDecode(w, r, &sc) {
 		return
@@ -56,7 +56,7 @@ func (s *Server) internalDexaCreate(w http.ResponseWriter, r *http.Request, u mo
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalDexaDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalDexaDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	id, ok := internalItemID(w, r)
 	if !ok {
 		return
@@ -69,7 +69,7 @@ func (s *Server) internalDexaDelete(w http.ResponseWriter, r *http.Request, u mo
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalScaleList(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalScaleList(w http.ResponseWriter, r *http.Request, u models.User) {
 	f := store.ListFilter{Limit: scalePageSize}
 	if raw := r.URL.Query().Get("before"); raw != "" {
 		c, err := store.ParseCursor(raw)
@@ -91,7 +91,7 @@ func (s *Server) internalScaleList(w http.ResponseWriter, r *http.Request, u mod
 	internalJSON(w, http.StatusOK, page)
 }
 
-func (s *Server) internalScaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalScaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	var rd models.ScaleReading
 	if !internalDecode(w, r, &rd) {
 		return
@@ -108,7 +108,7 @@ func (s *Server) internalScaleCreate(w http.ResponseWriter, r *http.Request, u m
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalScaleDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalScaleDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	id, ok := internalItemID(w, r)
 	if !ok {
 		return

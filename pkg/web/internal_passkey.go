@@ -52,7 +52,7 @@ func passkeysReady(r *http.Request) bool {
 }
 
 // relyingParty configures WebAuthn for the address the browser used.
-func (s *Server) relyingParty(r *http.Request) (*webauthn.WebAuthn, error) {
+func (s *Backend) relyingParty(r *http.Request) (*webauthn.WebAuthn, error) {
 	origin := externalURL(r, "")
 	u, err := url.Parse(origin)
 	if err != nil {
@@ -85,7 +85,7 @@ func (p *passkeyUser) WebAuthnName() string {
 }
 func (p *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return p.creds }
 
-func (s *Server) passkeyUserFor(ctx context.Context, u models.User, handle string) (*passkeyUser, error) {
+func (s *Backend) passkeyUserFor(ctx context.Context, u models.User, handle string) (*passkeyUser, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(handle)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func credentialID(id []byte) string { return base64.RawURLEncoding.EncodeToStrin
 
 // ---- the signed cookie ----
 
-func (s *Server) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) error {
+func (s *Backend) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) error {
 	sealed, _, err := s.sealValue(purpose, c, passkeyTTL)
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func clearPasskeyCookie(w http.ResponseWriter, r *http.Request) {
 
 // readPasskeyCookie opens the ceremony state; a state that was already used for a sign-in or a
 // registration is refused.
-func (s *Server) readPasskeyCookie(r *http.Request, purpose string) (c passkeyCeremony, nonce string, expires time.Time, ok bool) {
+func (s *Backend) readPasskeyCookie(r *http.Request, purpose string) (c passkeyCeremony, nonce string, expires time.Time, ok bool) {
 	ck, err := r.Cookie(passkeyCookie)
 	if err != nil {
 		return c, "", time.Time{}, false
@@ -140,7 +140,7 @@ func (s *Server) readPasskeyCookie(r *http.Request, purpose string) (c passkeyCe
 	return c, nonce, expires, ok
 }
 
-func (s *Server) internalPasskeyRoutes(mux *http.ServeMux) {
+func (s *Backend) internalPasskeyRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix
 	mux.HandleFunc("POST "+p+"/auth/passkey/begin", s.internalPasskeyLoginBegin)
 	mux.HandleFunc("POST "+p+"/auth/passkey/finish", s.internalPasskeyLoginFinish)
@@ -169,7 +169,7 @@ const passkeyWentWrong = "Something went wrong."
 
 // ---- registering a passkey (signed in) ----
 
-func (s *Server) internalPasskeyRegisterBegin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalPasskeyRegisterBegin(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Name, Current string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -235,7 +235,7 @@ func (s *Server) internalPasskeyRegisterBegin(w http.ResponseWriter, r *http.Req
 	internalJSON(w, http.StatusOK, creation)
 }
 
-func (s *Server) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	c, nonce, expires, ok := s.readPasskeyCookie(r, sealPasskeyRegister)
@@ -290,7 +290,7 @@ func (s *Server) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.Re
 
 // ---- managing passkeys ----
 
-func (s *Server) internalPasskeyRename(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalPasskeyRename(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Name string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -307,7 +307,7 @@ func (s *Server) internalPasskeyRename(w http.ResponseWriter, r *http.Request, u
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalPasskeyDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalPasskeyDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Current string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -342,7 +342,7 @@ func (s *Server) internalPasskeyDelete(w http.ResponseWriter, r *http.Request, u
 }
 
 // passkeysFor builds the settings section.
-func (s *Server) passkeysFor(r *http.Request, u models.User) (passkeysView, error) {
+func (s *Backend) passkeysFor(r *http.Request, u models.User) (passkeysView, error) {
 	v := passkeysView{Ready: passkeysReady(r)}
 	keys, err := s.store.ListPasskeys(r.Context(), u.ID)
 	if err != nil {
@@ -357,7 +357,7 @@ func (s *Server) passkeysFor(r *http.Request, u models.User) (passkeysView, erro
 
 // ---- signing in with a passkey ----
 
-func (s *Server) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 	if !passkeysReady(r) {
 		passkeyFail(w, http.StatusUnprocessableEntity, "Passkeys need HTTPS and a host name (not an IP address); localhost also works.")
 		return
@@ -386,7 +386,7 @@ func (s *Server) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Reques
 
 const passkeyLoginFailed = "That passkey did not work. Try again, or sign in another way."
 
-func (s *Server) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if s.limiter.Blocked(ipKey(r), maxIPFail) {

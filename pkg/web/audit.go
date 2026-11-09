@@ -105,7 +105,7 @@ const (
 
 // audit records an event for the signed-in user (the actor) about the account target (0 for none).
 // Recording is best effort: a failure is logged and never fails the request that caused it.
-func (s *Server) audit(r *http.Request, target int64, action, detail string) {
+func (s *Backend) audit(r *http.Request, target int64, action, detail string) {
 	var actor int64
 	if u := currentUser(r); u != nil {
 		actor = u.ID
@@ -114,7 +114,7 @@ func (s *Server) audit(r *http.Request, target int64, action, detail string) {
 }
 
 // auditAs is audit for requests that have no signed-in user yet, such as a sign-in.
-func (s *Server) auditAs(r *http.Request, actor, target int64, action, detail string) {
+func (s *Backend) auditAs(r *http.Request, actor, target int64, action, detail string) {
 	if noisyAudit[action] {
 		ok, skipped := s.auditNoise.allow(action+"|"+clientIP(r), time.Now())
 		if !ok {
@@ -142,7 +142,7 @@ func (s *Server) auditAs(r *http.Request, actor, target int64, action, detail st
 }
 
 // auditBackground records an event from a background job, which has no request and so no address.
-func (s *Server) auditBackground(target int64, action, detail string) {
+func (s *Backend) auditBackground(target int64, action, detail string) {
 	e := models.AuditEvent{Action: action, Detail: detail}
 	if target != 0 {
 		e.TargetID = &target
@@ -179,7 +179,7 @@ func auditLines(events []models.AuditEvent, name func(int64) string) []auditLine
 
 // activityFor lists the latest events about one user for their own settings page. Other people's
 // names are not shown to them: an administrator's action reads "an administrator".
-func (s *Server) activityFor(ctx context.Context, u models.User) ([]auditLine, error) {
+func (s *Backend) activityFor(ctx context.Context, u models.User) ([]auditLine, error) {
 	events, err := s.store.ListAuditEvents(ctx, store.AuditFilter{UserID: u.ID, Limit: auditActivitySize})
 	if err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func queryInt(r *http.Request, key string) int64 {
 	return max(n, 0)
 }
 
-func (s *Server) listAudit(w http.ResponseWriter, r *http.Request, userID int64) {
+func (s *Backend) listAudit(w http.ResponseWriter, r *http.Request, userID int64) {
 	events, err := s.store.ListAuditEvents(r.Context(), store.AuditFilter{
 		UserID: userID, BeforeID: queryInt(r, "before_id"), Limit: int(min(queryInt(r, "limit"), 1000)),
 	})
@@ -210,7 +210,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request, userID int64)
 	writeJSON(w, http.StatusOK, events)
 }
 
-func (s *Server) auditRoutes(mux *http.ServeMux) {
+func (s *Backend) auditRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/audit", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		s.listAudit(w, r, queryInt(r, "user_id"))
 	}))
@@ -223,7 +223,7 @@ func (s *Server) auditRoutes(mux *http.ServeMux) {
 
 // StartMaintenance purges audit events older than the retention period now and every few hours,
 // until Close. The period is an Admin setting read at every round; zero keeps the log for good.
-func (s *Server) StartMaintenance() {
+func (s *Backend) StartMaintenance() {
 	s.startJob(func() {
 		t := time.NewTicker(auditPurgeEvery)
 		defer t.Stop()

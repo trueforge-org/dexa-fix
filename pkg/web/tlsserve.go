@@ -1,22 +1,14 @@
 package web
 
 import (
-	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/pem"
 	"errors"
 	"fmt"
-	"math/big"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -63,7 +55,7 @@ type tlsInfo struct {
 
 // tlsConfig is the configuration for TCP connections; the certificate is looked up per handshake,
 // so a new one applies at once.
-func (s *Server) tlsConfig() *tls.Config {
+func (s *Frontend) tlsConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"h2", "http/1.1"},
@@ -75,35 +67,6 @@ func (s *Server) tlsConfig() *tls.Config {
 			return c, nil
 		},
 	}
-}
-
-// loadCertificate reads the certificate for the stored mode. It returns nil, with a warning, when
-// the stored material is unusable: the server then serves plain HTTP only, which keeps the Admin
-// page reachable.
-func (s *Server) loadCertificate(ctx context.Context, mode string, base *url.URL) (*tls.Certificate, *tlsInfo) {
-	switch mode {
-	case tlsUpload:
-		certPEM, err1 := s.settingValue(ctx, settingTLSCert)
-		keyPEM, err2 := s.settingValue(ctx, settingTLSKey)
-		if err1 != nil || err2 != nil {
-			log.Warn().Msg("could not read the stored TLS certificate")
-			return nil, nil
-		}
-		c, info, err := parseCertificate(certPEM, keyPEM)
-		if err != nil {
-			log.Warn().Err(err).Msg("ignoring the stored TLS certificate")
-			return nil, nil
-		}
-		return c, info
-	case tlsSelfSigned:
-		c, info, err := s.selfSigned(ctx, base)
-		if err != nil {
-			log.Warn().Err(err).Msg("could not prepare the self-signed TLS certificate")
-			return nil, nil
-		}
-		return c, info
-	}
-	return nil, nil
 }
 
 // parseCertificate checks a PEM certificate chain and its private key.
@@ -131,122 +94,12 @@ func parseCertificate(certPEM, keyPEM string) (*tls.Certificate, *tlsInfo, error
 	return &c, &tlsInfo{Subject: leaf.Subject.String(), Names: names, NotAfter: leaf.NotAfter, Fingerprint: hex.EncodeToString(sum[:])}, nil
 }
 
-// selfSignedNames are the names the generated certificate covers: those the administrator gave,
-// otherwise the base URL's host and the local names.
-func (s *Server) selfSignedNames(ctx context.Context, base *url.URL) []string {
-	var names []string
-	if raw, _ := s.settingValue(ctx, settingTLSNames); strings.TrimSpace(raw) != "" {
-		for _, n := range strings.Split(raw, ",") {
-			if n = strings.TrimSpace(n); n != "" {
-				names = append(names, n)
-			}
-		}
-		return names
-	}
-	if base != nil && base.Hostname() != "" {
-		names = append(names, base.Hostname())
-	}
-	return append(names, "localhost", "127.0.0.1", "::1")
-}
-
-// selfSigned returns the stored self-signed certificate, generating a new one when there is none,
-// when it is nearly expired or when the names changed.
-func (s *Server) selfSigned(ctx context.Context, base *url.URL) (*tls.Certificate, *tlsInfo, error) {
-	names := s.selfSignedNames(ctx, base)
-	certPEM, _ := s.settingValue(ctx, settingTLSCert)
-	keyPEM, _ := s.settingValue(ctx, settingTLSKey)
-	if c, info, err := parseCertificate(certPEM, keyPEM); err == nil && time.Until(info.NotAfter) > selfSignedRenew && sameNames(info.Names, names) {
-		return c, info, nil
-	}
-	certPEM, keyPEM, err := generateSelfSigned(names)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := s.store.PutSetting(ctx, settingTLSCert, certPEM); err != nil {
-		return nil, nil, err
-	}
-	if err := s.store.PutSetting(ctx, settingTLSKey, keyPEM); err != nil {
-		return nil, nil, err
-	}
-	log.Info().Strs("names", names).Msg("generated a self-signed TLS certificate")
-	return parseCertificate(certPEM, keyPEM)
-}
-
-func sameNames(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, x := range a {
-		seen[strings.ToLower(x)] = true
-	}
-	for _, x := range b {
-		if !seen[strings.ToLower(x)] {
-			return false
-		}
-	}
-	return true
-}
-
-// generateSelfSigned makes an ECDSA P-256 certificate for the given DNS names and IP addresses.
-func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
-	if len(names) == 0 {
-		return "", "", errors.New("a self-signed certificate needs at least one name")
-	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return "", "", err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
-	if err != nil {
-		return "", "", err
-	}
-	tpl := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: names[0], Organization: []string{"dexa-fix (self-signed)"}},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(selfSignedDays * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	for _, n := range names {
-		if ip := net.ParseIP(n); ip != nil {
-			tpl.IPAddresses = append(tpl.IPAddresses, ip)
-		} else {
-			tpl.DNSNames = append(tpl.DNSNames, n)
-		}
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
-	if err != nil {
-		return "", "", err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return "", "", err
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
-		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
-}
-
-// renewCertificate regenerates a self-signed certificate that is nearly expired. It runs from the
-// maintenance loop.
-func (s *Server) renewCertificate(ctx context.Context) {
-	l := s.cfg()
-	if l.tlsMode != tlsSelfSigned || l.tlsInfo == nil || time.Until(l.tlsInfo.NotAfter) > selfSignedRenew {
-		return
-	}
-	if err := s.reloadSettings(ctx); err != nil && ctx.Err() == nil {
-		log.Error().Err(err).Msg("renew the self-signed certificate")
-	}
-}
-
 // ---- the HTTPS and HTTP/3 servers ----
 
 // StartListeners starts the HTTPS and HTTP/3 servers when the settings ask for them, with handler
 // as their handler (the one the plain server uses). It is called again by reloadSettings whenever a
 // setting changes, which starts, moves or stops them without a restart.
-func (s *Server) StartListeners(handler http.Handler) {
+func (s *Frontend) StartListeners(handler http.Handler) {
 	s.lmu.Lock()
 	s.handler = handler
 	s.lmu.Unlock()
@@ -254,7 +107,7 @@ func (s *Server) StartListeners(handler http.Handler) {
 }
 
 // bindAddr is the listen address with another port: same interface as the plain server.
-func (s *Server) bindAddr(port string) string {
+func (s *Frontend) bindAddr(port string) string {
 	host, _, err := net.SplitHostPort(s.listenAddr)
 	if err != nil {
 		host = ""
@@ -262,7 +115,7 @@ func (s *Server) bindAddr(port string) string {
 	return net.JoinHostPort(host, port)
 }
 
-func (s *Server) applyListeners() {
+func (s *Frontend) applyListeners() {
 	s.lmu.Lock()
 	defer s.lmu.Unlock()
 	if s.handler == nil || s.listenAddr == "" {
@@ -292,7 +145,7 @@ func (s *Server) applyListeners() {
 	}
 }
 
-func (s *Server) startHTTPS(port string) {
+func (s *Frontend) startHTTPS(port string) {
 	addr := s.bindAddr(port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -314,7 +167,7 @@ func (s *Server) startHTTPS(port string) {
 	log.Info().Str("addr", addr).Msg("HTTPS is on (HTTP/2 and HTTP/1.1)")
 }
 
-func (s *Server) startHTTP3(port string) {
+func (s *Frontend) startHTTP3(port string) {
 	addr := s.bindAddr(port)
 	srv := &http3.Server{
 		Addr: addr, Handler: s.handler, TLSConfig: http3.ConfigureTLSConfig(s.tlsConfig()),
@@ -330,7 +183,7 @@ func (s *Server) startHTTP3(port string) {
 }
 
 // closeListeners stops the HTTPS and HTTP/3 servers.
-func (s *Server) closeListeners() {
+func (s *Frontend) closeListeners() {
 	s.lmu.Lock()
 	defer s.lmu.Unlock()
 	if s.https != nil {
@@ -344,7 +197,7 @@ func (s *Server) closeListeners() {
 }
 
 // listenError is the reason HTTPS could not start, for the Admin page; empty when all is well.
-func (s *Server) listenError() string {
+func (s *Frontend) listenError() string {
 	s.lmu.Lock()
 	defer s.lmu.Unlock()
 	return s.bindErr
@@ -352,7 +205,7 @@ func (s *Server) listenError() string {
 
 // altSvc tells clients that arrive over TLS that HTTP/3 is available on the UDP port with the same
 // number as the one they used.
-func (s *Server) altSvc(next http.Handler) http.Handler {
+func (s *Frontend) altSvc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if l := s.cfg(); r.TLS != nil && l.http3 {
 			port := l.httpsPort

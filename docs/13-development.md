@@ -50,7 +50,12 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
   integration routes (`handlers_import.go`), routes in `server.go`, and the
   in-memory estimate cache (`estcache.go`). The split lives here too: `frontend.go`
   is the frontend process, `backend.go` the public handlers of the backend, and
-  `internal.go` the internal API under `/internal/v1`.
+  `internal.go` the internal API under `/internal/v1`. The two halves are two
+  types, `Frontend` (templates, listeners, an `apiclient.Client`) and `Backend`
+  (store, keys, security decisions); `Server` only wraps both for the single
+  process. The frontend cannot reach the store: the compiler refuses it, and
+  `boundary_test.go` guards the rule. A file ending in `_backend.go` holds the
+  backend half of a feature whose page handlers are in the file without the suffix.
 
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.

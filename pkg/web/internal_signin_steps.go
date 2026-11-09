@@ -21,7 +21,7 @@ import (
 // providers. They answer like the password sign-in does; the sealed state cookies (mfa, provider
 // state) are read from the visitor's Cookie header and set with Set-Cookie, which the frontend relays.
 
-func (s *Server) internalSignInStepRoutes(mux *http.ServeMux) {
+func (s *Backend) internalSignInStepRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix
 	mux.HandleFunc("GET "+p+"/pages/login/2fa", s.internalLoginTwoFactorPage)
 	mux.HandleFunc("POST "+p+"/auth/2fa", s.internalLoginTwoFactor)
@@ -50,7 +50,7 @@ func secondStepPage(w http.ResponseWriter, v apiclient.SecondStep, status int) {
 	internalJSON(w, http.StatusOK, v)
 }
 
-func (s *Server) internalLoginTwoFactorPage(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLoginTwoFactorPage(w http.ResponseWriter, r *http.Request) {
 	st, _, _, ok := s.readMFA(r)
 	if !ok || st.Enrol {
 		secondStepRedirect(w, "/")
@@ -59,7 +59,7 @@ func (s *Server) internalLoginTwoFactorPage(w http.ResponseWriter, r *http.Reque
 	secondStepPage(w, apiclient.SecondStep{Mode: "verify"}, http.StatusOK)
 }
 
-func (s *Server) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -114,7 +114,7 @@ func (s *Server) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request) 
 	secondStepRedirect(w, target)
 }
 
-func (s *Server) internalLoginSetupPage(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLoginSetupPage(w http.ResponseWriter, r *http.Request) {
 	st, _, _, ok := s.readMFA(r)
 	if !ok || !st.Enrol {
 		secondStepRedirect(w, "/")
@@ -123,7 +123,7 @@ func (s *Server) internalLoginSetupPage(w http.ResponseWriter, r *http.Request) 
 	s.internalLoginSetupView(w, r, st, "", http.StatusOK)
 }
 
-func (s *Server) internalLoginSetupView(w http.ResponseWriter, r *http.Request, st mfaState, errMsg string, status int) {
+func (s *Backend) internalLoginSetupView(w http.ResponseWriter, r *http.Request, st mfaState, errMsg string, status int) {
 	ctx := r.Context()
 	u, err := s.store.GetUser(ctx, st.UID)
 	if err != nil {
@@ -143,7 +143,7 @@ func (s *Server) internalLoginSetupView(w http.ResponseWriter, r *http.Request, 
 	secondStepPage(w, apiclient.SecondStep{Mode: "setup", Error: errMsg, QR: string(setup.QR), Secret: setup.Secret}, status)
 }
 
-func (s *Server) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -216,7 +216,7 @@ func resetOff(w http.ResponseWriter) {
 	internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "signing in with a password is turned off")
 }
 
-func (s *Server) internalForgotPage(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalForgotPage(w http.ResponseWriter, r *http.Request) {
 	if !s.selfServiceReset(r.Context()) {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "404 page not found")
 		return
@@ -226,7 +226,7 @@ func (s *Server) internalForgotPage(w http.ResponseWriter, r *http.Request) {
 
 // internalForgot answers the same, with the same status, whoever the address belongs to. The work
 // (lookup, token, mail) runs in the background, so the response time says nothing either.
-func (s *Server) internalForgot(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalForgot(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Email string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -251,7 +251,7 @@ func (s *Server) internalForgot(w http.ResponseWriter, r *http.Request) {
 	resetStepPage(w, apiclient.ResetStep{Mode: "sent"}, http.StatusOK)
 }
 
-func (s *Server) internalResetPage(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalResetPage(w http.ResponseWriter, r *http.Request) {
 	if !s.passwordEnabled(r.Context()) {
 		resetOff(w)
 		return
@@ -273,7 +273,7 @@ func (s *Server) internalResetPage(w http.ResponseWriter, r *http.Request) {
 	resetStepPage(w, apiclient.ResetStep{Mode: "form", NeedsCode: has}, http.StatusOK)
 }
 
-func (s *Server) internalReset(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Password, Confirm, Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -364,7 +364,7 @@ func (s *Server) internalReset(w http.ResponseWriter, r *http.Request) {
 
 // internalProviderStart answers with the provider's address, to sign in or, for a signed-in visitor
 // who asked to link, to link it. Linking needs the current password.
-func (s *Server) internalProviderStart(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalProviderStart(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Link    bool
 		Current string
@@ -423,7 +423,7 @@ func providerCallbackInvalid(w http.ResponseWriter) {
 // internalProviderCallback finishes a sign-in. Accounts are matched only by the provider's subject:
 // never by name or e-mail, because that would let someone take over an account by claiming its
 // address. The body holds every query and form parameter the provider sent.
-func (s *Server) internalProviderCallback(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Request) {
 	var params map[string]string
 	if !internalDecode(w, r, &params) {
 		return
@@ -503,7 +503,7 @@ func (s *Server) internalProviderCallback(w http.ResponseWriter, r *http.Request
 	s.internalSignIn(w, r, u, slug)
 }
 
-func (s *Server) internalProviderFailed(w http.ResponseWriter, st providerState, msg string) {
+func (s *Backend) internalProviderFailed(w http.ResponseWriter, st providerState, msg string) {
 	if st.Link != 0 {
 		signInRedirect(w, settingsPath(st.Link, msg))
 		return
@@ -511,7 +511,7 @@ func (s *Server) internalProviderFailed(w http.ResponseWriter, st providerState,
 	signInFail(w, msg, http.StatusBadGateway)
 }
 
-func (s *Server) internalLinkIdentity(w http.ResponseWriter, r *http.Request, p models.AuthProvider, userID int64, subject string, existing models.Identity, found bool) {
+func (s *Backend) internalLinkIdentity(w http.ResponseWriter, r *http.Request, p models.AuthProvider, userID int64, subject string, existing models.Identity, found bool) {
 	if found && existing.UserID != userID {
 		signInRedirect(w, settingsPath(userID, "That "+p.Label+" login is already linked to another account."))
 		return
@@ -527,7 +527,7 @@ func (s *Server) internalLinkIdentity(w http.ResponseWriter, r *http.Request, p 
 
 // ---- reset helpers ----
 
-func (s *Server) sendResetFor(email string, base *url.URL) {
+func (s *Backend) sendResetFor(email string, base *url.URL) {
 	ctx := s.jobCtx
 	u, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
@@ -551,7 +551,7 @@ func (s *Server) sendResetFor(email string, base *url.URL) {
 	}
 }
 
-func (s *Server) resetUser(r *http.Request, token string) (models.User, bool, error) {
+func (s *Backend) resetUser(r *http.Request, token string) (models.User, bool, error) {
 	if token == "" || len(token) > 128 {
 		return models.User{}, false, nil
 	}

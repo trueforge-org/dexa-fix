@@ -246,7 +246,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 		if err != nil {
 			return err
 		}
-		srv.Version = Version
+		srv.SetVersion(Version)
 		// These used to be flags or variables. They are Admin settings now (stored in the database,
 		// applied without a restart), so the old ones are ignored, with a warning.
 		for _, name := range []string{"DEXAFIX_TRUSTED_PROXIES", "DEXAFIX_BASE_URL", "DEXAFIX_AUDIT_RETENTION_DAYS"} {

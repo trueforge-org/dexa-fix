@@ -31,7 +31,7 @@ const (
 
 var providerSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
-func (s *Server) internalAdminRoutes(mux *http.ServeMux) {
+func (s *Backend) internalAdminRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix + "/admin"
 	mux.HandleFunc("GET "+p+"/page", s.internalAdmin(s.internalAdminPage))
 	mux.HandleFunc("POST "+p+"/users", s.internalAdmin(s.internalAdminAddUser))
@@ -65,7 +65,7 @@ func adminMsgChanged(w http.ResponseWriter, msg string) {
 }
 
 // internalTarget finds the user the path names.
-func (s *Server) internalTarget(w http.ResponseWriter, r *http.Request) (models.User, bool) {
+func (s *Backend) internalTarget(w http.ResponseWriter, r *http.Request) (models.User, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
@@ -81,7 +81,7 @@ func (s *Server) internalTarget(w http.ResponseWriter, r *http.Request) (models.
 
 // ---- the page ----
 
-func (s *Server) keyView(st store.Stats) apiclient.KeyView {
+func (s *Backend) keyView(st store.Stats) apiclient.KeyView {
 	v := apiclient.KeyView{Shown: st.Encrypted, ID: st.KeyID, Rekey: st.KeyPrevious}
 	if !st.KeySince.IsZero() {
 		v.Since = st.KeySince.UTC().Format(dateLayout)
@@ -91,7 +91,7 @@ func (s *Server) keyView(st store.Stats) apiclient.KeyView {
 	return v
 }
 
-func (s *Server) internalAdminPage(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	stats, err := s.store.Stats(ctx)
 	if err != nil {
@@ -183,7 +183,7 @@ func (s *Server) internalAdminPage(w http.ResponseWriter, r *http.Request, u mod
 
 // ---- users ----
 
-func (s *Server) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in struct{ Name, Email, Password string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -216,7 +216,7 @@ func (s *Server) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _ 
 	}
 }
 
-func (s *Server) internalAdminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in struct{ Enabled bool }
 	if !internalDecode(w, r, &in) {
 		return
@@ -239,7 +239,7 @@ func (s *Server) internalAdminSignup(w http.ResponseWriter, r *http.Request, _ m
 	adminMsg(w, "New accounts are closed. Add people from the Users list.")
 }
 
-func (s *Server) internalAdminSetRole(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSetRole(w http.ResponseWriter, r *http.Request, _ models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -263,7 +263,7 @@ func (s *Server) internalAdminSetRole(w http.ResponseWriter, r *http.Request, _ 
 	}
 }
 
-func (s *Server) internalAdminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -285,7 +285,7 @@ func (s *Server) internalAdminSetStrengthLevel(w http.ResponseWriter, r *http.Re
 	adminMsg(w, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
 }
 
-func (s *Server) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -311,7 +311,7 @@ func (s *Server) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *htt
 	adminMsg(w, "The multi-day Strength Level sync is off for "+t.Name+".")
 }
 
-func (s *Server) internalAdminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -341,7 +341,7 @@ func (s *Server) internalAdminSetPassword(w http.ResponseWriter, r *http.Request
 	adminMsg(w, "Password set for "+t.Name+".")
 }
 
-func (s *Server) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request, u models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -363,7 +363,7 @@ func (s *Server) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request,
 
 // internalAdminRemoveTwoFactor lets an administrator remove the second step of a user who lost
 // their device and their recovery codes. The user is asked to set it up again if the policy requires it.
-func (s *Server) internalAdminRemoveTwoFactor(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminRemoveTwoFactor(w http.ResponseWriter, r *http.Request, _ models.User) {
 	t, ok := s.internalTarget(w, r)
 	if !ok {
 		return
@@ -376,7 +376,7 @@ func (s *Server) internalAdminRemoveTwoFactor(w http.ResponseWriter, r *http.Req
 	adminMsg(w, "Two-step verification was removed for "+t.Name+".")
 }
 
-func (s *Server) internalAdminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
+func (s *Backend) internalAdminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
 	ctx := r.Context()
 	if !s.passwordEnabled(ctx) {
 		adminMsg(w, "Password sign-in is off, so there is nothing to reset.")
@@ -415,7 +415,7 @@ func hasExternalSignIn(providers []string, excluded string) bool {
 	return slices.ContainsFunc(providers, func(p string) bool { return p != models.ProviderLocal && p != excluded })
 }
 
-func (s *Server) internalAdminPasswordLogin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminPasswordLogin(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Enabled bool }
 	if !internalDecode(w, r, &in) {
 		return
@@ -447,7 +447,7 @@ func (s *Server) internalAdminPasswordLogin(w http.ResponseWriter, r *http.Reque
 	adminMsg(w, "Password sign-in is off. People sign in through a provider, and scripts use access tokens.")
 }
 
-func (s *Server) internalAdminTwoFactorPolicy(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminTwoFactorPolicy(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in struct{ Require string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -485,7 +485,7 @@ func validProviderURL(raw string) bool {
 	return u.Scheme == "https" || (u.Scheme == "http" && (h == "localhost" || h == "127.0.0.1" || h == "::1"))
 }
 
-func (s *Server) internalAdminSaveProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSaveProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in apiclient.ProviderForm
 	if !internalDecode(w, r, &in) {
 		return
@@ -531,7 +531,7 @@ func (s *Server) internalAdminSaveProvider(w http.ResponseWriter, r *http.Reques
 
 // prepareProvider validates a provider by kind and fills in defaults. It returns a message for the
 // administrator, or "" when the provider is ready to save.
-func (s *Server) prepareProvider(ctx context.Context, p *models.AuthProvider) string {
+func (s *Backend) prepareProvider(ctx context.Context, p *models.AuthProvider) string {
 	switch p.Kind {
 	case models.ProviderKindOIDC:
 		if !validProviderURL(p.Issuer) {
@@ -575,7 +575,7 @@ func (s *Server) prepareProvider(ctx context.Context, p *models.AuthProvider) st
 	return ""
 }
 
-func (s *Server) internalAdminDeleteProvider(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminDeleteProvider(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	slug := r.PathValue("slug")
 	p, err := s.store.GetAuthProvider(ctx, slug)
@@ -605,7 +605,7 @@ func (s *Server) internalAdminDeleteProvider(w http.ResponseWriter, r *http.Requ
 
 // ---- Withings application credentials ----
 
-func (s *Server) withingsConfigurable() (importer.Configurable, bool) {
+func (s *Backend) withingsConfigurable() (importer.Configurable, bool) {
 	imp, ok := s.importers.Get(providerWithings)
 	if !ok {
 		return nil, false
@@ -614,7 +614,7 @@ func (s *Server) withingsConfigurable() (importer.Configurable, bool) {
 	return c, ok
 }
 
-func (s *Server) settingOrEmpty(ctx context.Context, name string) (string, error) {
+func (s *Backend) settingOrEmpty(ctx context.Context, name string) (string, error) {
 	v, err := s.store.GetSetting(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", nil
@@ -623,7 +623,7 @@ func (s *Server) settingOrEmpty(ctx context.Context, name string) (string, error
 }
 
 // applyWithingsCredentials loads the credentials saved by an administrator into the importer.
-func (s *Server) applyWithingsCredentials(ctx context.Context) error {
+func (s *Backend) applyWithingsCredentials(ctx context.Context) error {
 	c, ok := s.withingsConfigurable()
 	if !ok {
 		return nil
@@ -648,7 +648,7 @@ func withingsCallback(r *http.Request) string {
 	return externalURL(r, "/integrations/withings/callback")
 }
 
-func (s *Server) adminWithingsView(r *http.Request) apiclient.AdminWithings {
+func (s *Backend) adminWithingsView(r *http.Request) apiclient.AdminWithings {
 	ctx := r.Context()
 	if _, ok := s.withingsConfigurable(); !ok {
 		return apiclient.AdminWithings{}
@@ -666,7 +666,7 @@ func (s *Server) adminWithingsView(r *http.Request) apiclient.AdminWithings {
 	return v
 }
 
-func (s *Server) internalAdminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
 	ctx := r.Context()
 	if _, ok := s.withingsConfigurable(); !ok {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
@@ -720,7 +720,7 @@ func onOff(on bool) string {
 // ---- server settings ----
 
 // serverSettingsFor reads the stored text of the settings for the form.
-func (s *Server) serverSettingsFor(ctx context.Context) (apiclient.ServerSettingsView, error) {
+func (s *Backend) serverSettingsFor(ctx context.Context) (apiclient.ServerSettingsView, error) {
 	var v apiclient.ServerSettingsView
 	var err error
 	get := func(name string) string {
@@ -738,7 +738,7 @@ func (s *Server) serverSettingsFor(ctx context.Context) (apiclient.ServerSetting
 }
 
 // putOrClear stores a value, or removes the setting when it is empty so the default applies.
-func (s *Server) putOrClear(ctx context.Context, name, value string) error {
+func (s *Backend) putOrClear(ctx context.Context, name, value string) error {
 	if value == "" {
 		return s.store.DeleteSetting(ctx, name)
 	}
@@ -765,7 +765,7 @@ func hostOf(hostport string) string {
 	return strings.ToLower(strings.Trim(hostport, "[]"))
 }
 
-func (s *Server) internalAdminSaveServer(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSaveServer(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in apiclient.ServerForm
 	if !internalDecode(w, r, &in) {
 		return
@@ -828,7 +828,7 @@ func (s *Server) internalAdminSaveServer(w http.ResponseWriter, r *http.Request,
 	adminMsgChanged(w, "Server settings saved. They apply now.")
 }
 
-func (s *Server) internalAdminSaveSMTP(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSaveSMTP(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in apiclient.SMTPForm
 	if !internalDecode(w, r, &in) {
 		return
@@ -896,7 +896,7 @@ func (s *Server) internalAdminSaveSMTP(w http.ResponseWriter, r *http.Request, _
 	adminMsg(w, msg)
 }
 
-func (s *Server) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, u models.User) {
 	m := s.cfg().mailer
 	if m == nil {
 		adminMsg(w, "Set up and save the e-mail settings first.")
@@ -917,7 +917,7 @@ func (s *Server) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, u
 
 // ---- TLS ----
 
-func (s *Server) tlsViewFor(r *http.Request) (apiclient.TLSView, error) {
+func (s *Backend) tlsViewFor(r *http.Request) (apiclient.TLSView, error) {
 	ctx := r.Context()
 	l := s.cfg()
 	v := apiclient.TLSView{Mode: l.tlsMode, Active: l.tlsCert != nil, HTTP3Active: l.http3, Port: l.httpsPort}
@@ -942,7 +942,7 @@ func validName(n string) bool {
 	return true
 }
 
-func (s *Server) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _ models.User) {
 	var in apiclient.TLSForm
 	if !internalDecode(w, r, &in) {
 		return
@@ -961,10 +961,6 @@ func (s *Server) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _ 
 	}
 	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
 		adminMsg(w, "The HTTPS port is a number from 1 to 65535.")
-		return
-	}
-	if _, plain, err := net.SplitHostPort(s.listenAddr); err == nil && plain == port {
-		adminMsg(w, "The HTTPS port must differ from the port of plain HTTP ("+plain+"): they are separate listeners.")
 		return
 	}
 	if in.HTTP3 && mode == tlsOff {

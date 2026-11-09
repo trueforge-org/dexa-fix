@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -36,7 +35,7 @@ import (
 
 // SetServiceSecrets sets the secrets the internal API accepts. The first is the one the frontend
 // sends; the others are accepted so that a secret can be rotated without downtime.
-func (s *Server) SetServiceSecrets(secrets ...string) {
+func (s *Backend) SetServiceSecrets(secrets ...string) {
 	var hashes [][32]byte
 	for _, sec := range secrets {
 		if sec = strings.TrimSpace(sec); sec != "" {
@@ -47,7 +46,7 @@ func (s *Server) SetServiceSecrets(secrets ...string) {
 }
 
 // InternalHandler returns the handler of the internal API.
-func (s *Server) InternalHandler() http.Handler {
+func (s *Backend) InternalHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+apiclient.Prefix+"/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET "+apiclient.Prefix+"/session", s.internalSession)
@@ -64,7 +63,7 @@ func (s *Server) InternalHandler() http.Handler {
 }
 
 // serviceAuth lets in only callers that present a service secret.
-func (s *Server) serviceAuth(next http.Handler) http.Handler {
+func (s *Backend) serviceAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.validServiceSecret(r.Header.Get(apiclient.HeaderService)) {
 			internalFail(w, http.StatusUnauthorized, apiclient.CodeUnauthorized, "service authentication required")
@@ -74,7 +73,7 @@ func (s *Server) serviceAuth(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) validServiceSecret(presented string) bool {
+func (s *Backend) validServiceSecret(presented string) bool {
 	if presented == "" {
 		return false
 	}
@@ -87,7 +86,7 @@ func (s *Server) validServiceSecret(presented string) bool {
 }
 
 // visitorContext puts the visitor's request back into r: cookies, address, host and scheme.
-func (s *Server) visitorContext(next http.Handler) http.Handler {
+func (s *Backend) visitorContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Cookie")
@@ -152,7 +151,7 @@ func internalDecode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 // internalUser allows a request to act only on the signed-in user's own data, like apiUser.
-func (s *Server) internalUser(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Backend) internalUser(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -167,7 +166,7 @@ func (s *Server) internalUser(h func(http.ResponseWriter, *http.Request, models.
 	}
 }
 
-func (s *Server) internalSession(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalSession(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	if u == nil {
 		internalFail(w, http.StatusUnauthorized, apiclient.CodeUnauthorized, "not signed in")
@@ -177,7 +176,7 @@ func (s *Server) internalSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // internalRoutes registers the endpoints of the pages, one group per file.
-func (s *Server) internalRoutes(mux *http.ServeMux) {
+func (s *Backend) internalRoutes(mux *http.ServeMux) {
 	s.internalMeasureRoutes(mux)
 	s.internalSignInRoutes(mux)
 	s.internalSettingsRoutes(mux)
@@ -189,73 +188,3 @@ func (s *Server) internalRoutes(mux *http.ServeMux) {
 }
 
 // ---- the frontend side ----
-
-// withVisitor attaches the visitor's request to the context, so calls to the backend carry the
-// visitor's cookies, address and host, and the backend's Set-Cookie headers reach the browser.
-func (s *Server) withVisitor(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := apiclient.WithRequest(r.Context(), apiclient.Request{
-			Cookie:   r.Header.Get("Cookie"),
-			ClientIP: clientIP(r),
-			Host:     r.Host,
-			Secure:   isSecure(r),
-			Relay:    w,
-		})
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// frontAuth finds the signed-in user for pages by asking the backend. The public API (/api/) is the
-// backend's own, with its own credentials.
-func (s *Server) frontAuth(next http.Handler) http.Handler {
-	backend := s.withAuth(next)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			if s.isFrontendOnly() { // not ours: passed on to the api process, which authenticates it
-				next.ServeHTTP(w, r)
-				return
-			}
-			backend.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if c, err := r.Cookie(sessionCookie); err != nil || c.Value == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		u, err := s.api.Session(r.Context())
-		if err != nil {
-			s.backendDown(w, r, err)
-			return
-		}
-		if u != nil {
-			r = r.WithContext(context.WithValue(r.Context(), userKey{}, u))
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// backendDown answers a page request when the backend cannot be used.
-func (s *Server) backendDown(w http.ResponseWriter, r *http.Request, err error) {
-	if r.Context().Err() != nil {
-		return // the visitor went away
-	}
-	log.Error().Err(err).Msg("backend request failed")
-	w.Header().Set("Retry-After", "5")
-	http.Error(w, "dexa-fix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
-}
-
-// connectInProcess makes the page handlers call the backend in the same process, through the same
-// internal API a separate frontend process would use, with a secret made up for this run.
-func (s *Server) connectInProcess() error {
-	secret, err := randomHex(32)
-	if err != nil {
-		return err
-	}
-	s.SetServiceSecrets(secret)
-	s.api, err = apiclient.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(s.InternalHandler())}, secret)
-	return err
-}

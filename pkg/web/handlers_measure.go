@@ -10,7 +10,7 @@ import (
 
 // ---- DEXA scans ----
 
-func (s *Server) dexaPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
+func (s *Frontend) dexaPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
 	scans, err := s.api.DexaScans(r.Context(), u.ID)
 	if err != nil {
 		s.fail(w, err)
@@ -27,7 +27,7 @@ func (s *Server) dexaPage(w http.ResponseWriter, r *http.Request, u models.User,
 	})
 }
 
-func (s *Server) dexaCreate(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) dexaCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	scan := &models.DexaScan{UserID: u.ID}
 	var err error
 	if scan.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateLayout, time.UTC); err == nil {
@@ -50,7 +50,7 @@ func (s *Server) dexaCreate(w http.ResponseWriter, r *http.Request, u models.Use
 	http.Redirect(w, r, userPath(u.ID, "dexa"), http.StatusSeeOther)
 }
 
-func (s *Server) dexaDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) dexaDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	id, ok := itemID(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -65,7 +65,7 @@ func (s *Server) dexaDelete(w http.ResponseWriter, r *http.Request, u models.Use
 
 // ---- scale readings ----
 
-func (s *Server) scalePage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
+func (s *Frontend) scalePage(w http.ResponseWriter, r *http.Request, u models.User, errMsg string, status int) {
 	before := r.URL.Query().Get("before")
 	page, err := s.api.ScalePage(r.Context(), u.ID, before)
 	if err != nil {
@@ -94,7 +94,7 @@ type pager struct {
 	Paged bool   // this is not the first page
 }
 
-func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) scaleCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	rd := models.ScaleReading{UserID: u.ID, Source: models.SourceManual, AthleteMode: r.PostFormValue("athlete_mode") != ""}
 	var err error
 	if rd.MeasuredAt, err = parseWhen(r.PostFormValue("measured_at"), dateTimeLayout, u.Location()); err == nil {
@@ -119,7 +119,7 @@ func (s *Server) scaleCreate(w http.ResponseWriter, r *http.Request, u models.Us
 	http.Redirect(w, r, userPath(u.ID, "scale"), http.StatusSeeOther)
 }
 
-func (s *Server) scaleDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) scaleDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	id, ok := itemID(r)
 	if !ok {
 		http.NotFound(w, r)

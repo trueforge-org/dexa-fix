@@ -10,7 +10,7 @@ import (
 
 // Internal endpoints for the estimates and settings pages and the HTML exports.
 
-func (s *Server) internalSettingsRoutes(mux *http.ServeMux) {
+func (s *Backend) internalSettingsRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix + "/users/{id}"
 	mux.HandleFunc("GET "+p+"/pages/estimates", s.internalUser(s.internalEstimatesPage))
 	mux.HandleFunc("POST "+p+"/estimates/columns", s.internalUser(s.internalColumnsSave))
@@ -20,7 +20,7 @@ func (s *Server) internalSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+p+"/export/data", s.internalUser(s.internalExportData))
 }
 
-func (s *Server) internalEstimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalEstimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
 	res, err := s.computeEstimates(r, u)
 	if err != nil {
 		internalError(w, err)
@@ -32,7 +32,7 @@ func (s *Server) internalEstimatesPage(w http.ResponseWriter, r *http.Request, u
 	})
 }
 
-func (s *Server) internalColumnsSave(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalColumnsSave(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct {
 		Hidden []string `json:"hidden"`
 	}
@@ -56,7 +56,7 @@ func (s *Server) internalColumnsSave(w http.ResponseWriter, r *http.Request, u m
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalSettingsPage(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSettingsPage(w http.ResponseWriter, r *http.Request, u models.User) {
 	pg, err := s.settingsPageData(r, u)
 	if err != nil {
 		internalError(w, err)
@@ -66,7 +66,7 @@ func (s *Server) internalSettingsPage(w http.ResponseWriter, r *http.Request, u 
 }
 
 // settingsPageData collects what the settings page shows besides the user.
-func (s *Server) settingsPageData(r *http.Request, u models.User) (apiclient.SettingsPage, error) {
+func (s *Backend) settingsPageData(r *http.Request, u models.User) (apiclient.SettingsPage, error) {
 	sec, err := s.securityView(r, u, "")
 	if err != nil {
 		return apiclient.SettingsPage{}, err
@@ -81,7 +81,7 @@ func (s *Server) settingsPageData(r *http.Request, u models.User) (apiclient.Set
 	}, nil
 }
 
-func (s *Server) internalSettingsSave(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSettingsSave(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in apiclient.Settings
 	if !internalDecode(w, r, &in) {
 		return
@@ -93,7 +93,7 @@ func (s *Server) internalSettingsSave(w http.ResponseWriter, r *http.Request, u 
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalExportProfile(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalExportProfile(w http.ResponseWriter, r *http.Request, u models.User) {
 	e, err := s.buildProfileExport(r, u)
 	if err != nil {
 		internalError(w, err)
@@ -103,7 +103,7 @@ func (s *Server) internalExportProfile(w http.ResponseWriter, r *http.Request, u
 	sendExport(w, "profile", u.ID, e)
 }
 
-func (s *Server) internalExportData(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalExportData(w http.ResponseWriter, r *http.Request, u models.User) {
 	e, err := s.buildDataExport(r.Context(), u)
 	if err != nil {
 		internalError(w, err)

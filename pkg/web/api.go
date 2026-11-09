@@ -75,7 +75,7 @@ func orEmpty[T any](s []T) []T {
 }
 
 // apiUser allows a request to act only on the authenticated user's own data.
-func (s *Server) apiUser(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Backend) apiUser(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -92,7 +92,7 @@ func (s *Server) apiUser(h func(http.ResponseWriter, *http.Request, models.User)
 }
 
 // apiAdmin restricts an endpoint to administrators.
-func (s *Server) apiAdmin(h http.HandlerFunc) http.HandlerFunc {
+func (s *Backend) apiAdmin(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -112,7 +112,7 @@ func apiUnauthorized(w http.ResponseWriter) {
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 }
 
-func (s *Server) apiRoutes(mux *http.ServeMux) {
+func (s *Backend) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		us, err := s.store.ListUsers(r.Context())
 		if err != nil {

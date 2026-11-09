@@ -12,7 +12,7 @@ import (
 // Internal endpoints for signing in. A step answers with a SignInOutcome; the cookies it sets
 // travel back in Set-Cookie headers, which the frontend relays to the browser unchanged.
 
-func (s *Server) internalSignInRoutes(mux *http.ServeMux) {
+func (s *Backend) internalSignInRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix
 	mux.HandleFunc("GET "+p+"/pages/login", s.internalLoginPage)
 	mux.HandleFunc("POST "+p+"/auth/password", s.internalLogin)
@@ -28,7 +28,7 @@ func signInRedirect(w http.ResponseWriter, target string) {
 	internalJSON(w, http.StatusOK, apiclient.SignInOutcome{Redirect: target})
 }
 
-func (s *Server) internalLoginPage(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLoginPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	hasUsers, err := s.store.HasUsers(ctx)
 	if err != nil {
@@ -53,7 +53,7 @@ func (s *Server) internalLoginPage(w http.ResponseWriter, r *http.Request) {
 
 // internalSignIn is signIn for the internal API: it starts the session (or the second step) and
 // answers where to continue.
-func (s *Server) internalSignIn(w http.ResponseWriter, r *http.Request, u models.User, method string) {
+func (s *Backend) internalSignIn(w http.ResponseWriter, r *http.Request, u models.User, method string) {
 	target, err := s.signInTarget(w, r, u, method)
 	if err != nil {
 		internalError(w, err)
@@ -62,7 +62,7 @@ func (s *Server) internalSignIn(w http.ResponseWriter, r *http.Request, u models
 	signInRedirect(w, target)
 }
 
-func (s *Server) internalLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Email, Password string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -89,7 +89,7 @@ func (s *Server) internalLogin(w http.ResponseWriter, r *http.Request) {
 	s.internalSignIn(w, r, u, models.ProviderLocal)
 }
 
-func (s *Server) internalSignup(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Name, Email, Password, Confirm string }
 	if !internalDecode(w, r, &in) {
 		return

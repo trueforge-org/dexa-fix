@@ -31,7 +31,7 @@ const (
 	defaultPasskeyName  = "Passkey"
 )
 
-func (s *Server) passkeyRoutes(mux *http.ServeMux) {
+func (s *Frontend) passkeyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /passkey/login/begin", s.passkeyLoginBegin)
 	mux.HandleFunc("POST /passkey/login/finish", s.passkeyLoginFinish)
 	mux.HandleFunc("POST /u/{id}/passkeys/begin", s.user(s.passkeyRegisterBegin))
@@ -46,7 +46,7 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 
 // passkeyFail answers the browser script with the backend's refusal, in the {"error": ...} shape
 // it shows. A failure of the backend itself is a plain server error.
-func (s *Server) passkeyFail(w http.ResponseWriter, err error) {
+func (s *Frontend) passkeyFail(w http.ResponseWriter, err error) {
 	var e *apiclient.Error
 	if errors.As(err, &e) {
 		jsonError(w, e.Status, e.Message)
@@ -56,7 +56,7 @@ func (s *Server) passkeyFail(w http.ResponseWriter, err error) {
 }
 
 // passkeyOptions answers with the WebAuthn options the backend made.
-func (s *Server) passkeyOptions(w http.ResponseWriter, opts json.RawMessage, err error) {
+func (s *Frontend) passkeyOptions(w http.ResponseWriter, opts json.RawMessage, err error) {
 	if err != nil {
 		s.passkeyFail(w, err)
 		return
@@ -66,7 +66,7 @@ func (s *Server) passkeyOptions(w http.ResponseWriter, opts json.RawMessage, err
 }
 
 // passkeyRedirect answers the browser script with where to go next.
-func (s *Server) passkeyRedirect(w http.ResponseWriter, o apiclient.SignInOutcome, err error) {
+func (s *Frontend) passkeyRedirect(w http.ResponseWriter, o apiclient.SignInOutcome, err error) {
 	if err != nil {
 		s.passkeyFail(w, err)
 		return
@@ -76,19 +76,19 @@ func (s *Server) passkeyRedirect(w http.ResponseWriter, o apiclient.SignInOutcom
 
 // ---- registering a passkey (signed in) ----
 
-func (s *Server) passkeyRegisterBegin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) passkeyRegisterBegin(w http.ResponseWriter, r *http.Request, u models.User) {
 	opts, err := s.api.PasskeyRegisterBegin(r.Context(), u.ID, r.PostFormValue("name"), r.PostFormValue("current"))
 	s.passkeyOptions(w, opts, err)
 }
 
-func (s *Server) passkeyRegisterFinish(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) passkeyRegisterFinish(w http.ResponseWriter, r *http.Request, u models.User) {
 	o, err := s.api.PasskeyRegisterFinish(r.Context(), u.ID, http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	s.passkeyRedirect(w, o, err)
 }
 
 // ---- managing passkeys ----
 
-func (s *Server) passkeyRename(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) passkeyRename(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	err := s.api.RenamePasskey(r.Context(), u.ID, r.PathValue("cred"), name)
 	switch {
@@ -103,7 +103,7 @@ func (s *Server) passkeyRename(w http.ResponseWriter, r *http.Request, u models.
 	}
 }
 
-func (s *Server) passkeyDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) passkeyDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	msg, err := s.api.DeletePasskey(r.Context(), u.ID, r.PathValue("cred"), r.PostFormValue("current"))
 	if err != nil {
 		s.settingsError(w, r, u, err)
@@ -114,12 +114,12 @@ func (s *Server) passkeyDelete(w http.ResponseWriter, r *http.Request, u models.
 
 // ---- signing in with a passkey ----
 
-func (s *Server) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
+func (s *Frontend) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 	opts, err := s.api.PasskeyLoginBegin(r.Context())
 	s.passkeyOptions(w, opts, err)
 }
 
-func (s *Server) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
+func (s *Frontend) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 	o, err := s.api.PasskeyLoginFinish(r.Context(), http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	s.passkeyRedirect(w, o, err)
 }

@@ -26,7 +26,7 @@ type mfaState struct {
 
 // ---- policy and state ----
 
-func (s *Server) twoFactorPolicy(ctx context.Context) string {
+func (s *Backend) twoFactorPolicy(ctx context.Context) string {
 	v, err := s.store.GetSetting(ctx, settingRequire2FA)
 	if err != nil {
 		return require2FAOff
@@ -39,7 +39,7 @@ func (s *Server) twoFactorPolicy(ctx context.Context) string {
 }
 
 // twoFactorRequired reports whether the policy covers the user.
-func (s *Server) twoFactorRequired(ctx context.Context, u models.User) bool {
+func (s *Backend) twoFactorRequired(ctx context.Context, u models.User) bool {
 	switch s.twoFactorPolicy(ctx) {
 	case require2FAEveryone:
 		return true
@@ -50,7 +50,7 @@ func (s *Server) twoFactorRequired(ctx context.Context, u models.User) bool {
 }
 
 // hasTwoFactor reports whether the user finished setting up two-step verification.
-func (s *Server) hasTwoFactor(ctx context.Context, userID int64) (bool, error) {
+func (s *Backend) hasTwoFactor(ctx context.Context, userID int64) (bool, error) {
 	t, err := s.store.GetTOTP(ctx, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -60,7 +60,7 @@ func (s *Server) hasTwoFactor(ctx context.Context, userID int64) (bool, error) {
 
 // secondFactorBlocked reports whether too many wrong codes were tried for the account or from the
 // client address.
-func (s *Server) secondFactorBlocked(r *http.Request, userID int64) bool {
+func (s *Backend) secondFactorBlocked(r *http.Request, userID int64) bool {
 	return s.limiter.Blocked(mfaKey(userID), maxMFAFail) || s.limiter.Blocked(ipKey(r), maxIPFail)
 }
 
@@ -68,7 +68,7 @@ func mfaKey(userID int64) string { return "mfa:" + strconv.FormatInt(userID, 10)
 
 // verifySecondFactor checks a six-digit code or a recovery code. A code works once: the step is
 // recorded atomically, so two requests with the same code cannot both succeed.
-func (s *Server) verifySecondFactor(ctx context.Context, userID int64, input string) (ok, recovery bool, err error) {
+func (s *Backend) verifySecondFactor(ctx context.Context, userID int64, input string) (ok, recovery bool, err error) {
 	if looksLikeTOTP(input) {
 		t, err := s.store.GetTOTP(ctx, userID)
 		if errors.Is(err, store.ErrNotFound) || (err == nil && !t.Confirmed) {
@@ -93,7 +93,7 @@ func (s *Server) verifySecondFactor(ctx context.Context, userID int64, input str
 
 // pendingTOTPSecret returns the secret of a setup that is not confirmed yet, creating one when
 // there is none, so reloading the page keeps showing the same QR code.
-func (s *Server) pendingTOTPSecret(ctx context.Context, userID int64) (string, error) {
+func (s *Backend) pendingTOTPSecret(ctx context.Context, userID int64) (string, error) {
 	t, err := s.store.GetTOTP(ctx, userID)
 	switch {
 	case err == nil && t.Confirmed:
@@ -110,14 +110,14 @@ func (s *Server) pendingTOTPSecret(ctx context.Context, userID int64) (string, e
 	return secret, s.store.PutPendingTOTP(ctx, userID, secret)
 }
 
-func (s *Server) totpIssuer() string {
+func (s *Backend) totpIssuer() string {
 	if base := s.cfg().baseURL; base != nil && base.Hostname() != "" {
 		return base.Hostname()
 	}
 	return defaultTOTPIssuer
 }
 
-func (s *Server) twoFactorSetupFor(u models.User, secret string) (*twoFactorSetup, error) {
+func (s *Backend) twoFactorSetupFor(u models.User, secret string) (*twoFactorSetup, error) {
 	account := u.Email
 	if account == "" {
 		account = u.Name
@@ -142,7 +142,7 @@ func groupSecret(secret string) string {
 }
 
 // issueRecoveryCodes replaces the user's recovery codes with a new set and returns it.
-func (s *Server) issueRecoveryCodes(ctx context.Context, userID int64) ([]string, error) {
+func (s *Backend) issueRecoveryCodes(ctx context.Context, userID int64) ([]string, error) {
 	codes, err := newRecoveryCodes(recoveryCodeCount)
 	if err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (s *Server) issueRecoveryCodes(ctx context.Context, userID int64) ([]string
 
 // ---- the signed cookie between password and second step ----
 
-func (s *Server) setMFACookie(w http.ResponseWriter, r *http.Request, st mfaState) error {
+func (s *Backend) setMFACookie(w http.ResponseWriter, r *http.Request, st mfaState) error {
 	sealed, _, err := s.sealValue(sealMFA, st, mfaTTL)
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func clearMFACookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: mfaCookie, Path: "/login/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r)})
 }
 
-func (s *Server) readMFA(r *http.Request) (st mfaState, nonce string, expires time.Time, ok bool) {
+func (s *Backend) readMFA(r *http.Request) (st mfaState, nonce string, expires time.Time, ok bool) {
 	c, err := r.Cookie(mfaCookie)
 	if err != nil {
 		return st, "", time.Time{}, false
@@ -183,7 +183,7 @@ func (s *Server) readMFA(r *http.Request) (st mfaState, nonce string, expires ti
 
 // secondStep is called by signInTarget for a password sign-in. It returns the page to continue on
 // when a second step (or a required setup) comes first, and "" when the sign-in can finish.
-func (s *Server) secondStep(w http.ResponseWriter, r *http.Request, u models.User, method string) (string, error) {
+func (s *Backend) secondStep(w http.ResponseWriter, r *http.Request, u models.User, method string) (string, error) {
 	ctx := r.Context()
 	has, err := s.hasTwoFactor(ctx, u.ID)
 	if err != nil {
@@ -199,7 +199,7 @@ func (s *Server) secondStep(w http.ResponseWriter, r *http.Request, u models.Use
 }
 
 // hasLocalPassword reports whether the user can sign in with a password.
-func (s *Server) hasLocalPassword(ctx context.Context, u models.User) (bool, error) {
+func (s *Backend) hasLocalPassword(ctx context.Context, u models.User) (bool, error) {
 	_, err := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -224,7 +224,7 @@ type adminStepUp struct {
 	UID int64 `json:"u"`
 }
 
-func (s *Server) markAdminVerified(w http.ResponseWriter, r *http.Request, userID int64) {
+func (s *Backend) markAdminVerified(w http.ResponseWriter, r *http.Request, userID int64) {
 	sealed, _, err := s.sealValue(sealAdminStep, adminStepUp{UID: userID}, adminStepUpTTL)
 	if err != nil {
 		return // the admin is asked again; nothing else depends on it
@@ -235,7 +235,7 @@ func (s *Server) markAdminVerified(w http.ResponseWriter, r *http.Request, userI
 	})
 }
 
-func (s *Server) adminVerified(r *http.Request, userID int64) bool {
+func (s *Backend) adminVerified(r *http.Request, userID int64) bool {
 	c, err := r.Cookie(adminCookie)
 	if err != nil {
 		return false
@@ -246,7 +246,7 @@ func (s *Server) adminVerified(r *http.Request, userID int64) bool {
 }
 
 // needsAdminStepUp reports whether the administrator has to enter a code before the Admin pages.
-func (s *Server) needsAdminStepUp(r *http.Request, u models.User) (bool, error) {
+func (s *Backend) needsAdminStepUp(r *http.Request, u models.User) (bool, error) {
 	has, err := s.hasTwoFactor(r.Context(), u.ID)
 	if err != nil || !has {
 		return false, err
@@ -256,7 +256,7 @@ func (s *Server) needsAdminStepUp(r *http.Request, u models.User) (bool, error) 
 
 // ---- the internal endpoints ----
 
-func (s *Server) internalTwoFactorRoutes(mux *http.ServeMux) {
+func (s *Backend) internalTwoFactorRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix + "/users/{id}/2fa"
 	mux.HandleFunc("POST "+p+"/begin", s.internalUser(s.internalTwoFactorBegin))
 	mux.HandleFunc("POST "+p+"/confirm", s.internalUser(s.internalTwoFactorConfirm))
@@ -269,7 +269,7 @@ func (s *Server) internalTwoFactorRoutes(mux *http.ServeMux) {
 // internalAdminBasic allows only administrators, without the step-up proof: for the endpoints that
 // ask for it. It answers 401 with CodeUnauthorized when nobody is signed in and 403 with
 // CodeForbidden when the user is not an administrator.
-func (s *Server) internalAdminBasic(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Backend) internalAdminBasic(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -289,7 +289,7 @@ func (s *Server) internalAdminBasic(h func(http.ResponseWriter, *http.Request, m
 // proved it recently (the step-up cookie from the visitor's request). It answers CodeUnauthorized,
 // CodeForbidden or, when the proof is missing, 403 with CodeStepUp. The frontend's own checks are
 // a convenience; this is the one that counts.
-func (s *Server) internalAdmin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Backend) internalAdmin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return s.internalAdminBasic(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		need, err := s.needsAdminStepUp(r, u)
 		if err != nil {
@@ -304,7 +304,7 @@ func (s *Server) internalAdmin(h func(http.ResponseWriter, *http.Request, models
 	})
 }
 
-func (s *Server) internalAdminStepUp(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminStepUp(w http.ResponseWriter, r *http.Request, u models.User) {
 	need, err := s.needsAdminStepUp(r, u)
 	if err != nil {
 		internalError(w, err)
@@ -313,7 +313,7 @@ func (s *Server) internalAdminStepUp(w http.ResponseWriter, r *http.Request, u m
 	internalJSON(w, http.StatusOK, map[string]bool{"needed": need})
 }
 
-func (s *Server) internalAdminVerify(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalAdminVerify(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -345,7 +345,7 @@ func (s *Server) internalAdminVerify(w http.ResponseWriter, r *http.Request, u m
 
 // internalCheckSecondFactor verifies the code for a change on the settings page. It reports whether
 // to go on; if not, the answer has been written.
-func (s *Server) internalCheckSecondFactor(w http.ResponseWriter, r *http.Request, u models.User, code string) bool {
+func (s *Backend) internalCheckSecondFactor(w http.ResponseWriter, r *http.Request, u models.User, code string) bool {
 	if s.secondFactorBlocked(r, u.ID) {
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "")
 		internalFail(w, http.StatusTooManyRequests, apiclient.CodeThrottled, "Too many wrong codes. Try again later.")
@@ -371,7 +371,7 @@ func invalid2FA(w http.ResponseWriter, msg string) {
 	internalFail(w, http.StatusUnprocessableEntity, apiclient.CodeInvalid, msg)
 }
 
-func (s *Server) internalTwoFactorBegin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTwoFactorBegin(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Current string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -404,7 +404,7 @@ func (s *Server) internalTwoFactorBegin(w http.ResponseWriter, r *http.Request, 
 	internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Setup: setup})
 }
 
-func (s *Server) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -454,7 +454,7 @@ func (s *Server) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Request
 	internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Codes: codes})
 }
 
-func (s *Server) internalTwoFactorDisable(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTwoFactorDisable(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Current, Code string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -475,7 +475,7 @@ func (s *Server) internalTwoFactorDisable(w http.ResponseWriter, r *http.Request
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalTwoFactorRecovery(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTwoFactorRecovery(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Current, Code string }
 	if !internalDecode(w, r, &in) {
 		return

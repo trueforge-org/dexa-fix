@@ -2,15 +2,22 @@ package web
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"html/template"
+	"io/fs"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
@@ -22,28 +29,112 @@ import (
 // HTTPS and HTTP/3). The administrator settings it acts on come from the backend, see
 // RefreshConfig.
 
-// NewFrontend builds a frontend that talks to the backend through api. Call RefreshConfig before
-// serving, and StartConfigPoll to follow changes.
-func NewFrontend(api *apiclient.Client) (*Server, error) {
-	s, err := newServer()
-	if err != nil {
-		return nil, err
+// Frontend is the half of the application that renders pages. It has no database and no keys: it
+// asks the backend for everything through api, the internal API over HTTP, and acts only on the
+// few administrator settings the backend hands it (frontendSettings). The Backend is another type,
+// so nothing here can reach its fields.
+type Frontend struct {
+	*jobGroup // the settings poll, stopped by Close
+
+	api       *apiclient.Client // how the page handlers reach the backend
+	tmpl      map[string]*template.Template
+	assetVer  map[string]string // content hash per static file, for cache-busting URLs
+	proxy     edge.Proxy
+	unlimited bool // the combined process has no request limits of its own
+
+	// Version is shown on the admin page.
+	Version string
+
+	live atomic.Pointer[frontendSettings]           // the settings in force, see RefreshConfig
+	cop  atomic.Pointer[http.CrossOriginProtection] // rebuilt when the base URL changes
+
+	cfgMu         sync.Mutex // serialises RefreshConfig
+	configETag    string     // of the frontend config in force
+	warnedVersion bool
+
+	apiUpstream *httputil.ReverseProxy // where /api/ goes, if set
+	apiHandler  http.Handler           // the public API of an in-process backend, if set
+
+	listenAddr string     // address of the TCP listener, set by WrapListener; HTTP/3 uses the same port on UDP
+	lmu        sync.Mutex // guards the HTTPS and HTTP/3 servers below
+	handler    http.Handler
+	https      *http.Server
+	httpsPort  string
+	h3         *http3.Server
+	h3port     string
+	bindErr    string
+}
+
+// frontendSettings is the set of administrator settings the frontend acts on, a part of the
+// backend's (see liveSettings). It is replaced as a whole, so a request sees one consistent set.
+type frontendSettings struct {
+	baseURL       *url.URL
+	trusted       []netip.Prefix
+	proxyProtocol bool
+	tlsMode       string // off, upload or selfsigned
+	tlsCert       *tls.Certificate
+	tlsInfo       *tlsInfo
+	http3         bool
+	httpsPort     string // TCP port for HTTPS, and UDP port for HTTP/3
+}
+
+// NewFrontend builds a frontend that talks to the backend through api and parses the embedded
+// templates. Call RefreshConfig before serving, and StartConfigPoll to follow changes.
+func NewFrontend(api *apiclient.Client) (*Frontend, error) {
+	s := &Frontend{
+		jobGroup: newJobGroup(),
+		api:      api,
+		tmpl:     map[string]*template.Template{},
 	}
-	s.api = api
-	s.swapSettings(&liveSettings{tlsMode: tlsOff, httpsPort: defaultHTTPSPort})
+	static, _ := fs.Sub(assets, "static")
+	s.assetVer = staticVersions(static)
+	funcs := template.FuncMap{
+		"day": func(t time.Time) string { return t.Format("2006-01-02") },
+		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
+
+		"initial":   initial,
+		"help":      help,
+		"timezones": func() []string { return commonTimezones },
+		"asset":     s.assetURL,
+	}
+	for _, p := range pages {
+		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", p, err)
+		}
+		s.tmpl[p] = t
+	}
+	s.swapSettings(&frontendSettings{tlsMode: tlsOff, httpsPort: defaultHTTPSPort})
 	return s, nil
 }
 
-// isFrontendOnly reports whether this process has no database of its own.
-func (s *Server) isFrontendOnly() bool { return s.store == nil }
+// Close cancels the background jobs and waits for them to stop, and stops the HTTPS and HTTP/3
+// servers. Call it after the HTTP server has been shut down.
+func (s *Frontend) Close() {
+	s.stopJobs()
+	s.closeListeners()
+}
+
+// cfg returns the settings in force. It is never nil.
+func (s *Frontend) cfg() *frontendSettings { return s.live.Load() }
+
+// swapSettings replaces the settings in force and rebuilds what depends on them.
+func (s *Frontend) swapSettings(l *frontendSettings) {
+	s.live.Store(l)
+	s.cop.Store(newCrossOriginProtection(l.baseURL))
+}
+
+func (s *Frontend) proxyHeaders(next http.Handler) http.Handler {
+	return s.proxy.Headers(func() (*url.URL, []netip.Prefix) {
+		l := s.cfg()
+		return l.baseURL, l.trusted
+	}, next)
+}
 
 // RefreshConfig fetches the settings from the backend and puts them in force if they changed.
-//
-// In the combined process the settings are already in force, so it does nothing there.
-func (s *Server) RefreshConfig(ctx context.Context) error {
-	if s.store != nil {
-		return nil
-	}
+func (s *Frontend) RefreshConfig(ctx context.Context) error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	cfg, etag, err := s.api.FrontendConfig(ctx, s.configETag)
 	if err != nil {
 		return err
@@ -64,8 +155,8 @@ func (s *Server) RefreshConfig(ctx context.Context) error {
 
 // applyFrontendConfig puts the settings in force and rebuilds what depends on them: the
 // same-origin check and the listeners.
-func (s *Server) applyFrontendConfig(c apiclient.FrontendConfig) error {
-	l := &liveSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol}
+func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
+	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol}
 	if l.tlsMode != tlsUpload && l.tlsMode != tlsSelfSigned {
 		l.tlsMode = tlsOff
 	}
@@ -95,7 +186,7 @@ func (s *Server) applyFrontendConfig(c apiclient.FrontendConfig) error {
 
 // WaitForBackend fetches the first configuration, retrying until the backend answers or timeout
 // passes, so a frontend started together with its backend does not give up too early.
-func (s *Server) WaitForBackend(ctx context.Context, timeout time.Duration) error {
+func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	delay := 250 * time.Millisecond
 	for {
@@ -125,7 +216,7 @@ var configPollInterval = 5 * time.Second
 
 // StartConfigPoll follows changes to the settings until Close. A backend that is down is not an
 // error here: the frontend keeps the last good settings.
-func (s *Server) StartConfigPoll() {
+func (s *Frontend) StartConfigPoll() {
 	s.startJob(func() {
 		for {
 			wait := configPollInterval + time.Duration(rand.Int64N(int64(configPollInterval/5)+1))
@@ -157,7 +248,7 @@ const (
 // frontendLimiter returns the middleware that applies the frontend's load budget: a cap on
 // requests being served at once (excess ones get a cheap 503 page) and a rate per client address,
 // stricter for the unauthenticated POSTs that cost the backend the most.
-func (s *Server) frontendLimiter() func(http.Handler) http.Handler {
+func (s *Frontend) frontendLimiter() func(http.Handler) http.Handler {
 	general := &edge.Limiter{
 		MaxInFlight: frontendMaxInFlight, MaxQueue: frontendMaxQueue, MaxWait: 2 * time.Second,
 		Rate: frontendRate, Burst: frontendBurst,
@@ -192,7 +283,7 @@ func unauthenticatedPost(path string) bool {
 // SetAPIUpstream makes the frontend pass /api/ on to the backend's public listener, for setups with
 // one public address and no reverse proxy that routes by path. The backend must list this process
 // among its trusted proxies to see visitors' addresses.
-func (s *Server) SetAPIUpstream(u *url.URL) {
+func (s *Frontend) SetAPIUpstream(u *url.URL) {
 	s.apiUpstream = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
@@ -226,14 +317,19 @@ func (s *Server) SetAPIUpstream(u *url.URL) {
 	}
 }
 
+// SetAPIHandler serves /api/ with h, the public API of a backend in the same process.
+func (s *Frontend) SetAPIHandler(h http.Handler) { s.apiHandler = h }
+
 // limitFrontend turns the frontend's request limits on. Tests that drive a frontend hard from one
 // address turn it off.
 var limitFrontend = true
 
-// frontendOnlyRoutes are the routes of a frontend that has no database: the API passthrough (or a
-// clear answer where the API lives) and the readiness check.
-func (s *Server) frontendOnlyRoutes(mux *http.ServeMux) {
-	if s.apiUpstream != nil {
+// frontendAPIRoutes are the routes the frontend adds to the pages: /api/ (served by an in-process
+// backend, passed on to the api process, or a clear answer where the API lives) and the readiness check.
+func (s *Frontend) frontendAPIRoutes(mux *http.ServeMux) {
+	if s.apiHandler != nil {
+		mux.Handle("/api/", s.apiHandler)
+	} else if s.apiUpstream != nil {
 		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Del("Cache-Control") // the API chooses its own caching
 			s.apiUpstream.ServeHTTP(w, r)

@@ -26,7 +26,7 @@ type sealedEnvelope struct {
 
 // sealValue signs v for the given purpose; it is valid for ttl. The nonce is returned so that the
 // caller can keep it for single use.
-func (s *Server) sealValue(purpose string, v any, ttl time.Duration) (sealed, nonce string, err error) {
+func (s *Backend) sealValue(purpose string, v any, ttl time.Duration) (sealed, nonce string, err error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return "", "", err
@@ -45,7 +45,7 @@ func (s *Server) sealValue(purpose string, v any, ttl time.Duration) (sealed, no
 // openValue verifies a value made by sealValue for the same purpose and decodes it into v. It
 // returns the nonce and the expiry, and false for anything forged, made for another purpose,
 // malformed or expired.
-func (s *Server) openValue(purpose, sealed string, v any) (nonce string, expires time.Time, ok bool) {
+func (s *Backend) openValue(purpose, sealed string, v any) (nonce string, expires time.Time, ok bool) {
 	payload, mac, found := strings.Cut(sealed, ".")
 	if !found || !hmac.Equal([]byte(mac), []byte(s.sealMAC(purpose, payload))) {
 		return "", time.Time{}, false
@@ -64,7 +64,7 @@ func (s *Server) openValue(purpose, sealed string, v any) (nonce string, expires
 	return env.Nonce, time.Unix(env.Expires, 0), true
 }
 
-func (s *Server) sealMAC(purpose, payload string) string {
+func (s *Backend) sealMAC(purpose, payload string) string {
 	m := hmac.New(sha256.New, s.cookieKey)
 	m.Write([]byte(purpose))
 	m.Write([]byte{0})

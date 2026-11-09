@@ -111,6 +111,6 @@ func (c *estimateCache) evictOldest() {
 
 // estimateETag identifies the estimates API response of a user: it changes with their data, the
 // day and the running version of the program, and so lets clients keep their own copy.
-func (s *Server) estimateETag(userID, version int64, day string) string {
+func (s *Backend) estimateETag(userID, version int64, day string) string {
 	return `W/"est-` + strconv.FormatInt(userID, 10) + "-" + strconv.FormatInt(version, 10) + "-" + day + "-" + hashToken(s.Version)[:8] + `"`
 }

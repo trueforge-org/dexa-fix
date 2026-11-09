@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"net/http"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -60,33 +59,18 @@ type liveSettings struct {
 type smtpSettings = apiclient.SMTPView
 
 // cfg returns the settings in force. It is never nil.
-func (s *Server) cfg() *liveSettings { return s.live.Load() }
+func (s *Backend) cfg() *liveSettings { return s.live.Load() }
 
 // swapSettings replaces the settings in force and rebuilds what depends on them.
-func (s *Server) swapSettings(l *liveSettings) {
+func (s *Backend) swapSettings(l *liveSettings) {
 	s.live.Store(l)
-	s.cop.Store(newCrossOriginProtection(l.baseURL))
 	if s.onSettings != nil {
 		s.onSettings()
 	}
 }
 
-// newCrossOriginProtection builds the same-origin check that guards the cookie-authenticated
-// forms. The Apple callback arrives as a cross-site POST and is protected by its signed state
-// instead. A configured base URL is a trusted origin too.
-func newCrossOriginProtection(base *url.URL) *http.CrossOriginProtection {
-	cop := http.NewCrossOriginProtection()
-	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
-	if base != nil {
-		if err := cop.AddTrustedOrigin(base.Scheme + "://" + base.Host); err != nil {
-			log.Error().Err(err).Msg("base URL not accepted as a trusted origin")
-		}
-	}
-	return cop
-}
-
 // settingValue returns a stored setting, "" when it was never set.
-func (s *Server) settingValue(ctx context.Context, name string) (string, error) {
+func (s *Backend) settingValue(ctx context.Context, name string) (string, error) {
 	v, err := s.store.GetSetting(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", nil
@@ -95,7 +79,7 @@ func (s *Server) settingValue(ctx context.Context, name string) (string, error) 
 }
 
 // settingDays reads a number of days; an unset or invalid value gives def.
-func (s *Server) settingDays(ctx context.Context, name string, def int) (int, error) {
+func (s *Backend) settingDays(ctx context.Context, name string, def int) (int, error) {
 	v, err := s.settingValue(ctx, name)
 	if err != nil || v == "" {
 		return def, err
@@ -109,7 +93,7 @@ func (s *Server) settingDays(ctx context.Context, name string, def int) (int, er
 }
 
 // loadSMTP reads the e-mail settings.
-func (s *Server) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSettings, err error) {
+func (s *Backend) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSettings, err error) {
 	get := func(name string) string {
 		if err != nil {
 			return ""
@@ -137,7 +121,7 @@ func (s *Server) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSet
 
 // reloadSettings reads the administrator settings from the database and puts them in force. A
 // stored value that no longer parses is skipped with a warning, so a bad row cannot stop the server.
-func (s *Server) reloadSettings(ctx context.Context) error {
+func (s *Backend) reloadSettings(ctx context.Context) error {
 	l := &liveSettings{}
 
 	if v, err := s.settingValue(ctx, settingBaseURL); err != nil {
@@ -202,34 +186,27 @@ func (s *Server) reloadSettings(ctx context.Context) error {
 		}
 	}
 	s.swapSettings(l)
-	s.applyListeners()
 	return nil
 }
 
 // SetBaseURL and SetTrustedProxies put a value in force without storing it. They exist for tests;
 // the application changes these settings through the Admin page.
-func (s *Server) SetBaseURL(u *url.URL) {
+func (s *Backend) SetBaseURL(u *url.URL) {
 	l := *s.cfg()
 	l.baseURL = u
 	s.swapSettings(&l)
 }
 
-func (s *Server) SetTrustedProxies(p []netip.Prefix) {
+func (s *Backend) SetTrustedProxies(p []netip.Prefix) {
 	l := *s.cfg()
 	l.trusted = p
 	s.swapSettings(&l)
 }
 
-// ProxyProtocolEnabled and TrustedProxies are read by the listener wrapper (see proxyprotocol.go).
-func (s *Server) proxyProtocolPolicy() (enabled bool, trusted []netip.Prefix) {
-	l := s.cfg()
-	return l.proxyProtocol, l.trusted
-}
-
 // selfServiceReset reports whether users can ask for a reset e-mail: password sign-in is on, an
 // SMTP server is set up, and the public address is known (e-mailed links must not be built from a
 // Host header the sender of the request controls).
-func (s *Server) selfServiceReset(ctx context.Context) bool {
+func (s *Backend) selfServiceReset(ctx context.Context) bool {
 	l := s.cfg()
 	return l.mailer != nil && l.baseURL != nil && s.passwordEnabled(ctx)
 }

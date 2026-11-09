@@ -17,17 +17,17 @@ type rankRow struct {
 	Rank  int
 }
 
-func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved string, status int) {
+func (s *Frontend) settingsPage(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved string, status int) {
 	s.renderSettings(w, r, u, errMsg, saved, "", status)
 }
 
-func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int) {
+func (s *Frontend) renderSettings(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int) {
 	s.renderSettingsWith(w, r, u, errMsg, saved, newToken, status, nil)
 }
 
 // renderSettingsWith is renderSettings with a chance to add to the sign-in section, for values
 // that are shown once (a QR code, recovery codes).
-func (s *Server) renderSettingsWith(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int, extra func(*securityView)) {
+func (s *Frontend) renderSettingsWith(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int, extra func(*securityView)) {
 	pg, err := s.api.SettingsPage(r.Context(), u.ID, flashParam(r))
 	if err != nil {
 		s.fail(w, err)
@@ -37,7 +37,7 @@ func (s *Server) renderSettingsWith(w http.ResponseWriter, r *http.Request, u mo
 }
 
 // renderSettingsPage shows the settings page from data the caller already has.
-func (s *Server) renderSettingsPage(w http.ResponseWriter, u models.User, pg apiclient.SettingsPage, errMsg, saved, newToken string, status int, extra func(*securityView)) {
+func (s *Frontend) renderSettingsPage(w http.ResponseWriter, u models.User, pg apiclient.SettingsPage, errMsg, saved, newToken string, status int, extra func(*securityView)) {
 	rows := make([]rankRow, len(u.MethodRanking))
 	for i, k := range u.MethodRanking {
 		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
@@ -56,7 +56,7 @@ func (s *Server) renderSettingsPage(w http.ResponseWriter, u models.User, pg api
 	})
 }
 
-func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) settingsSave(w http.ResponseWriter, r *http.Request, u models.User) {
 	type ranked struct {
 		key  string
 		rank int

@@ -13,9 +13,9 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
-// serverWithReminder is a Server whose key reminder in force is d.
-func serverWithReminder(d time.Duration) *Server {
-	s := &Server{}
+// serverWithReminder is a Backend whose key reminder in force is d.
+func serverWithReminder(d time.Duration) *Backend {
+	s := &Backend{}
 	s.swapSettings(&liveSettings{keyReminder: d})
 	return s
 }

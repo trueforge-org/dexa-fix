@@ -16,32 +16,34 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
-// setProxyPolicy puts the PROXY protocol setting and the trusted peers in force on s.
+// setProxyPolicy puts the PROXY protocol setting and the trusted peers in force in the combined
+// server: in the backend, which passes them on to the frontend.
 func setProxyPolicy(t *testing.T, s *Server, enabled bool, trusted string) {
 	t.Helper()
 	p, err := ParseTrustedProxies([]string{trusted})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := liveSettings{}
-	if cur := s.live.Load(); cur != nil {
-		l = *cur
-	}
+	l := *s.cfg()
 	l.proxyProtocol = enabled
 	l.trusted = p
 	s.swapSettings(&l)
 }
 
-// proxyPolicyServer is a Server that only needs the PROXY protocol settings.
-func proxyPolicyServer(t *testing.T, enabled bool, trusted string) *Server {
+// proxyPolicyServer is a Frontend that only needs the PROXY protocol settings.
+func proxyPolicyServer(t *testing.T, enabled bool, trusted string) *Frontend {
 	t.Helper()
-	s := &Server{}
-	setProxyPolicy(t, s, enabled, trusted)
+	p, err := ParseTrustedProxies([]string{trusted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Frontend{}
+	s.swapSettings(&frontendSettings{proxyProtocol: enabled, trusted: p})
 	return s
 }
 
 // listenWrapped listens on a local port through the server's listener wrapper.
-func listenWrapped(t *testing.T, s *Server) net.Listener {
+func listenWrapped(t *testing.T, s *Frontend) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -222,7 +224,7 @@ func TestProxyProtocolReachesTheAuditLog(t *testing.T) {
 	ts, _, st := newAuthServer(t)
 	srv := serverOf(ts)
 	setProxyPolicy(t, srv, true, "127.0.0.1/32")
-	ln := listenWrapped(t, srv)
+	ln := listenWrapped(t, srv.Frontend)
 	hs := &http.Server{Handler: srv.Handler()}
 	go hs.Serve(ln)
 	t.Cleanup(func() { hs.Close() })

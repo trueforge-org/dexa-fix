@@ -29,7 +29,7 @@ type adminView struct {
 	ResetLink *resetLinkView
 }
 
-func (s *Server) adminRoutes(mux *http.ServeMux) {
+func (s *Frontend) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", s.admin(s.adminHome))
 	mux.HandleFunc("POST /admin/users", s.admin(s.adminAddUser))
 	mux.HandleFunc("POST /admin/users/{id}/role", s.admin(s.adminSetRole))
@@ -48,14 +48,14 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 
 // admin restricts a page to administrators. It answers 404 to everyone else so that the page does
 // not advertise itself. It is adminPage under the name the routes use.
-func (s *Server) admin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Frontend) admin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return s.adminPage(h)
 }
 
 // adminPage is the frontend guard of the Admin pages. An administrator with two-step verification
 // on is sent to /admin/verify for a code first; the backend decides (GET /admin/step-up) and
 // enforces the same on every admin endpoint (internalAdmin), so this redirect is a convenience.
-func (s *Server) adminPage(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Frontend) adminPage(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return s.adminBasic(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		need, err := s.api.AdminStepUp(r.Context())
 		if err != nil {
@@ -71,7 +71,7 @@ func (s *Server) adminPage(h func(http.ResponseWriter, *http.Request, models.Use
 }
 
 // adminBasic is admin without the second step: for the page that asks for it.
-func (s *Server) adminBasic(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+func (s *Frontend) adminBasic(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := currentUser(r)
 		if u == nil {
@@ -96,7 +96,7 @@ func adminRedirect(w http.ResponseWriter, r *http.Request, msg string) {
 // adminDone answers a change: it shows the backend's message on the Admin page. A change of the
 // settings this process acts on (base URL, proxies, TLS) is fetched first, so it applies before
 // the redirect.
-func (s *Server) adminDone(w http.ResponseWriter, r *http.Request, res apiclient.AdminResult, err error) {
+func (s *Frontend) adminDone(w http.ResponseWriter, r *http.Request, res apiclient.AdminResult, err error) {
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -105,7 +105,7 @@ func (s *Server) adminDone(w http.ResponseWriter, r *http.Request, res apiclient
 	adminRedirect(w, r, res.Message)
 }
 
-func (s *Server) afterAdminChange(r *http.Request, res apiclient.AdminResult) {
+func (s *Frontend) afterAdminChange(r *http.Request, res apiclient.AdminResult) {
 	if !res.ConfigChanged {
 		return
 	}
@@ -114,12 +114,12 @@ func (s *Server) afterAdminChange(r *http.Request, res apiclient.AdminResult) {
 	}
 }
 
-func (s *Server) adminHome(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Frontend) adminHome(w http.ResponseWriter, r *http.Request, u models.User) {
 	s.renderAdmin(w, r, u, nil)
 }
 
 // renderAdmin shows the Admin page; link is a reset link that is shown once.
-func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, u models.User, link *resetLinkView) {
+func (s *Frontend) renderAdmin(w http.ResponseWriter, r *http.Request, u models.User, link *resetLinkView) {
 	page, err := s.api.AdminPage(r.Context(), r.URL.Query().Get("edit"))
 	if err != nil {
 		s.fail(w, err)
@@ -143,17 +143,17 @@ func targetID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-func (s *Server) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminAddUser(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"))
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSignup(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminSignup(r.Context(), r.PostFormValue("enabled") == "1")
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return
@@ -162,7 +162,7 @@ func (s *Server) adminSetRole(w http.ResponseWriter, r *http.Request, _ models.U
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _ models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return
@@ -171,7 +171,7 @@ func (s *Server) adminSetStrengthLevel(w http.ResponseWriter, r *http.Request, _
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return
@@ -180,7 +180,7 @@ func (s *Server) adminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Reques
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return
@@ -189,7 +189,7 @@ func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request, _ mode
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminDeleteUser(w http.ResponseWriter, r *http.Request, _ models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return
@@ -198,12 +198,12 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request, _ model
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminPasswordLogin(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminPasswordLogin(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminPasswordLogin(r.Context(), r.PostFormValue("enabled") == "1")
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
 	f := r.PostFormValue
 	res, err := s.api.AdminSaveProvider(r.Context(), apiclient.ProviderForm{
 		Slug: f("slug"), Label: f("label"), Kind: f("kind"), Issuer: f("issuer"),
@@ -216,12 +216,12 @@ func (s *Server) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ mod
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminDeleteProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminDeleteProvider(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminDeleteProvider(r.Context(), r.PathValue("slug"))
 	s.adminDone(w, r, res, err)
 }
 
-func (s *Server) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
+func (s *Frontend) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminSaveWithings(r.Context(), apiclient.WithingsForm{
 		ClientID: r.PostFormValue("client_id"), RedirectURL: r.PostFormValue("redirect_url"),
 		ClientSecret: r.PostFormValue("client_secret"), ClearSecret: r.PostFormValue("clear_secret") != "",
@@ -230,7 +230,7 @@ func (s *Server) adminSaveWithings(w http.ResponseWriter, r *http.Request, _ mod
 }
 
 // adminResetLink makes a one-time reset link and shows it on the Admin page.
-func (s *Server) adminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
+func (s *Frontend) adminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
 	id, ok := targetID(w, r)
 	if !ok {
 		return

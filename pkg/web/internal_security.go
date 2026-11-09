@@ -15,7 +15,7 @@ import (
 // Internal endpoints for the account section of the settings page: profile, password, access
 // tokens, linked accounts, and signing out.
 
-func (s *Server) internalSecurityRoutes(mux *http.ServeMux) {
+func (s *Backend) internalSecurityRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix + "/users/{id}"
 	mux.HandleFunc("POST "+p+"/profile", s.internalUser(s.internalProfileSave))
 	mux.HandleFunc("POST "+p+"/password", s.internalUser(s.internalPasswordChange))
@@ -27,7 +27,7 @@ func (s *Server) internalSecurityRoutes(mux *http.ServeMux) {
 
 // internalConfirmPassword is confirmPassword for the internal API. It reports whether to go on; if
 // not, the answer has been written.
-func (s *Server) internalConfirmPassword(w http.ResponseWriter, r *http.Request, u models.User, current string) bool {
+func (s *Backend) internalConfirmPassword(w http.ResponseWriter, r *http.Request, u models.User, current string) bool {
 	if r.PostForm == nil {
 		r.PostForm = map[string][]string{}
 	}
@@ -48,7 +48,7 @@ func (s *Server) internalConfirmPassword(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
-func (s *Server) internalProfileSave(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in apiclient.Profile
 	if !internalDecode(w, r, &in) {
 		return
@@ -101,7 +101,7 @@ func (s *Server) internalProfileSave(w http.ResponseWriter, r *http.Request, u m
 	}
 }
 
-func (s *Server) internalPasswordChange(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalPasswordChange(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in apiclient.PasswordChange
 	if !internalDecode(w, r, &in) {
 		return
@@ -146,7 +146,7 @@ func (s *Server) internalPasswordChange(w http.ResponseWriter, r *http.Request, 
 	internalJSON(w, http.StatusOK, pg)
 }
 
-func (s *Server) internalTokenCreate(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTokenCreate(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in apiclient.NewTokenRequest
 	if !internalDecode(w, r, &in) {
 		return
@@ -185,7 +185,7 @@ func (s *Server) internalTokenCreate(w http.ResponseWriter, r *http.Request, u m
 	internalJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
-func (s *Server) internalTokenDelete(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalTokenDelete(w http.ResponseWriter, r *http.Request, u models.User) {
 	id, err := strconv.ParseInt(r.PathValue("item"), 10, 64)
 	if err != nil {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
@@ -199,7 +199,7 @@ func (s *Server) internalTokenDelete(w http.ResponseWriter, r *http.Request, u m
 	internalJSON(w, http.StatusNoContent, nil)
 }
 
-func (s *Server) internalIdentityUnlink(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalIdentityUnlink(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	provider := r.PathValue("provider")
 	answer := func(msg string) { internalJSON(w, http.StatusOK, map[string]string{"message": msg}) }
@@ -225,7 +225,7 @@ func (s *Server) internalIdentityUnlink(w http.ResponseWriter, r *http.Request, 
 }
 
 // internalLogout ends the visitor's session and clears the cookie.
-func (s *Server) internalLogout(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalLogout(w http.ResponseWriter, r *http.Request) {
 	if u := currentUser(r); u != nil {
 		s.audit(r, u.ID, auditLogout, "")
 	}

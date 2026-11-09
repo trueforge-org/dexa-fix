@@ -12,7 +12,7 @@ import (
 
 // frontendConfig describes the settings the frontend acts on. The private key is included because
 // the frontend terminates TLS; the internal link is authenticated and meant for a private network.
-func (s *Server) frontendConfig(r *http.Request) (apiclient.FrontendConfig, error) {
+func (s *Backend) frontendConfig(r *http.Request) (apiclient.FrontendConfig, error) {
 	ctx := r.Context()
 	gen, err := s.store.SettingsGeneration(ctx)
 	if err != nil {
@@ -44,7 +44,7 @@ func (s *Server) frontendConfig(r *http.Request) (apiclient.FrontendConfig, erro
 	return cfg, nil
 }
 
-func (s *Server) internalFrontendConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalFrontendConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.frontendConfig(r)
 	if err != nil {
 		internalError(w, err)

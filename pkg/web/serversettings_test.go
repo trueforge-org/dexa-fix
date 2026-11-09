@@ -238,7 +238,7 @@ func TestAdminSavesServerSettings(t *testing.T) {
 	if msg := flashOf(t, resp); !strings.Contains(msg, "saved") {
 		t.Fatalf("PROXY protocol: flash %q", msg)
 	}
-	if on, trusted := srv.proxyProtocolPolicy(); !on || len(trusted) != 1 {
+	if on, trusted := srv.Backend.proxyProtocolPolicy(); !on || len(trusted) != 1 {
 		t.Errorf("PROXY protocol policy = %v, %v", on, trusted)
 	}
 	if got := storedSetting(t, srv, settingProxyProtocol); got != valueEnabled {

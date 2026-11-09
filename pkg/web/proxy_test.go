@@ -168,9 +168,9 @@ func TestBaseURL(t *testing.T) {
 		t.Error("cookie not Secure with an https base URL")
 	}
 
-	srv := &Server{}
+	srv := &Frontend{}
 	base, _ := ParseBaseURL("https://dexa.example.com/")
-	srv.swapSettings(&liveSettings{baseURL: base})
+	srv.swapSettings(&frontendSettings{baseURL: base})
 	var got string
 	h := srv.proxyHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = externalURL(r, "/auth/x/callback") }))
 	req := httptest.NewRequest("GET", "http://10.0.0.5:8080/", nil)

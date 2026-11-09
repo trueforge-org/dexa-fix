@@ -26,7 +26,7 @@ import (
 // Internal endpoints for provider imports, the OAuth flow and Strength Level. The answers carry the
 // message the page shows; the frontend redirects with it.
 
-func (s *Server) internalIntegrationRoutes(mux *http.ServeMux) {
+func (s *Backend) internalIntegrationRoutes(mux *http.ServeMux) {
 	p := apiclient.Prefix
 	u := p + "/users/{id}"
 	mux.HandleFunc("POST "+u+"/import/{provider}", s.internalUser(s.internalImport))
@@ -47,7 +47,7 @@ func flashed(w http.ResponseWriter, msg string) {
 
 // ---- provider imports and OAuth ----
 
-func (s *Server) internalImport(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalImport(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in struct{ Day string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -73,7 +73,7 @@ func (s *Server) internalImport(w http.ResponseWriter, r *http.Request, u models
 
 // internalConnect sets the anti-CSRF state cookie, which carries the user id because the provider
 // returns to a fixed callback URL, and answers with the provider's authorize URL.
-func (s *Server) internalConnect(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalConnect(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := r.PathValue("provider")
 	p, ok := s.oauthProvider(name)
 	if !ok {
@@ -93,7 +93,7 @@ func (s *Server) internalConnect(w http.ResponseWriter, r *http.Request, u model
 	internalJSON(w, http.StatusOK, map[string]string{"redirect": p.AuthURL(state)})
 }
 
-func (s *Server) internalCallback(w http.ResponseWriter, r *http.Request) {
+func (s *Backend) internalCallback(w http.ResponseWriter, r *http.Request) {
 	var in struct{ State, Code, Error string }
 	if !internalDecode(w, r, &in) {
 		return
@@ -146,7 +146,7 @@ func (s *Server) internalCallback(w http.ResponseWriter, r *http.Request) {
 	internalJSON(w, http.StatusOK, f)
 }
 
-func (s *Server) internalDisconnect(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalDisconnect(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := r.PathValue("provider")
 	p, ok := s.oauthProvider(name)
 	if !ok {
@@ -165,7 +165,7 @@ func (s *Server) internalDisconnect(w http.ResponseWriter, r *http.Request, u mo
 
 // strengthLevelSaveLogin stores the user's Strength Level login. It is refused with 403 unless an
 // administrator enabled automatic sync for the user.
-func (s *Server) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "Strength Level sync is not enabled for this account")
 		return
@@ -209,7 +209,7 @@ func (s *Server) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u m
 	flashed(w, "Strength Level login saved.")
 }
 
-func (s *Server) internalSLDeleteLogin(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSLDeleteLogin(w http.ResponseWriter, r *http.Request, u models.User) {
 	s.sl.stop(u.ID)
 	if err := s.store.DeleteIntegration(r.Context(), u.ID, strengthLevelProvider); err != nil && !errors.Is(err, store.ErrNotFound) {
 		internalError(w, err)
@@ -221,7 +221,7 @@ func (s *Server) internalSLDeleteLogin(w http.ResponseWriter, r *http.Request, u
 
 // internalSLSync starts the multi-day sync in the background and returns at once; the settings
 // page shows its progress. It is allowed only for users an administrator permitted to run it.
-func (s *Server) internalSLSync(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto || !u.StrengthLevelBulk {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "the Strength Level multi-day sync is not enabled for this account")
 		return
@@ -286,7 +286,7 @@ func (s *Server) internalSLSync(w http.ResponseWriter, r *http.Request, u models
 
 // internalSLStatus answers with the progress of the latest sync. The settings page polls it, which
 // is far cheaper than rendering the whole page every two seconds.
-func (s *Server) internalSLStatus(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSLStatus(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto || !u.StrengthLevelBulk {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
@@ -296,7 +296,7 @@ func (s *Server) internalSLStatus(w http.ResponseWriter, r *http.Request, u mode
 
 // internalSLDay sends one day's estimate to Strength Level now, adding the day or overwriting the
 // entry that exists there. It is what the button on the estimates page does.
-func (s *Server) internalSLDay(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Backend) internalSLDay(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "Strength Level sync is not enabled for this account")
 		return

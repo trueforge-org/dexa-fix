@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/trueforge-org/dexa-fix/pkg/edge"
 )
 
 func TestFrontendFollowsBackendSettings(t *testing.T) {
@@ -15,9 +17,6 @@ func TestFrontendFollowsBackendSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(f.Close)
-	if !f.isFrontendOnly() {
-		t.Fatal("the frontend has a store")
-	}
 	ctx := context.Background()
 	if err := f.RefreshConfig(ctx); err != nil {
 		t.Fatal(err)
@@ -39,7 +38,7 @@ func TestFrontendFollowsBackendSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := f.cfg()
-	if l.baseURL == nil || l.baseURL.String() != "https://dexa.example.com" || !l.proxyProtocol || !f.trusted(netip.MustParseAddr("10.1.2.3")) {
+	if l.baseURL == nil || l.baseURL.String() != "https://dexa.example.com" || !l.proxyProtocol || !edge.Trusted(l.trusted, netip.MustParseAddr("10.1.2.3")) {
 		t.Errorf("settings not applied: %+v", l)
 	}
 
