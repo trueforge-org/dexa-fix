@@ -105,7 +105,7 @@ func (s *Server) strengthLevelSaveLogin(w http.ResponseWriter, r *http.Request, 
 	// Sign in first, so a wrong password is reported now and nothing wrong is stored. The check
 	// signs in to another service from this server, so the failures are limited like sign-ins.
 	limitKey := "sl:" + strconv.FormatInt(u.ID, 10)
-	if s.limiter.blocked(limitKey, maxStrengthLevelLoginFail) {
+	if s.limiter.Blocked(limitKey, maxStrengthLevelLoginFail) {
 		settingsFlash(w, r, u, "Too many failed Strength Level sign-ins. Try again in a few minutes.")
 		return
 	}
@@ -113,12 +113,12 @@ func (s *Server) strengthLevelSaveLogin(w http.ResponseWriter, r *http.Request, 
 	defer cancel()
 	if err := client.New(strengthLevelBase, nil).Login(ctx, email, password); err != nil {
 		if errors.Is(err, client.ErrLogin) {
-			s.limiter.fail(limitKey)
+			s.limiter.Fail(limitKey)
 		}
 		settingsFlash(w, r, u, "Could not sign in to Strength Level: "+strengthLevelError(err))
 		return
 	}
-	s.limiter.reset(limitKey)
+	s.limiter.Reset(limitKey)
 	data, err := json.Marshal(slLogin{Email: email, Password: password})
 	if err == nil {
 		err = s.store.PutIntegration(r.Context(), u.ID, strengthLevelProvider, data)

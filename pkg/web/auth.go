@@ -231,7 +231,7 @@ func (s *Server) throttledVerify(r *http.Request, login, password string) (model
 	switch {
 	case err != nil:
 	case ok:
-		s.limiter.reset(loginKey(login))
+		s.limiter.Reset(loginKey(login))
 	default:
 		s.recordFailure(r, login)
 	}
@@ -507,7 +507,7 @@ func (s *Server) completeSignIn(w http.ResponseWriter, r *http.Request, u models
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
-	if s.limiter.blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(ipKey(r), maxIPFail) {
 		s.renderLogin(w, r, "Too many attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
 		return
 	}
@@ -540,7 +540,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	u, err := s.store.CreateUserWithIdentity(r.Context(), r.PostFormValue("name"), email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
-		s.limiter.fail(ipKey(r)) // repeated probing for registered addresses is throttled
+		s.limiter.Fail(ipKey(r)) // repeated probing for registered addresses is throttled
 		s.renderLogin(w, r, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
 		s.renderLogin(w, r, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)

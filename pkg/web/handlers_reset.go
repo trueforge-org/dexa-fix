@@ -157,11 +157,11 @@ func (s *Server) forgot(w http.ResponseWriter, r *http.Request) {
 	}
 	email, valid := parseEmail(r.PostFormValue("email"))
 	ipK, addrK := "reset-ip:"+ipKey(r), "reset-addr:"+email
-	allowed := valid && !s.limiter.blocked(ipK, maxResetIP) && !s.limiter.blocked(addrK, maxResetAddr)
+	allowed := valid && !s.limiter.Blocked(ipK, maxResetIP) && !s.limiter.Blocked(addrK, maxResetAddr)
 	// Every request counts, not only failures: this is a mail sender.
-	s.limiter.fail(ipK)
+	s.limiter.Fail(ipK)
 	if valid {
-		s.limiter.fail(addrK)
+		s.limiter.Fail(addrK)
 	}
 	if allowed {
 		base := s.cfg().baseURL
@@ -236,7 +236,7 @@ func (s *Server) reset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "signing in with a password is turned off", http.StatusForbidden)
 		return
 	}
-	if s.limiter.blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(ipKey(r), maxIPFail) {
 		s.renderReset(w, resetView{Mode: "invalid", Error: "Too many attempts. Please wait a few minutes."}, http.StatusTooManyRequests)
 		return
 	}
@@ -247,7 +247,7 @@ func (s *Server) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, 0, 0, auditResetInvalid, "")
 		s.renderReset(w, resetView{Mode: "invalid"}, http.StatusNotFound)
 		return
@@ -277,13 +277,13 @@ func (s *Server) reset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !good {
-			s.limiter.fail(mfaKey(u.ID))
-			s.limiter.fail(ipKey(r))
+			s.limiter.Fail(mfaKey(u.ID))
+			s.limiter.Fail(ipKey(r))
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "reset")
 			form(secondFactorMessage, http.StatusUnauthorized)
 			return
 		}
-		s.limiter.reset(mfaKey(u.ID))
+		s.limiter.Reset(mfaKey(u.ID))
 	}
 	hash, err := hashPassword(password)
 	if err != nil {

@@ -356,7 +356,7 @@ func (s *Server) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusUnprocessableEntity, "Passkeys need HTTPS and a host name (not an IP address); localhost also works.")
 		return
 	}
-	if s.limiter.blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(ipKey(r), maxIPFail) {
 		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
 		return
 	}
@@ -382,7 +382,7 @@ const passkeyLoginFailed = "That passkey did not work. Try again, or sign in ano
 
 func (s *Server) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if s.limiter.blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(ipKey(r), maxIPFail) {
 		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
 		return
 	}
@@ -407,13 +407,13 @@ func (s *Server) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	_, cred, err := wa.FinishPasskeyLogin(handler, c.Session, r)
 	if err != nil {
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, 0, 0, auditPasskeyFailed, "")
 		jsonError(w, http.StatusUnauthorized, passkeyLoginFailed)
 		return
 	}
 	if cred.Authenticator.CloneWarning { // the counter went backwards: the credential may have been copied
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, signedIn.ID, signedIn.ID, auditPasskeyClone, "")
 		jsonError(w, http.StatusUnauthorized, passkeyLoginFailed)
 		return
@@ -430,7 +430,7 @@ func (s *Server) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("could not record the passkey use")
 	}
 	clearPasskeyCookie(w, r)
-	s.limiter.reset(ipKey(r))
+	s.limiter.Reset(ipKey(r))
 	s.markAdminVerified(w, r, signedIn.ID) // a passkey with its unlock is two factors: the Admin pages do not ask again
 	s.signInJSON(w, r, signedIn, models.ProviderPasskey)
 }

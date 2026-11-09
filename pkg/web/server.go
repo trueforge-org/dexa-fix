@@ -21,6 +21,7 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
@@ -67,12 +68,12 @@ type Server struct {
 	jobsDone  bool
 	slSlots   chan struct{} // limits Strength Level syncs running at the same time
 
-	auditNoise      *auditNoise
-	estCache        *estimateCache
-	warnedUntrusted atomic.Bool
-	limiter         *failLimiter      // failed sign-in attempts
-	nonces          *usedNonces       // sealed values that were already used
-	assetVer        map[string]string // content hash per static file, for cache-busting URLs
+	auditNoise *auditNoise
+	estCache   *estimateCache
+	proxy      edge.Proxy
+	limiter    *failLimiter      // failed sign-in attempts
+	nonces     *usedNonces       // sealed values that were already used
+	assetVer   map[string]string // content hash per static file, for cache-busting URLs
 
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
@@ -207,7 +208,7 @@ func (s *Server) Handler() http.Handler {
 	sameOrigin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.cop.Load().Handler(guarded).ServeHTTP(w, r)
 	})
-	return logRequests(s.proxyHeaders(s.altSvc(secureHeaders(compress(limitBody(sameOrigin))))))
+	return edge.LogRequests(s.proxyHeaders(s.altSvc(edge.SecureHeaders(edge.Compress(edge.LimitBody(sameOrigin))))))
 }
 
 // integrationView is the state of an OAuth integration for the current user.
@@ -285,14 +286,6 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 func itemID(r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("item"), 10, 64)
 	return id, err == nil
-}
-
-func logRequests(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Debug().Str("method", r.Method).Str("path", r.URL.Path).Dur("took", time.Since(start)).Msg("request")
-	})
 }
 
 // initial returns the upper-cased first character of a name, for avatars.

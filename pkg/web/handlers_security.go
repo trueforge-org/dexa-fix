@@ -215,16 +215,16 @@ func (s *Server) checkReauth(r *http.Request, u models.User, recent bool) (ok bo
 		return serr == nil, 0, "", serr
 	}
 	key := "pw:" + strconv.FormatInt(u.ID, 10)
-	if s.limiter.blocked(key, maxLoginFail) || s.limiter.blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(key, maxLoginFail) || s.limiter.Blocked(ipKey(r), maxIPFail) {
 		return false, http.StatusTooManyRequests, "Too many wrong passwords. Try again later.", nil
 	}
 	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
-		s.limiter.fail(key)
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(key)
+		s.limiter.Fail(ipKey(r))
 		s.audit(r, u.ID, auditPasswordWrong, "")
 		return false, http.StatusUnprocessableEntity, "Enter your current password to make this change.", nil
 	}
-	s.limiter.reset(key)
+	s.limiter.Reset(key)
 	return true, 0, "", nil
 }
 

@@ -119,7 +119,7 @@ func (s *Server) hasTwoFactor(ctx context.Context, userID int64) (bool, error) {
 // secondFactorBlocked reports whether too many wrong codes were tried for the account or from the
 // client address.
 func (s *Server) secondFactorBlocked(r *http.Request, userID int64) bool {
-	return s.limiter.blocked(mfaKey(userID), maxMFAFail) || s.limiter.blocked(ipKey(r), maxIPFail)
+	return s.limiter.Blocked(mfaKey(userID), maxMFAFail) || s.limiter.Blocked(ipKey(r), maxIPFail)
 }
 
 func mfaKey(userID int64) string { return "mfa:" + strconv.FormatInt(userID, 10) }
@@ -289,8 +289,8 @@ func (s *Server) loginTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !good {
-		s.limiter.fail(mfaKey(st.UID))
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(mfaKey(st.UID))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "")
 		s.renderSecondStep(w, twoFactorView{Mode: "verify", Error: secondFactorMessage}, http.StatusUnauthorized)
 		return
@@ -304,7 +304,7 @@ func (s *Server) loginTwoFactor(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.limiter.reset(mfaKey(st.UID))
+	s.limiter.Reset(mfaKey(st.UID))
 	clearMFACookie(w, r)
 	if recovery {
 		left, _ := s.store.CountRecoveryCodes(ctx, u.ID)
@@ -372,8 +372,8 @@ func (s *Server) loginSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	step, good := checkTOTP(t.Secret, r.PostFormValue("code"), time.Now())
 	if !good {
-		s.limiter.fail(mfaKey(st.UID))
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(mfaKey(st.UID))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "setup")
 		s.renderLoginSetup(w, r, st, "That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
 		return
@@ -396,7 +396,7 @@ func (s *Server) loginSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.limiter.reset(mfaKey(st.UID))
+	s.limiter.Reset(mfaKey(st.UID))
 	clearMFACookie(w, r)
 	s.auditAs(r, u.ID, u.ID, auditTOTPEnabled, "required")
 	target, err := s.completeSignIn(w, r, u, st.Method)
@@ -425,13 +425,13 @@ func (s *Server) checkSecondFactor(w http.ResponseWriter, r *http.Request, u mod
 		return false
 	}
 	if !good {
-		s.limiter.fail(mfaKey(u.ID))
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(mfaKey(u.ID))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "settings")
 		s.settingsPage(w, r, u, secondFactorMessage, "", http.StatusUnprocessableEntity)
 		return false
 	}
-	s.limiter.reset(mfaKey(u.ID))
+	s.limiter.Reset(mfaKey(u.ID))
 	return true
 }
 
@@ -498,8 +498,8 @@ func (s *Server) twoFactorConfirm(w http.ResponseWriter, r *http.Request, u mode
 	}
 	step, good := checkTOTP(t.Secret, r.PostFormValue("code"), time.Now())
 	if !good {
-		s.limiter.fail(mfaKey(u.ID))
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(mfaKey(u.ID))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "setup")
 		fail("That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
 		return
@@ -513,7 +513,7 @@ func (s *Server) twoFactorConfirm(w http.ResponseWriter, r *http.Request, u mode
 		s.fail(w, err)
 		return
 	}
-	s.limiter.reset(mfaKey(u.ID))
+	s.limiter.Reset(mfaKey(u.ID))
 	s.audit(r, u.ID, auditTOTPEnabled, "")
 	s.renderSettingsWith(w, r, u, "", "Two-step verification is on.", "", http.StatusOK, func(v *securityView) { v.TwoFactor.NewCodes = codes })
 }
@@ -666,13 +666,13 @@ func (s *Server) adminVerify(w http.ResponseWriter, r *http.Request, u models.Us
 		return
 	}
 	if !good {
-		s.limiter.fail(mfaKey(u.ID))
-		s.limiter.fail(ipKey(r))
+		s.limiter.Fail(mfaKey(u.ID))
+		s.limiter.Fail(ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "admin")
 		s.renderSecondStep(w, twoFactorView{Mode: "admin", Error: secondFactorMessage}, http.StatusUnauthorized)
 		return
 	}
-	s.limiter.reset(mfaKey(u.ID))
+	s.limiter.Reset(mfaKey(u.ID))
 	s.markAdminVerified(w, r, u.ID)
 	s.audit(r, u.ID, auditAdminVerified, "")
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)

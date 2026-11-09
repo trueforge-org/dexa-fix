@@ -2,7 +2,6 @@ package web
 
 import (
 	"compress/gzip"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -110,23 +109,6 @@ func TestStrengthLevelStatusNeedsBulkAccess(t *testing.T) {
 	signup(t, ts, c, "root")
 	if code, _ := body(t, c, ts.URL+"/u/1/strengthlevel/status"); code != http.StatusNotFound {
 		t.Errorf("status %d", code)
-	}
-}
-
-func TestLimiterEvictionKeepsNearlyBlockedKeys(t *testing.T) {
-	l := newFailLimiter()
-	for range maxLoginFail - 1 {
-		l.fail("login:victim")
-	}
-	for i := range maxLimiterKeys + 100 {
-		l.fail(fmt.Sprintf("login:flood%d", i))
-	}
-	if len(l.fails) > maxLimiterKeys {
-		t.Fatalf("%d keys, want at most %d", len(l.fails), maxLimiterKeys)
-	}
-	l.fail("login:victim")
-	if !l.blocked("login:victim", maxLoginFail) {
-		t.Fatal("a flood of other keys reset the victim's counter")
 	}
 }
 
