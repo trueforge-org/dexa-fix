@@ -99,7 +99,7 @@ type adminWithings struct {
 }
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /admin", s.admin(s.adminPage))
+	mux.HandleFunc("GET /admin", s.admin(s.adminHome))
 	mux.HandleFunc("POST /admin/users", s.admin(s.adminAddUser))
 	mux.HandleFunc("POST /admin/users/{id}/role", s.admin(s.adminSetRole))
 	mux.HandleFunc("POST /admin/users/{id}/strengthlevel", s.admin(s.adminSetStrengthLevel))
@@ -116,12 +116,17 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 }
 
 // admin restricts a page to administrators. It answers 404 to everyone else so that the page does
-// not advertise itself.
-//
-// An administrator with two-step verification on is also asked for a code (see adminVerified).
+// not advertise itself. It is adminPage under the name the routes use.
 func (s *Server) admin(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
+	return s.adminPage(h)
+}
+
+// adminPage is the frontend guard of the Admin pages. An administrator with two-step verification
+// on is sent to /admin/verify for a code first; the backend decides (GET /admin/step-up) and
+// enforces the same on every admin endpoint (internalAdmin), so this redirect is a convenience.
+func (s *Server) adminPage(h func(http.ResponseWriter, *http.Request, models.User)) http.HandlerFunc {
 	return s.adminBasic(func(w http.ResponseWriter, r *http.Request, u models.User) {
-		need, err := s.needsAdminStepUp(r, u)
+		need, err := s.api.AdminStepUp(r.Context())
 		if err != nil {
 			s.fail(w, err)
 			return
@@ -157,7 +162,7 @@ func adminRedirect(w http.ResponseWriter, r *http.Request, msg string) {
 	http.Redirect(w, r, "/admin?msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
-func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User) {
+func (s *Server) adminHome(w http.ResponseWriter, r *http.Request, u models.User) {
 	s.renderAdmin(w, r, u, nil)
 }
 

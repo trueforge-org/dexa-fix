@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/http/httputil"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,8 +59,10 @@ type Server struct {
 
 	authChain []authenticator
 
-	api            *apiclient.Client // how the page handlers reach the backend
-	configETag     string            // of the frontend config in force (frontend only)
+	api            *apiclient.Client      // how the page handlers reach the backend
+	configETag     string                 // of the frontend config in force (frontend only)
+	apiUpstream    *httputil.ReverseProxy // frontend only: where /api/ goes, if set
+	internalBudget *edge.Limiter          // load budget of the internal API; nil in the combined process
 	warnedVersion  bool
 	serviceSecrets [][32]byte // accepted by the internal API, see internal.go
 	cookieKey      []byte

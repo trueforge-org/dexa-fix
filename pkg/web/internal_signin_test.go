@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -233,5 +234,78 @@ func TestSplitResetTokenTravelsInAHeaderNotTheURL(t *testing.T) {
 		if strings.Contains(u, token) || strings.Contains(u, "not-a-token") {
 			t.Errorf("the token is in the request URL %q", u)
 		}
+	}
+}
+
+func TestSplitPasskeyCeremonyCookieReachesTheRelay(t *testing.T) {
+	bs, _, _ := newInternalServer(t)
+	c := splitClient(t, bs)
+	rec := httptest.NewRecorder()
+	ctx := apiclient.WithRequest(context.Background(), apiclient.Request{ClientIP: "198.51.100.7", Host: "localhost:4000", Relay: rec})
+	opts, err := c.PasskeyLoginBegin(ctx)
+	if err != nil || !strings.Contains(string(opts), "publicKey") {
+		t.Fatalf("begin %s %v", opts, err)
+	}
+	ck := relayedCookie(rec, passkeyCookie)
+	if ck == nil || !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode || ck.Path != "/" {
+		t.Fatalf("ceremony cookie %+v", ck)
+	}
+	// Without the cookie there is no ceremony to finish; the refusal keeps its status and text.
+	_, err = c.PasskeyLoginFinish(apiclient.WithRequest(context.Background(), apiclient.Request{Host: "localhost:4000"}), strings.NewReader("{}"))
+	if apiclient.StatusOf(err) != http.StatusBadRequest {
+		t.Errorf("finish without cookie: %v", err)
+	}
+	// With the cookie the backend opens it (the sealing key never left the backend) and parses the
+	// forwarded body itself: garbage fails the assertion, not the cookie.
+	withCookie := apiclient.WithRequest(context.Background(), apiclient.Request{Host: "localhost:4000", Cookie: passkeyCookie + "=" + ck.Value})
+	_, err = c.PasskeyLoginFinish(withCookie, strings.NewReader("{}"))
+	if apiclient.StatusOf(err) != http.StatusUnauthorized || !strings.Contains(err.Error(), passkeyLoginFailed) {
+		t.Errorf("finish with garbage: %v", err)
+	}
+}
+
+func TestSplitAdminEndpointRefusesWithoutStepUpProof(t *testing.T) {
+	_, srv, sess := newInternalServer(t)
+	tfEnable(t, srv, 1)
+	// A test-only admin endpoint behind the guard, served like the real internal API.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+apiclient.Prefix+"/test/admin", srv.internalAdmin(func(w http.ResponseWriter, r *http.Request, u models.User) {
+		internalJSON(w, http.StatusOK, map[string]string{"admin": u.Email})
+	}))
+	mux.HandleFunc(apiclient.Prefix+"/", srv.InternalHandler().ServeHTTP)
+	ts := httptest.NewServer(srv.serviceAuth(srv.visitorContext(srv.withAuth(mux))))
+	t.Cleanup(ts.Close)
+	c := splitClient(t, ts)
+	call := func(cookie string, relay http.ResponseWriter) error {
+		ctx := apiclient.WithRequest(context.Background(), apiclient.Request{ClientIP: "198.51.100.7", Cookie: cookie, Relay: relay})
+		return c.Get(ctx, "/test/admin", nil)
+	}
+	signedIn := sessionCookie + "=" + sess.Value
+
+	if err := call("", nil); !apiclient.IsCode(err, apiclient.CodeUnauthorized) {
+		t.Errorf("anonymous: %v", err)
+	}
+	if err := call(signedIn, nil); !apiclient.IsCode(err, apiclient.CodeStepUp) || apiclient.StatusOf(err) != http.StatusForbidden {
+		t.Errorf("signed in without the proof: %v", err)
+	}
+	ctx := apiclient.WithRequest(context.Background(), apiclient.Request{Cookie: signedIn})
+	if need, err := c.AdminStepUp(ctx); err != nil || !need {
+		t.Errorf("step-up check: %v %v", need, err)
+	}
+	// A wrong code does not give the proof; a right one does, and only the cookie carries it.
+	if o, err := c.AdminVerify(ctx, "000000"); err != nil || o.Status != http.StatusUnauthorized || o.Error == "" {
+		t.Errorf("wrong code: %+v %v", o, err)
+	}
+	rec := httptest.NewRecorder()
+	vctx := apiclient.WithRequest(context.Background(), apiclient.Request{Cookie: signedIn, Relay: rec})
+	if o, err := c.AdminVerify(vctx, tfCode(t, srv, 1)); err != nil || o.Redirect != "/admin" {
+		t.Fatalf("verify: %+v %v", o, err)
+	}
+	proof := relayedCookie(rec, adminCookie)
+	if proof == nil || proof.Path != "/admin" {
+		t.Fatalf("proof cookie %+v", proof)
+	}
+	if err := call(signedIn+"; "+adminCookie+"="+proof.Value, nil); err != nil {
+		t.Errorf("with the proof: %v", err)
 	}
 }

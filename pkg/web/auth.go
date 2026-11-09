@@ -448,17 +448,6 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request, u models.User, m
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
-// signInJSON is signIn for scripts that sign in with fetch, such as the passkey page: it answers
-// {"redirect": target} instead of redirecting.
-func (s *Server) signInJSON(w http.ResponseWriter, r *http.Request, u models.User, method string) {
-	target, err := s.signInTarget(w, r, u, method)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"redirect": target})
-}
-
 // signInTarget decides what follows a proven identity and returns where to send the browser. It
 // is the place for rules that depend on how the user signed in (a second step, a required
 // enrolment); without such a rule it starts the session.

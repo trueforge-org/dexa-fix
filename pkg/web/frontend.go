@@ -5,11 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/edge"
 )
 
 // The frontend half on its own: a process with no database that renders pages from what the
@@ -131,4 +136,78 @@ func (s *Server) StartConfigPoll() {
 			cancel()
 		}
 	})
+}
+
+// Load budget of the frontend. Static files and /healthz are never limited; everything else is
+// shed here, before it turns into calls to the backend.
+const (
+	frontendMaxInFlight = 64
+	frontendMaxQueue    = 128
+	frontendRate        = 10 // requests per second per client address
+	frontendBurst       = 30
+	signInRate          = 2 // unauthenticated POSTs: sign-in, sign-up, reset, second step, callbacks
+	signInBurst         = 10
+)
+
+// frontendLimiter returns the middleware that applies the frontend's load budget: a cap on
+// requests being served at once (excess ones get a cheap 503 page) and a rate per client address,
+// stricter for the unauthenticated POSTs that cost the backend the most.
+func (s *Server) frontendLimiter() func(http.Handler) http.Handler {
+	general := &edge.Limiter{
+		MaxInFlight: frontendMaxInFlight, MaxQueue: frontendMaxQueue, MaxWait: 2 * time.Second,
+		Rate: frontendRate, Burst: frontendBurst,
+		Skip: func(r *http.Request) bool {
+			return strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/healthz" || r.URL.Path == "/readyz"
+		},
+	}
+	signIn := &edge.Limiter{Rate: signInRate, Burst: signInBurst, Key: func(r *http.Request) string { return "signin:" + edge.IPKey(r) }}
+	return func(next http.Handler) http.Handler {
+		inner := general.Middleware(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost && unauthenticatedPost(r.URL.Path) && !signIn.Allow(signIn.Key(r)) {
+				w.Header().Set("Retry-After", "2")
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
+			inner.ServeHTTP(w, r)
+		})
+	}
+}
+
+// unauthenticatedPost reports whether path takes a POST from someone who is not signed in yet.
+func unauthenticatedPost(path string) bool {
+	switch path {
+	case "/login", "/signup", "/password/forgot", "/password/reset", "/login/2fa", "/login/2fa/setup",
+		"/passkey/login/begin", "/passkey/login/finish":
+		return true
+	}
+	return strings.HasPrefix(path, "/auth/")
+}
+
+// SetAPIUpstream makes the frontend pass /api/ on to the backend's public listener, for setups with
+// one public address and no reverse proxy that routes by path. The backend must list this process
+// among its trusted proxies to see visitors' addresses.
+func (s *Server) SetAPIUpstream(u *url.URL) {
+	s.apiUpstream = &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(u)
+			// Rebuilt from what this process settled, never copied from the visitor.
+			pr.Out.Header.Del("X-Forwarded-For")
+			pr.Out.Header.Del("X-Forwarded-Proto")
+			pr.Out.Header.Del("X-Forwarded-Host")
+			pr.Out.Header.Del("X-Real-IP")
+			pr.Out.Header.Set("X-Forwarded-For", clientIP(pr.In))
+			if isSecure(pr.In) {
+				pr.Out.Header.Set("X-Forwarded-Proto", "https")
+			} else {
+				pr.Out.Header.Set("X-Forwarded-Proto", "http")
+			}
+			pr.Out.Header.Set("X-Forwarded-Host", pr.In.Host)
+			pr.Out.Host = pr.In.Host
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Error().Err(err).Msg("the API upstream failed")
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the API is temporarily unavailable"})
+		},
+	}
 }

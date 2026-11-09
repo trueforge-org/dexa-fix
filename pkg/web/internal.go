@@ -56,7 +56,11 @@ func (s *Server) InternalHandler() http.Handler {
 	mux.HandleFunc(apiclient.Prefix+"/", func(w http.ResponseWriter, r *http.Request) {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 	})
-	return s.serviceAuth(s.visitorContext(s.withAuth(mux)))
+	var h http.Handler = s.withAuth(mux)
+	if s.internalBudget != nil { // a separate backend: shed floods before any work is done
+		h = s.internalBudget.Middleware(h)
+	}
+	return s.serviceAuth(s.visitorContext(h))
 }
 
 // serviceAuth lets in only callers that present a service secret.
@@ -178,6 +182,8 @@ func (s *Server) internalRoutes(mux *http.ServeMux) {
 	s.internalSignInRoutes(mux)
 	s.internalSettingsRoutes(mux)
 	s.internalSecurityRoutes(mux)
+	s.internalTwoFactorRoutes(mux)
+	s.internalPasskeyRoutes(mux)
 }
 
 // ---- the frontend side ----

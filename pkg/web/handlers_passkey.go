@@ -1,22 +1,14 @@
 package web
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/rs/zerolog/log"
-
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // Passkeys (WebAuthn) are a way to sign in without a password. They replace the password rather
@@ -27,6 +19,9 @@ import (
 // The relying party id is the host name the browser used (the base URL when one is set), so
 // passkeys belong to that name: changing it, for example moving to another domain, orphans them.
 // Browsers only offer passkeys on HTTPS or on localhost.
+//
+// The ceremony itself runs in the backend (internal_passkey.go). This side forwards what the
+// browser script sends and relays the sealed ceremony cookie the backend sets.
 const (
 	passkeyCookie       = "dexafix_webauthn"
 	sealPasskeyRegister = "webauthn-register"
@@ -35,14 +30,6 @@ const (
 	maxPasskeyName      = 64
 	defaultPasskeyName  = "Passkey"
 )
-
-// passkeyCeremony is carried in a signed cookie between the two steps of a registration or a
-// sign-in, so that the server stores nothing for visitors who are not signed in.
-type passkeyCeremony struct {
-	UID     int64                `json:"u,omitempty"`
-	Name    string               `json:"n,omitempty"`
-	Session webauthn.SessionData `json:"s"`
-}
 
 func (s *Server) passkeyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /passkey/login/begin", s.passkeyLoginBegin)
@@ -53,239 +40,62 @@ func (s *Server) passkeyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /u/{id}/passkeys/{cred}/delete", s.user(s.passkeyDelete))
 }
 
-// passkeysReady reports whether the browser can use passkeys for this request: the address must be
-// a host name (WebAuthn does not accept an IP address as the relying party) and the connection
-// secure, or the host localhost, which browsers treat as secure.
-func passkeysReady(r *http.Request) bool {
-	host := r.Host
-	if u, err := url.Parse(externalURL(r, "")); err == nil && u.Hostname() != "" {
-		host = u.Hostname() // the name the relying party id will be taken from
-	} else if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.Trim(strings.ToLower(host), "[]")
-	if net.ParseIP(host) != nil {
-		return false
-	}
-	return isSecure(r) || host == "localhost"
-}
-
-// relyingParty configures WebAuthn for the address the browser used.
-func (s *Server) relyingParty(r *http.Request) (*webauthn.WebAuthn, error) {
-	origin := externalURL(r, "")
-	u, err := url.Parse(origin)
-	if err != nil {
-		return nil, err
-	}
-	return webauthn.New(&webauthn.Config{
-		RPDisplayName: "dexa-fix", RPID: u.Hostname(), RPOrigins: []string{origin},
-		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			ResidentKey:        protocol.ResidentKeyRequirementRequired, // the passkey holds the account, so no e-mail is typed
-			RequireResidentKey: protocol.ResidentKeyRequired(),
-			UserVerification:   protocol.VerificationRequired,
-		},
-	})
-}
-
-// passkeyUser adapts a user and their stored credentials to the WebAuthn library.
-type passkeyUser struct {
-	user   models.User
-	handle []byte
-	creds  []webauthn.Credential
-}
-
-func (p *passkeyUser) WebAuthnID() []byte          { return p.handle }
-func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.Name }
-func (p *passkeyUser) WebAuthnName() string {
-	if p.user.Email != "" {
-		return p.user.Email
-	}
-	return p.user.Name
-}
-func (p *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return p.creds }
-
-func (s *Server) passkeyUserFor(ctx context.Context, u models.User, handle string) (*passkeyUser, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(handle)
-	if err != nil {
-		return nil, err
-	}
-	stored, err := s.store.ListPasskeys(ctx, u.ID)
-	if err != nil {
-		return nil, err
-	}
-	pu := &passkeyUser{user: u, handle: raw}
-	for _, p := range stored {
-		var c webauthn.Credential
-		if err := json.Unmarshal([]byte(p.Credential), &c); err != nil {
-			log.Warn().Err(err).Int64("user", u.ID).Msg("skipping an unreadable passkey")
-			continue
-		}
-		pu.creds = append(pu.creds, c)
-	}
-	return pu, nil
-}
-
-func credentialID(id []byte) string { return base64.RawURLEncoding.EncodeToString(id) }
-
-// ---- the signed cookie ----
-
-func (s *Server) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) error {
-	sealed, _, err := s.sealValue(purpose, c, passkeyTTL)
-	if err != nil {
-		return err
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name: passkeyCookie, Value: sealed, Path: "/", MaxAge: int(passkeyTTL.Seconds()),
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isSecure(r),
-	})
-	return nil
-}
-
-func clearPasskeyCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: passkeyCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isSecure(r)})
-}
-
-// readPasskeyCookie opens the ceremony state; a state that was already used for a sign-in or a
-// registration is refused.
-func (s *Server) readPasskeyCookie(r *http.Request, purpose string) (c passkeyCeremony, nonce string, expires time.Time, ok bool) {
-	ck, err := r.Cookie(passkeyCookie)
-	if err != nil {
-		return c, "", time.Time{}, false
-	}
-	nonce, expires, ok = s.openValue(purpose, ck.Value, &c)
-	if ok && s.nonces.seen(nonce) {
-		ok = false
-	}
-	return c, nonce, expires, ok
-}
-
 func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// passkeyFail answers the browser script with the backend's refusal, in the {"error": ...} shape
+// it shows. A failure of the backend itself is a plain server error.
+func (s *Server) passkeyFail(w http.ResponseWriter, err error) {
+	var e *apiclient.Error
+	if errors.As(err, &e) {
+		jsonError(w, e.Status, e.Message)
+		return
+	}
+	jsonError(w, http.StatusInternalServerError, "Something went wrong.")
+}
+
+// passkeyOptions answers with the WebAuthn options the backend made.
+func (s *Server) passkeyOptions(w http.ResponseWriter, opts json.RawMessage, err error) {
+	if err != nil {
+		s.passkeyFail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(opts)
+}
+
+// passkeyRedirect answers the browser script with where to go next.
+func (s *Server) passkeyRedirect(w http.ResponseWriter, o apiclient.SignInOutcome, err error) {
+	if err != nil {
+		s.passkeyFail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"redirect": o.Redirect})
 }
 
 // ---- registering a passkey (signed in) ----
 
 func (s *Server) passkeyRegisterBegin(w http.ResponseWriter, r *http.Request, u models.User) {
-	if !passkeysReady(r) {
-		jsonError(w, http.StatusUnprocessableEntity, "Passkeys need HTTPS and a host name (not an IP address); localhost also works.")
-		return
-	}
-	// Adding a way into the account asks for the password again, or for a recent sign-in when
-	// there is no password.
-	ok, status, msg, err := s.checkReauth(r, u, true)
-	if err != nil {
-		log.Error().Err(err).Msg("passkey re-authentication")
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	if !ok {
-		jsonError(w, status, msg)
-		return
-	}
-	name := strings.TrimSpace(r.PostFormValue("name"))
-	if name == "" {
-		name = defaultPasskeyName
-	}
-	if len([]rune(name)) > maxPasskeyName {
-		jsonError(w, http.StatusUnprocessableEntity, "Give the passkey a name of up to 64 characters.")
-		return
-	}
-	ctx := r.Context()
-	handle, err := s.store.EnsurePasskeyHandle(ctx, u.ID)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	pu, err := s.passkeyUserFor(ctx, u, handle)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	wa, err := s.relyingParty(r)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	var exclude []protocol.CredentialDescriptor
-	for _, c := range pu.creds {
-		exclude = append(exclude, c.Descriptor())
-	}
-	creation, session, err := wa.BeginRegistration(pu, webauthn.WithExclusions(exclude))
-	if err != nil {
-		log.Error().Err(err).Msg("passkey registration could not start")
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyRegister, passkeyCeremony{UID: u.ID, Name: name, Session: *session}); err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	writeJSON(w, http.StatusOK, creation)
+	opts, err := s.api.PasskeyRegisterBegin(r.Context(), u.ID, r.PostFormValue("name"), r.PostFormValue("current"))
+	s.passkeyOptions(w, opts, err)
 }
 
 func (s *Server) passkeyRegisterFinish(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	c, nonce, expires, ok := s.readPasskeyCookie(r, sealPasskeyRegister)
-	if !ok || c.UID != u.ID {
-		jsonError(w, http.StatusBadRequest, "The registration expired. Start again.")
-		return
-	}
-	handle, err := s.store.EnsurePasskeyHandle(ctx, u.ID)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	pu, err := s.passkeyUserFor(ctx, u, handle)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	wa, err := s.relyingParty(r)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	cred, err := wa.FinishRegistration(pu, c.Session, r)
-	if err != nil {
-		log.Info().Err(err).Int64("user", u.ID).Msg("passkey registration refused")
-		jsonError(w, http.StatusUnprocessableEntity, "The passkey could not be added. Check that the device unlocks with a fingerprint, face or PIN, and try again.")
-		return
-	}
-	if !s.nonces.use(nonce, expires) {
-		jsonError(w, http.StatusBadRequest, "The registration was already used. Start again.")
-		return
-	}
-	raw, err := json.Marshal(cred)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	err = s.store.AddPasskey(ctx, models.Passkey{CredentialID: credentialID(cred.ID), UserID: u.ID, Name: c.Name,
-		Credential: string(raw), SignCount: cred.Authenticator.SignCount})
-	if errors.Is(err, store.ErrExists) {
-		jsonError(w, http.StatusUnprocessableEntity, "That passkey is already registered.")
-		return
-	}
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	clearPasskeyCookie(w, r)
-	s.audit(r, u.ID, auditPasskeyAdded, "")
-	writeJSON(w, http.StatusOK, map[string]string{"redirect": settingsPath(u.ID, "Passkey added. You can sign in with it from now on.")})
+	o, err := s.api.PasskeyRegisterFinish(r.Context(), u.ID, http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	s.passkeyRedirect(w, o, err)
 }
 
 // ---- managing passkeys ----
 
 func (s *Server) passkeyRename(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := strings.TrimSpace(r.PostFormValue("name"))
-	if name == "" || len([]rune(name)) > maxPasskeyName {
-		settingsRedirect(w, r, u.ID, "Give the passkey a name of 1 to 64 characters.")
-		return
-	}
-	switch err := s.store.RenamePasskey(r.Context(), u.ID, r.PathValue("cred"), name); {
-	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+	err := s.api.RenamePasskey(r.Context(), u.ID, r.PathValue("cred"), name)
+	switch {
+	case apiclient.IsCode(err, apiclient.CodeInvalid):
+		var e *apiclient.Error
+		errors.As(err, &e)
+		settingsRedirect(w, r, u.ID, e.Message)
 	case err != nil:
 		s.fail(w, err)
 	default:
@@ -294,133 +104,22 @@ func (s *Server) passkeyRename(w http.ResponseWriter, r *http.Request, u models.
 }
 
 func (s *Server) passkeyDelete(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	if !s.confirmPassword(w, r, u) {
+	msg, err := s.api.DeletePasskey(r.Context(), u.ID, r.PathValue("cred"), r.PostFormValue("current"))
+	if err != nil {
+		s.settingsError(w, r, u, err)
 		return
 	}
-	keys, err := s.store.ListPasskeys(ctx, u.ID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if len(keys) == 1 { // the last one: the account must keep another way in
-		mine, err := s.store.UserProviders(ctx, u.ID)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		if !s.keepsSignIn(ctx, mine, models.ProviderPasskey) {
-			settingsRedirect(w, r, u.ID, "Add another way to sign in before removing your last passkey.")
-			return
-		}
-	}
-	switch err := s.store.DeletePasskey(ctx, u.ID, r.PathValue("cred")); {
-	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
-	case err != nil:
-		s.fail(w, err)
-	default:
-		s.audit(r, u.ID, auditPasskeyRemoved, "")
-		settingsRedirect(w, r, u.ID, "Passkey removed.")
-	}
-}
-
-// passkeysFor builds the settings section.
-func (s *Server) passkeysFor(r *http.Request, u models.User) (passkeysView, error) {
-	v := passkeysView{Ready: passkeysReady(r)}
-	keys, err := s.store.ListPasskeys(r.Context(), u.ID)
-	if err != nil {
-		return v, err
-	}
-	for _, k := range keys {
-		item := passkeyItem{ID: k.CredentialID, Name: k.Name, Created: k.CreatedAt.UTC().Format(dateLayout), LastUsed: dayOrDash(k.LastUsedAt, "Never")}
-		v.Items = append(v.Items, item)
-	}
-	return v, nil
+	settingsRedirect(w, r, u.ID, msg)
 }
 
 // ---- signing in with a passkey ----
 
 func (s *Server) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
-	if !passkeysReady(r) {
-		jsonError(w, http.StatusUnprocessableEntity, "Passkeys need HTTPS and a host name (not an IP address); localhost also works.")
-		return
-	}
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
-		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
-		return
-	}
-	wa, err := s.relyingParty(r)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))
-	if err != nil {
-		log.Error().Err(err).Msg("passkey sign-in could not start")
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session}); err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	writeJSON(w, http.StatusOK, assertion)
+	opts, err := s.api.PasskeyLoginBegin(r.Context())
+	s.passkeyOptions(w, opts, err)
 }
 
-const passkeyLoginFailed = "That passkey did not work. Try again, or sign in another way."
-
 func (s *Server) passkeyLoginFinish(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
-		jsonError(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
-		return
-	}
-	c, nonce, expires, ok := s.readPasskeyCookie(r, sealPasskeyLogin)
-	if !ok {
-		jsonError(w, http.StatusBadRequest, "The sign-in expired. Try again.")
-		return
-	}
-	wa, err := s.relyingParty(r)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Something went wrong.")
-		return
-	}
-	var signedIn models.User
-	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
-		u, err := s.store.UserByPasskeyHandle(ctx, base64.RawURLEncoding.EncodeToString(userHandle))
-		if err != nil {
-			return nil, err
-		}
-		signedIn = u
-		return s.passkeyUserFor(ctx, u, base64.RawURLEncoding.EncodeToString(userHandle))
-	}
-	_, cred, err := wa.FinishPasskeyLogin(handler, c.Session, r)
-	if err != nil {
-		s.limiter.Fail(ipKey(r))
-		s.auditAs(r, 0, 0, auditPasskeyFailed, "")
-		jsonError(w, http.StatusUnauthorized, passkeyLoginFailed)
-		return
-	}
-	if cred.Authenticator.CloneWarning { // the counter went backwards: the credential may have been copied
-		s.limiter.Fail(ipKey(r))
-		s.auditAs(r, signedIn.ID, signedIn.ID, auditPasskeyClone, "")
-		jsonError(w, http.StatusUnauthorized, passkeyLoginFailed)
-		return
-	}
-	if !s.nonces.use(nonce, expires) {
-		jsonError(w, http.StatusBadRequest, "The sign-in was already used. Try again.")
-		return
-	}
-	raw, err := json.Marshal(cred)
-	if err == nil {
-		err = s.store.UpdatePasskeyUse(ctx, credentialID(cred.ID), string(raw), cred.Authenticator.SignCount)
-	}
-	if err != nil {
-		log.Error().Err(err).Msg("could not record the passkey use")
-	}
-	clearPasskeyCookie(w, r)
-	s.limiter.Reset(ipKey(r))
-	s.markAdminVerified(w, r, signedIn.ID) // a passkey with its unlock is two factors: the Admin pages do not ask again
-	s.signInJSON(w, r, signedIn, models.ProviderPasskey)
+	o, err := s.api.PasskeyLoginFinish(r.Context(), http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	s.passkeyRedirect(w, o, err)
 }
