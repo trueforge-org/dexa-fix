@@ -98,7 +98,7 @@ from the api process and apply without a restart.`,
 		if err != nil {
 			return err
 		}
-		for _, name := range []string{"DEXAFIX_DSN", "DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY", "DEXAFIX_ENCRYPTION_KEY_FILE"} {
+		for _, name := range []string{"DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY"} {
 			if os.Getenv(name) != "" {
 				log.Warn().Str("variable", name).Msg("ignored: the web frontend has no database; this belongs to the api process")
 			}
