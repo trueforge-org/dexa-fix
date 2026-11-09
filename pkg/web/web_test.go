@@ -474,7 +474,7 @@ func TestMethodsAthleteModeAndSettings(t *testing.T) {
 	}
 
 	// settings: defaults, then save
-	if code, b := api("GET", "/api/v1/users/1/settings", ""); code != 200 || !strings.Contains(b, `"athlete_default":false`) || !strings.Contains(b, `"method_ranking":["hydrostatic","bodpod","caliper","scale","tape","visual-ai"]`) {
+	if code, b := api("GET", "/api/v1/users/1/settings", ""); code != 200 || !strings.Contains(b, `"athlete_default":false`) || !strings.Contains(b, `"method_ranking":["hydrostatic","bodpod","caliper","scale","tape","visual-ai","manual-entry"]`) {
 		t.Fatalf("default settings: %d %s", code, b)
 	}
 	if r := post(t, c, ts.URL+"/u/1/settings", url.Values{"athlete_default": {"1"}, "rank_visual-ai": {"1"}, "rank_hydrostatic": {"2"}}); r.StatusCode != 200 {

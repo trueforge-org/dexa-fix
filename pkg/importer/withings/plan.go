@@ -13,6 +13,15 @@ import (
 // attribUnsure is Withings' "measurement may belong to someone else" attribution (e.g. a guest on the scale).
 const attribUnsure = 1
 
+// Withings attributions for a value somebody typed into the app instead of a device measuring it:
+// 2 is a manual entry, 4 a manual entry made while creating the user. Such a value says nothing
+// about the scale, so it gets its own method and is never mixed into (or calibrated as) the
+// scale's own readings.
+const (
+	attribManual            = 2
+	attribManualUserCreated = 4
+)
+
 // dayKey is the calendar date of t in loc (nil: UTC), the day a reading belongs to for the user.
 func dayKey(t time.Time, loc *time.Location) string {
 	if loc == nil {
@@ -32,7 +41,11 @@ func mapGroups(groups []measureGroup) (rs []models.ScaleReading, seen map[string
 		if g.Category != 1 || g.Attrib == attribUnsure || g.Date <= 0 {
 			continue
 		}
-		r := models.ScaleReading{Source: Name, Method: models.MethodScale, ExternalID: &id, MeasuredAt: time.Unix(g.Date, 0).UTC()}
+		method := models.MethodScale
+		if g.Attrib == attribManual || g.Attrib == attribManualUserCreated {
+			method = models.MethodManualEntry
+		}
+		r := models.ScaleReading{Source: Name, Method: method, ExternalID: &id, MeasuredAt: time.Unix(g.Date, 0).UTC()}
 		mapped := 0
 		for _, m := range g.Measures {
 			v := math.Round(float64(m.Value)*math.Pow10(m.Unit)*1e6) / 1e6

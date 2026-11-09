@@ -85,17 +85,17 @@ func TestDSNFromFile(t *testing.T) {
 
 func TestWithingsSecretIsNeverAFlagValue(t *testing.T) {
 	c := &cobra.Command{}
-	c.Flags().String("withings-client-secret", "", "")
-	c.Flags().String("withings-client-secret-file", "", "")
-	c.Flags().Set("withings-client-secret", "hunter2")
+	c.Flags().String("api-secret", "", "")
+	c.Flags().String("api-secret-file", "", "")
+	c.Flags().Set("api-secret", "hunter2")
 	always := func(string) bool { return true }
-	if _, err := secretFlag(c, "withings-client-secret", "withings-client-secret-file", always); err == nil {
+	if _, err := secretFlag(c, "api-secret", "api-secret-file", always); err == nil {
 		t.Fatal("secret accepted on the command line")
 	}
 	path := filepath.Join(t.TempDir(), "s")
 	os.WriteFile(path, []byte("from-file\n"), 0o600)
-	c.Flags().Set("withings-client-secret-file", path)
-	if got, err := secretFlag(c, "withings-client-secret", "withings-client-secret-file", always); err != nil || got != "from-file" {
+	c.Flags().Set("api-secret-file", path)
+	if got, err := secretFlag(c, "api-secret", "api-secret-file", always); err != nil || got != "from-file" {
 		t.Fatalf("file secret: %q %v", got, err)
 	}
 }

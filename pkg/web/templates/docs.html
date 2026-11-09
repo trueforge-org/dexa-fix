@@ -181,9 +181,10 @@
     <tr><td><code>scale</code></td><td>Smart scale (Withings, manual)</td><td>4</td></tr>
     <tr><td><code>tape</code></td><td>Tape / Navy formula</td><td>5</td></tr>
     <tr><td><code>visual-ai</code></td><td>Visual AI</td><td>6</td></tr>
+    <tr><td><code>manual-entry</code></td><td>Typed into an app (unknown method)</td><td>7 (least trusted)</td></tr>
   </tbody>
 </table></div>
-<p>Readings of different methods are never mixed: each method (and athlete mode) is calibrated against DEXA on its own. See <a href="#method-accuracy">Method accuracy</a>. A re-import never changes the method or athlete mode of a stored reading.</p>
+<p>Readings of different methods are never mixed: each method (and athlete mode) is calibrated against DEXA on its own. See <a href="#method-accuracy">Method accuracy</a>. A re-import never changes the method or athlete mode of a stored reading. A Withings import marks values that were typed into the Withings app (instead of measured by the scale) as <code>manual-entry</code>, so they do not distort the scale's own calibration; rank or ignore that method as you see fit.</p>
 
 <h3 id="scale-athlete">Athlete mode on a reading</h3>
 <p>Tick <strong>Athlete mode</strong> when the scale was set to its athlete setting (which changes how it estimates fat). The box starts out as your default from <a href="#athlete-mode">Settings</a>. See <a href="#athlete-mode">Athlete mode</a> for the effect.</p>

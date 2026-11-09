@@ -43,7 +43,8 @@ Run the Release workflow manually (workflow_dispatch) for a dry run that builds 
 
 Every third-party action is pinned to a commit SHA with its version in a comment, because the
 release job holds write and signing permissions. Dependabot (github-actions and docker) proposes
-the updates. The GoReleaser version in `release.yaml` is pinned too and is bumped by hand.
+the updates. The GoReleaser version is pinned in `.github/goreleaser/Dockerfile` (a file that is never built; it is there so
+Dependabot's docker ecosystem proposes updates, and `release.yaml` reads the tag from it).
 
 ### Container
 

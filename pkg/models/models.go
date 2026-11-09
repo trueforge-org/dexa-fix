@@ -17,6 +17,9 @@ const (
 	MethodCaliper     = "caliper"     // skinfold calipers
 	MethodTape        = "tape"        // tape measure / Navy formula
 	MethodVisualAI    = "visual-ai"   // AI estimate from photos
+	// MethodManualEntry is a value typed into an app (for example a body fat % entered by hand in
+	// the Withings app): how it was measured is unknown, so it ranks last by default.
+	MethodManualEntry = "manual-entry"
 )
 
 // MethodInfo describes a measurement method for forms.
@@ -33,6 +36,7 @@ var Methods = []MethodInfo{
 	{MethodScale, "Smart scale (Withings, manual)"},
 	{MethodTape, "Tape / Navy formula"},
 	{MethodVisualAI, "Visual AI"},
+	{MethodManualEntry, "Typed into an app (unknown method)"},
 }
 
 // DefaultRanking returns the method keys in the default accuracy order.

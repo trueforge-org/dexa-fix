@@ -197,7 +197,7 @@ func TestUserSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ = s.GetUser(ctx, u.ID)
-	want := []string{"scale", "caliper", "hydrostatic", "bodpod", "tape", "visual-ai"}
+	want := []string{"scale", "caliper", "hydrostatic", "bodpod", "tape", "visual-ai", "manual-entry"}
 	if !got.AthleteDefault || !reflect.DeepEqual(got.MethodRanking, want) {
 		t.Fatalf("saved: %+v", got)
 	}

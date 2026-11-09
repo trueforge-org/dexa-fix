@@ -612,7 +612,8 @@ field is handled on its own.
    ignored.
 2. **Most accurate reading.** Each day uses the group whose method ranks
    highest for that field. The default order, most accurate first, is
-   hydrostatic, BodPod, caliper, smart scale, tape, visual AI. Change it on the
+   hydrostatic, BodPod, caliper, smart scale, tape, visual AI, typed into an
+   app (`manual-entry`). Change it on the
    settings page. A method without a value for the field is skipped, so a
    caliper reading with only body fat does not hide the scale weight. If the
    normal and athlete group of one method both have a value, the one matching
@@ -743,7 +744,7 @@ Batch readings with an `external_id` are upserted on `source` and
 `source` get `manual`.
 
 Readings also take `method` (`scale` by default, or `hydrostatic`, `bodpod`,
-`caliper`, `tape`, `visual-ai`) and `athlete_mode`. When `athlete_mode` is left
+`caliper`, `tape`, `visual-ai`, `manual-entry`) and `athlete_mode`. When `athlete_mode` is left
 out, the user's default applies. A re-import never changes the method or athlete
 mode of a stored reading. In `method_ranking`, methods you leave out follow in
 the default order.

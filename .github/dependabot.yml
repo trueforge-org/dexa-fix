@@ -18,3 +18,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # The GoReleaser version used by the Release workflow lives in a Dockerfile that is never built.
+  - package-ecosystem: docker
+    directory: /.github/goreleaser
+    schedule:
+      interval: weekly
