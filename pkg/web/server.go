@@ -21,6 +21,7 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
@@ -55,9 +56,12 @@ type Server struct {
 	live atomic.Pointer[liveSettings]               // administrator settings in force, see serversettings.go
 	cop  atomic.Pointer[http.CrossOriginProtection] // rebuilt when the base URL changes
 
-	authChain  []authenticator
-	cookieKey  []byte
-	httpClient *http.Client
+	authChain []authenticator
+
+	api            *apiclient.Client // how the page handlers reach the backend
+	serviceSecrets [][32]byte        // accepted by the internal API, see internal.go
+	cookieKey      []byte
+	httpClient     *http.Client
 
 	sl slJobs // background Strength Level syncs
 
@@ -122,6 +126,9 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		return nil, err
 	}
 	if err := s.reloadSettings(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.connectInProcess(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -204,7 +211,7 @@ func (s *Server) Handler() http.Handler {
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.
 	// The check is rebuilt when the base URL changes, so it is looked up for every request.
-	guarded := s.withAuth(mux)
+	guarded := s.withVisitor(s.frontAuth(mux))
 	sameOrigin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.cop.Load().Handler(guarded).ServeHTTP(w, r)
 	})
