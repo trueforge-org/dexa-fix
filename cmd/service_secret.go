@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -34,7 +35,7 @@ func loadServiceSecrets(path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("service secret: %w", err)
 	}
-	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 {
+	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 && !mountedSecret(path) {
 		log.Warn().Str("file", path).Str("mode", fmt.Sprintf("%04o", fi.Mode().Perm())).
 			Msg("the service secret file can be read by other users; restrict it (chmod 600) unless a secret store mounts it for you")
 	}
@@ -86,4 +87,12 @@ var serviceSecretCmd = &cobra.Command{
 func init() {
 	secretsCmd.AddCommand(serviceSecretCmd)
 	RootCmd.AddCommand(secretsCmd)
+}
+
+// mountedSecret reports whether path is in one of the places where a container platform mounts
+// secrets (Docker, Compose, Kubernetes). Those files are managed by the platform, which commonly makes
+// them readable inside the container only, so the permission warning would just be noise.
+func mountedSecret(path string) bool {
+	p := filepath.Clean(path)
+	return strings.HasPrefix(p, "/run/secrets/") || strings.HasPrefix(p, "/var/run/secrets/")
 }

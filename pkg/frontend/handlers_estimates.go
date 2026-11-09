@@ -9,9 +9,6 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
-// providerWithings is the importer name of the Withings integration.
-const providerWithings = "withings"
-
 type estCell struct {
 	Text  string
 	Class string // "", "dexa" or "corrected"

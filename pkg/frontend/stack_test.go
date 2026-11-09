@@ -15,10 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/backend"
+	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -29,14 +30,14 @@ import (
 const testSecret = "current-secret-0123456789abcdef"
 
 // newBackendServer starts a backend on a new in-memory database and serves its internal API.
-func newBackendServer(t *testing.T) (*httptest.Server, *backend.Backend, *sqlstore.Store) {
+func newBackendServer(t *testing.T) (*httptest.Server, *mainbackend.Backend, *sqlstore.Store) {
 	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	b, err := backend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	b, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,7 @@ func splitClient(t *testing.T, bs *httptest.Server) *apiclient.Client {
 }
 
 // putSettings stores settings and puts them in force in the backend.
-func putSettings(t *testing.T, b *backend.Backend, st *sqlstore.Store, settings map[string]string) {
+func putSettings(t *testing.T, b *mainbackend.Backend, st *sqlstore.Store, settings map[string]string) {
 	t.Helper()
 	ctx := context.Background()
 	for name, v := range settings {

@@ -1,4 +1,4 @@
-package backend
+package mainbackend
 
 import "github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 

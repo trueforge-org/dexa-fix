@@ -58,10 +58,10 @@ jobs:
           cache: true
       - name: go test
         run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
-      - name: go test (web and api as two processes)
+      - name: go test (frontend and main backend as two processes)
         # Every browser-level test again, with a frontend that has no database talking over TCP to a
         # separate backend.
-        run: go test -race -count=1 ./pkg/web
+        run: go test -race -count=1 ./pkg/backend/... ./pkg/frontend
         env:
           DEXAFIX_TEST_SPLIT: "1"
       - name: Coverage summary

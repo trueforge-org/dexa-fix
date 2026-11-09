@@ -1,0 +1,22 @@
+package mainbackend
+
+import (
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+// The backend never renders pages and does not import the frontend (its tests may, to drive the
+// HTML flows; test files do not count here).
+func TestBackendDoesNotImportTheFrontend(t *testing.T) {
+	const module = "github.com/trueforge-org/dexa-fix/"
+	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", ".").Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	for _, d := range strings.Fields(string(out)) {
+		if d == module+"pkg/frontend" || strings.HasPrefix(d, module+"pkg/frontend/") || d == module+"pkg/app" {
+			t.Errorf("the main backend depends on %s", d)
+		}
+	}
+}

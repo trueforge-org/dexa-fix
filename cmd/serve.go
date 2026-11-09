@@ -19,10 +19,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
+	"github.com/trueforge-org/dexa-fix/pkg/app"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/web"
 )
 
 // Version is the application version, set by main.
@@ -242,7 +242,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			}
 		}
 		wi := withings.New(withings.Config{}, nil)
-		srv, err := web.New(st, importer.NewRegistry(wi))
+		srv, err := app.New(st, importer.NewRegistry(wi))
 		if err != nil {
 			return err
 		}

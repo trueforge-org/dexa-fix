@@ -6,6 +6,10 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
+// SessionCookie is the name of the cookie that holds the session. The browser sends it to the
+// frontend, which passes it on to the backend (HeaderCookie).
+const SessionCookie = "dexafix_session"
+
 // SessionUser is the signed-in user as the frontend needs it. models.User leaves some fields out
 // of its JSON form on purpose (they are not part of the public API), so the internal API carries
 // them here.

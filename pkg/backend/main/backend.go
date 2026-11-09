@@ -1,7 +1,9 @@
-// Package backend owns the database, the keys and every security decision: the internal API that
-// the frontend calls, the public API (/api/v1), the importers and the maintenance jobs. It never
-// renders a page, and it does not import the frontend.
-package backend
+// Package mainbackend is the main backend, the process behind `dexa-fix serve api`. It owns the
+// database, the keys and every security decision: the internal API that the frontend calls, the
+// public API (/api/v1), the importers and the maintenance jobs. It never renders a page, and it
+// does not import the frontend. (The directory is pkg/backend/main; a package cannot be named main
+// and be imported.)
+package mainbackend
 
 import (
 	"context"

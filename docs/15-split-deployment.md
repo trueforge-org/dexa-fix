@@ -6,9 +6,13 @@ two processes:
 - `dexa-fix serve web` is the frontend. It renders the pages, serves static
   files and owns the public listeners: plain HTTP, HTTPS and HTTP/3. It has no
   database and no encryption key.
-- `dexa-fix serve api` is the backend. It owns the database, the encryption
+- `dexa-fix serve api` is the main backend (`pkg/backend/main`). It owns the database, the encryption
   keys and every security decision. It also runs maintenance: the audit log
   purge and the renewal of the self-signed certificate.
+
+In the source the two halves are separate packages: `pkg/frontend` cannot
+import anything under `pkg/backend/`, the store or a database driver (a test
+checks it), and `pkg/shared` holds the contract between them.
 
 Splitting them has two uses. A flood of requests to the frontend cannot starve
 the backend, because each process has its own load budget. And the process

@@ -60,3 +60,12 @@ func TestServiceSecretCommandPrintsAUsableSecret(t *testing.T) {
 		t.Error("two runs printed the same secret")
 	}
 }
+
+func TestMountedSecretIsRecognised(t *testing.T) {
+	for p, want := range map[string]bool{"/run/secrets/service_secret": true, "/var/run/secrets/x/y": true,
+		"/run/secretsx/a": false, "/etc/dexa-fix/service.secret": false, "run/secrets/a": false, "/run/secrets/../etc/x": false} {
+		if got := mountedSecret(p); got != want {
+			t.Errorf("mountedSecret(%q) = %v", p, got)
+		}
+	}
+}

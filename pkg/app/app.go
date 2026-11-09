@@ -16,7 +16,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/backend"
+	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/frontend"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
@@ -27,7 +27,7 @@ import (
 // act on the combined process.
 type Server struct {
 	*frontend.Frontend
-	*backend.Backend
+	*mainbackend.Backend
 }
 
 // New builds the combined Server. importers may be nil.
@@ -35,7 +35,7 @@ type Server struct {
 // The page handlers call the backend (the internal API) through an in-process transport, and the
 // public API is served on the same handler, without the load budget of a separate backend.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
-	b, err := backend.NewBackend(st, importers)
+	b, err := mainbackend.NewBackend(st, importers)
 	if err != nil {
 		return nil, err
 	}

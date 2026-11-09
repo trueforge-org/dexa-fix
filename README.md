@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="pkg/web/static/favicon.svg" width="96" alt="dexa-fix logo">
+  <img src="pkg/frontend/static/favicon.svg" width="96" alt="dexa-fix logo">
 </p>
 
 <h1 align="center">dexa-fix</h1>

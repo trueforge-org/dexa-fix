@@ -14,14 +14,16 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
   go test ./pkg/store/sqlstore/
 ```
 
-To run the browser-level tests of `pkg/web` against the split deployment (a
-frontend without a database that talks over TCP to a separate backend), set
-`DEXAFIX_TEST_SPLIT`. CI runs both ways. The tests that cover the combined
-server's listeners are skipped there; `frontend_tls_test.go` covers HTTPS in
-the split.
+The browser-level tests live in `pkg/backend/main`: `stack_test.go` builds a
+main backend with a frontend over the in-process internal API, as `pkg/app`
+does. To run them against the split deployment (a frontend without a database
+that talks over TCP to a separate main backend), set `DEXAFIX_TEST_SPLIT`. CI
+runs both ways. The tests that cover the combined server's listeners are
+skipped there; `pkg/frontend/frontend_tls_test.go` covers HTTPS in the split.
 
 ```bash
-DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
+go test ./pkg/backend/... ./pkg/frontend ./pkg/app
+DEXAFIX_TEST_SPLIT=1 go test ./pkg/backend/... ./pkg/frontend
 ```
 
 ## Layout
@@ -31,12 +33,30 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
   (`serve_split.go`) run the frontend and the backend as two processes. `db`
   migrates and copies the database, `secrets` creates the service secret, and
   `info` prints binary information.
-- `pkg/shared/edge/`: HTTP edge code that both processes share: the visitor's address
-  behind a proxy, the PROXY protocol and request limits. It must not import the
-  store.
-- `pkg/shared/apiclient/`: the frontend's client for the backend's internal API under
-  `/internal/v1`, and the in-process transport that `serve` uses to run both
-  halves in one process. It must not import the store or `pkg/web`.
+- `pkg/frontend/`: package `frontend`. The HTML side: templates and static
+  files, the page handlers (`handlers_*.go`), the public listeners (plain, HTTPS
+  and HTTP/3), the config poller and the request limiter. It has no database
+  and asks the main backend for everything through `apiclient.Client`.
+- `pkg/backend/main/`: package `mainbackend`, the main backend (`dexa-fix serve
+  api`). The store, the keys and every security decision: the internal API under
+  `/internal/v1` (`internal*.go`), the public API (`api.go`), importers,
+  maintenance and the in-memory estimate cache (`estcache.go`). `pkg/backend` is
+  a plain parent folder, so that the backend can later be split into more
+  services.
+- `pkg/app/`: package `app`, the single-process mode. `app.New` builds the main
+  backend and the frontend over `apiclient.InProcess`; `serve` uses it.
+- `pkg/shared/`: what both sides use, in small packages named by function:
+  `edge/` (the visitor's address behind a proxy, the PROXY protocol, request
+  limits, security headers), `apiclient/` (the contract between the two: the
+  client, the DTOs, header and cookie names, error codes, and the in-process
+  transport), `tlsutil/` (certificate parsing), `timezones/` and `jobs/`.
+
+The rules are tests. `pkg/frontend/boundary_test.go` fails when the frontend
+imports (directly or not) anything under `pkg/backend/`, `pkg/store`, the
+importers, the mailer, Strength Level, a database driver, OIDC or WebAuthn.
+`pkg/shared/boundary_test.go` keeps `pkg/shared` independent of both sides and
+of the store. The main backend does not import the frontend (its tests may, to
+drive the HTML flows).
 - `pkg/estimate/`: estimation logic.
 - `pkg/strengthlevel/`: the Strength Level entries built from the estimates
   (`strengthlevel.go`) and the sync client (`client/`).
@@ -46,16 +66,6 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
 - `pkg/models/`: domain types.
 - `pkg/store/`: the `Store` interface. `sqlstore/` implements it with bun for
   SQLite and Postgres. Its goose migrations live under `migrations/`.
-- `pkg/web/`: HTML handlers and templates, the JSON API (`api.go`), the
-  integration routes (`handlers_import.go`), routes in `server.go`, and the
-  in-memory estimate cache (`estcache.go`). The split lives here too: `frontend.go`
-  is the frontend process, `backend.go` the public handlers of the backend, and
-  `internal.go` the internal API under `/internal/v1`. The two halves are two
-  types, `Frontend` (templates, listeners, an `apiclient.Client`) and `Backend`
-  (store, keys, security decisions); `Server` only wraps both for the single
-  process. The frontend cannot reach the store: the compiler refuses it, and
-  `boundary_test.go` guards the rule. A file ending in `_backend.go` holds the
-  backend half of a feature whose page handlers are in the file without the suffix.
 
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.
@@ -88,10 +98,10 @@ imports are idempotent. If the user must link an account, also implement
 Register the importer in `cmd/serve.go`:
 
 ```go
-srv, err := web.New(st, importer.NewRegistry(wi, myImporter))
+srv, err := app.New(st, importer.NewRegistry(wi, myImporter))
 ```
 
 The import API works for any registered provider. The estimates page has
-buttons only for Withings (`providerWithings` in `pkg/web/handlers_estimates.go`
-and `pkg/web/templates/estimates.html`), so a new provider needs its own
+buttons only for Withings (`providerWithings` in `pkg/backend/main/consts.go` and
+`pkg/frontend/templates/estimates.html`), so a new provider needs its own
 buttons there.

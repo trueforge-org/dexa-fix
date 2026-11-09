@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/web"
 )
 
 var settingsCmd = &cobra.Command{
@@ -45,7 +45,7 @@ restart it afterwards.`,
 			return err
 		}
 		defer st.Close()
-		for _, name := range web.NetworkSettingNames {
+		for _, name := range mainbackend.NetworkSettingNames {
 			if err := st.DeleteSetting(ctx, name); err != nil {
 				return err
 			}

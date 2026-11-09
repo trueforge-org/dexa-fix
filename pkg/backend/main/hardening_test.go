@@ -1,4 +1,4 @@
-package backend
+package mainbackend
 
 import (
 	"compress/gzip"

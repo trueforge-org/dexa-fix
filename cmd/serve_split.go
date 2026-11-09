@@ -15,11 +15,12 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
+	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
+	"github.com/trueforge-org/dexa-fix/pkg/frontend"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/web"
 )
 
 // `serve web` and `serve api` run the two halves of the application as separate processes, so that
@@ -115,7 +116,7 @@ from the api process and apply without a restart.`,
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		srv, err := web.NewFrontend(client)
+		srv, err := frontend.NewFrontend(client)
 		if err != nil {
 			return err
 		}
@@ -223,7 +224,7 @@ API and another the internal one on the same database.`,
 				log.Warn().Str("variable", name).Msg("ignored: this is a setting on the Admin page now")
 			}
 		}
-		srv, err := web.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+		srv, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
 		if err != nil {
 			return err
 		}

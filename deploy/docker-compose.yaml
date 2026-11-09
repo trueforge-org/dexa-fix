@@ -1,0 +1,110 @@
+# dexa-fix as two containers and PostgreSQL: the recommended way to run it when it faces the
+# internet. A flood of requests on the web container cannot take down the api container, and the
+# database is reachable from the api container only.
+#
+#   internet --> web (pages, HTTP/HTTPS/HTTP3, no database)
+#                  |  internal network "link", authenticated with the service secret
+#                  v
+#                api ("main backend": database, keys, every security decision)
+#                  |  internal network "data"
+#                  v
+#                db (PostgreSQL)
+#
+# Start:
+#   ./init-secrets.sh        # once: creates ./secrets (database password, encryption key, service secret)
+#   docker compose up -d
+#   Open http://localhost:8080 and create the first account: it becomes the administrator.
+#
+# Back up ./secrets/encryption_key together with the database: encrypted values (stored passwords,
+# keys, tokens) cannot be read without it.
+#
+# Pin the version for production, for example DEXAFIX_VERSION=1.2.3 in a .env file next to this file.
+# Both containers must run the same version.
+# Documentation: docs/15-split-deployment.md
+
+name: dexa-fix
+
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dexafix
+      POSTGRES_DB: dexafix
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - db-data:/var/lib/postgresql # PostgreSQL 18 keeps its data below this directory
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dexafix -d dexafix"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *hardened
+    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    # --listen= turns the public JSON API (/api/v1) off: the pages do not use it, and the less is
+    # exposed the better. To offer it to scripts and apps, remove the flag, publish port 8080 of
+    # this service behind your reverse proxy (route /api/ to it) or set DEXAFIX_API_UPSTREAM on web.
+    command: ["serve", "api", "--listen="]
+    environment:
+      DEXAFIX_DB_DRIVER: postgres
+      DEXAFIX_DSN_FILE: /run/secrets/dsn
+      DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
+      DEXAFIX_INTERNAL_LISTEN: ":8081"
+      # With several api containers on the same database run the maintenance loop (audit log
+      # purge, certificate renewal) in one of them only: DEXAFIX_MAINTENANCE: "false" on the rest.
+    secrets: [dsn, encryption_key, service_secret]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [data, link]
+
+  web:
+    <<: *hardened
+    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    command: ["serve", "web"]
+    environment:
+      DEXAFIX_BACKEND_URL: http://api:8081
+      DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
+      # To pass /api/ on to the api container (it must listen on :8080 then, see above) when no
+      # reverse proxy routes by path:
+      # DEXAFIX_API_UPSTREAM: http://api:8080
+    secrets: [service_secret]
+    depends_on: [api]
+    ports:
+      - "8080:8080" # plain HTTP, for your reverse proxy or for trying it out
+      # HTTPS and HTTP/3 are set up on the Admin page and served by this container, 8443 by default:
+      - "8443:8443"
+      - "8443:8443/udp"
+    networks: [link, public]
+
+networks:
+  data:
+    internal: true # the database has no way out and no way in except through api
+  link:
+    internal: true # web and api talk here; nothing else can reach api's internal port
+  public: {}
+
+volumes:
+  db-data: {}
+
+# Files created by ./init-secrets.sh. They are mounted read-only into the containers that need them.
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  dsn:
+    file: ./secrets/dsn
+  encryption_key:
+    file: ./secrets/encryption_key
+  service_secret:
+    file: ./secrets/service_secret
