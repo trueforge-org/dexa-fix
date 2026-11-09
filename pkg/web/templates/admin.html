@@ -25,18 +25,20 @@
 <section class="card flush" id="users">
   <div class="card-head"><h2>Users {{help "admin-users"}}</h2></div>
   <div class="scroll"><table>
-    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Created</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Two-step</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{{range .Users}}<tr>
       <td>{{.Name}}{{if .Self}} <small>you</small>{{end}}</td>
       <td>{{.Email}}</td>
       <td>{{if .Admin}}<span class="status on">Admin</span>{{else}}<span class="status">User</span>{{end}}</td>
       <td>{{.SignIn}}</td>
+      <td>{{if .TwoFactor}}On{{else}}Off{{end}}</td>
       <td>{{.Created}}</td>
       <td><div class="row-actions">
         <form method="post" action="/admin/users/{{.ID}}/role"><input type="hidden" name="role" value="{{if .Admin}}user{{else}}admin{{end}}"><button class="secondary" type="submit">{{if .Admin}}Remove admin{{else}}Make admin{{end}}</button></form>
         <form method="post" action="/admin/users/{{.ID}}/strengthlevel"><input type="hidden" name="enabled" value="{{if .StrengthLevel}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user store their Strength Level login and sync body readings to it automatically">{{if .StrengthLevel}}Disable Strength Level sync{{else}}Enable Strength Level sync{{end}}</button></form>
         {{if .StrengthLevel}}<form method="post" action="/admin/users/{{.ID}}/strengthlevel-bulk"><input type="hidden" name="enabled" value="{{if .StrengthLevelBulk}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user run the sync of many days (adding and optionally updating) from their Settings page">{{if .StrengthLevelBulk}}Disallow multi-day sync{{else}}Allow multi-day sync{{end}}</button></form>{{end}}
         <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Name}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
+        {{if .TwoFactor}}<form method="post" action="/admin/users/{{.ID}}/2fa/delete" data-confirm="Remove two-step verification for {{.Name}}? They lose their recovery codes too."><button class="secondary" type="submit">Remove two-step</button></form>{{end}}
         {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Name}} and all their data? This cannot be undone."><button class="link" type="submit">Delete</button></form>{{end}}
       </div></td>
     </tr>{{end}}</tbody>
@@ -67,6 +69,22 @@
   </div>
   <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
   <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></form>
+</section>
+
+<section class="card" id="two-factor">
+  <div class="card-head">
+    <h2>Two-step verification</h2>
+    {{if eq .Require2FA "everyone"}}<span class="status on">Required for everyone</span>{{else if eq .Require2FA "admins"}}<span class="status on">Required for administrators</span>{{else}}<span class="status">Optional</span>{{end}}
+  </div>
+  <p class="help">Users can always turn on a 6-digit code from an authenticator app for signing in with a password. When required, people without one set it up at their next password sign-in. Providers and passkeys are not asked: enforce multi-factor at the provider. Users who have it on, or must, can no longer call the API with their password; they use access tokens.</p>
+  <form method="post" action="/admin/two-factor" class="form-row">
+    <label>Require for <select name="require">
+      <option value="off"{{if eq .Require2FA "off"}} selected{{end}}>Nobody</option>
+      <option value="admins"{{if eq .Require2FA "admins"}} selected{{end}}>Administrators</option>
+      <option value="everyone"{{if eq .Require2FA "everyone"}} selected{{end}}>Everyone</option>
+    </select></label>
+    <div><button type="submit" class="secondary">Save</button></div>
+  </form>
 </section>
 
 <section class="card" id="signin">

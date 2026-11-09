@@ -108,6 +108,16 @@ type Identity struct {
 	CreatedAt time.Time
 }
 
+// TOTP is a user's time-based one-time password setup (two-step verification).
+type TOTP struct {
+	UserID      int64
+	Secret      string // the shared secret, decrypted
+	LastStep    int64  // newest 30-second step that was accepted
+	Confirmed   bool   // false while the user is still setting it up
+	ConfirmedAt time.Time
+	CreatedAt   time.Time
+}
+
 // Session is a signed-in browser session. The token itself is never stored, only its hash.
 type Session struct {
 	UserID    int64

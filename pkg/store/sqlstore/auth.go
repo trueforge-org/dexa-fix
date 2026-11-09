@@ -467,6 +467,7 @@ func (s *Store) Stats(ctx context.Context) (store.Stats, error) {
 		{&st.DexaScans, (*dexaRow)(nil), ""},
 		{&st.ScaleReadings, (*scaleRow)(nil), ""},
 		{&st.AccessTokens, (*tokenRow)(nil), ""},
+		{&st.TwoFactorUsers, (*totpRow)(nil), "confirmed_at IS NOT NULL"},
 	}
 	for _, c := range counts {
 		q := s.db.NewSelect().Model(c.model)

@@ -46,6 +46,10 @@ type profileExport struct {
 		StrengthLevelSync     bool `json:"strengthlevel_sync"`
 		StrengthLevelBulkSync bool `json:"strengthlevel_bulk_sync"`
 	} `json:"permissions"`
+	// TwoFactor says whether two-step verification is on; the secret and codes are never exported.
+	TwoFactor struct {
+		Enabled bool `json:"enabled"`
+	} `json:"two_factor"`
 	SignInMethods []exportIdentity    `json:"sign_in_methods"`
 	AccessTokens  []exportAccessToken `json:"access_tokens"`
 	// AuditLog lists the security events that were about this account or done by it.
@@ -103,6 +107,9 @@ func (s *Server) buildProfileExport(r *http.Request, u models.User) (profileExpo
 	e.SignInMethods = make([]exportIdentity, 0, len(ids))
 	for _, id := range ids {
 		e.SignInMethods = append(e.SignInMethods, exportIdentity{Provider: id.Provider, Subject: id.Subject, LinkedAt: id.CreatedAt})
+	}
+	if e.TwoFactor.Enabled, err = s.hasTwoFactor(ctx, u.ID); err != nil {
+		return e, err
 	}
 	tokens, err := s.store.ListAccessTokens(ctx, u.ID)
 	if err != nil {

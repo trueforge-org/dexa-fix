@@ -18,13 +18,14 @@ type RekeyStats struct {
 	Integrations int
 	Settings     int
 	Providers    int
+	TOTP         int // two-step verification secrets re-encrypted
 	Lookups      int // e-mail lookup hashes recomputed
 	Current      int // encrypted values already under the current key
 }
 
 // Changed is the number of values that were or would be rewritten.
 func (r RekeyStats) Changed() int {
-	return r.Emails + r.Integrations + r.Settings + r.Providers + r.Lookups
+	return r.Emails + r.Integrations + r.Settings + r.Providers + r.TOTP + r.Lookups
 }
 
 // Rekey re-encrypts every encrypted value with the current key, recomputes the e-mail lookup
@@ -119,6 +120,27 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 				continue
 			}
 			if _, err := tx.NewUpdate().Model((*providerRow)(nil)).Set("client_secret = ?", enc).Where("slug = ?", r.Slug).Exec(ctx); err != nil {
+				return err
+			}
+		}
+
+		var totps []totpRow
+		if err := tx.NewSelect().Model(&totps).OrderExpr("user_id").Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range totps {
+			enc, err := reseal(fmt.Sprintf("two-step verification secret of user %d", r.UserID), r.Secret, totpContext(r.UserID))
+			if err != nil {
+				return err
+			}
+			if enc == "" {
+				continue
+			}
+			stats.TOTP++
+			if dryRun {
+				continue
+			}
+			if _, err := tx.NewUpdate().Model((*totpRow)(nil)).Set("secret = ?", enc).Where("user_id = ?", r.UserID).Exec(ctx); err != nil {
 				return err
 			}
 		}

@@ -21,6 +21,12 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, u models.U
 }
 
 func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int) {
+	s.renderSettingsWith(w, r, u, errMsg, saved, newToken, status, nil)
+}
+
+// renderSettingsWith is renderSettings with a chance to add to the sign-in section, for values
+// that are shown once (a QR code, recovery codes).
+func (s *Server) renderSettingsWith(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int, extra func(*securityView)) {
 	rows := make([]rankRow, len(u.MethodRanking))
 	for i, k := range u.MethodRanking {
 		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
@@ -33,6 +39,9 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models
 	if sec.Activity, err = s.activityFor(r.Context(), u); err != nil {
 		s.fail(w, err)
 		return
+	}
+	if extra != nil {
+		extra(sec)
 	}
 	s.render(w, "settings.html", status, pageData{
 		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,

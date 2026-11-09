@@ -8,6 +8,7 @@
     <li><a href="#accounts">Accounts and sign-in</a>
       <ul>
         <li><a href="#password-login">Password sign-in</a></li>
+        <li><a href="#two-step">Two-step verification</a></li>
         <li><a href="#registration">Signing up</a></li>
         <li><a href="#providers">Sign-in providers</a></li>
         <li><a href="#access-tokens">Access tokens</a></li>
@@ -78,6 +79,17 @@
   <li><strong>Sessions</strong> last 30 days. The cookie is <code>HttpOnly</code>, <code>SameSite=Lax</code>, and <code>Secure</code> when the visitor used HTTPS.</li>
 </ul>
 
+<h3 id="two-step">Two-step verification</h3>
+<ul>
+  <li><strong>What:</strong> a one-time code from an authenticator app, asked for after the password when you sign in with a password. Providers and passkeys do not ask for it, so enforce a second factor at the provider.</li>
+  <li><strong>Turn on:</strong> Settings, <em>Two-step verification</em>. Confirm your password, scan the QR code (or type the key in), then enter a code from the app. Standard apps work: 6 digits, a new code every 30 seconds, SHA-1.</li>
+  <li><strong>Recovery codes:</strong> ten codes, shown once, in the form <code>xxxx-xxxx-xxxx-xxxx</code>. Each works once, in place of an app code. To get new ones, confirm your password and a code in Settings; the old ones stop working.</li>
+  <li><strong>Turn off:</strong> your password and a code, or a recovery code. It cannot be turned off while an administrator requires it.</li>
+  <li><strong>Sign-in:</strong> the code is asked for on a second page, and the password check is kept for 5 minutes in a signed cookie (not a session). A code works once. Five wrong codes for an account within 15 minutes block its second step.</li>
+  <li><strong>Administrators:</strong> on the Admin page, require it for <em>Nobody</em> (default), <em>Administrators</em> or <em>Everyone</em>. Covered people who have no second step set it up at their next password sign-in.</li>
+  <li><strong>API:</strong> HTTP Basic is refused for these accounts. Use an access token.</li>
+</ul>
+
 <h3 id="registration">Signing up</h3>
 <p>The very first account on an empty server can always be created. After that <strong>sign-up is closed by default</strong>. While it is closed nobody can create their own account, neither with a password nor on first sign-in through a provider. An administrator adds people from the Users list on the Admin page, or opens <strong>New accounts</strong> on the Admin page (the <em>Open new accounts</em> button). Existing accounts keep working either way.</p>
 <p class="docs-note">The sign-up form on the home page only appears when sign-up is open and password sign-in is on.</p>
@@ -111,7 +123,7 @@
 <ul>
   <li><code>Authorization: Bearer &lt;personal access token&gt;</code> (see above).</li>
   <li><code>Authorization: Bearer &lt;ID token&gt;</code> from an OpenID Connect or Sign in with Apple provider, for an account linked to that provider. It must be a JWT signed by the provider and issued for this application's client ID. Opaque access tokens are not accepted.</li>
-  <li>HTTP Basic with the e-mail address and password, while password sign-in is on: <code>curl -u you@example.com:password ...</code>.</li>
+  <li>HTTP Basic with the e-mail address and password, while password sign-in is on: <code>curl -u you@example.com:password ...</code>. Refused for an account with two-step verification on or required; such accounts use an access token.</li>
   <li>The browser session cookie.</li>
 </ul>
 <p>Responses are 401 when not authenticated and 403 when the role is not enough. A user can reach only their own <code>/users/{id}/...</code> routes; other ids answer 404.</p>
@@ -258,6 +270,7 @@
   <dd>Your IANA time zone, such as <code>Europe/Amsterdam</code> (default <code>UTC</code>). It decides which calendar day a scale reading belongs to, how the date and time you type for a reading are read and shown, what "today" is, and which day a Withings import covers. DEXA scans are plain dates and are not moved by it. Changing it re-groups your readings into days, so the estimates are recalculated.</dd>
   <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
   <dt>Linked accounts</dt><dd>See <a href="#linked-accounts">Linked accounts</a>.</dd>
+  <dt id="two-factor-settings">Two-step verification</dt><dd>Turn it on or off, and replace your recovery codes. See <a href="#two-step">Two-step verification</a>.</dd>
   <dt id="password">Password</dt><dd>Set or change your password (current password required when you have one). Shown only while password sign-in is on. Minimum 8 characters, at most 72 bytes.</dd>
   <dt>Withings, Strength Level</dt><dd>See <a href="#integrations">Integrations</a>.</dd>
   <dt>Your data</dt><dd>Download your data as JSON. See <a href="#data-export">Data export</a>.</dd>
@@ -317,6 +330,7 @@
   <li><strong>Add user:</strong> name, e-mail and password. Works even when sign-up is closed.</li>
   <li><strong>Make admin / Remove admin:</strong> the last administrator cannot be removed.</li>
   <li><strong>Set password:</strong> sets a new password for a user (8 to 72 bytes). The user is signed out everywhere and their access tokens are revoked.</li>
+  <li><strong>Remove two-step:</strong> turns off a user's two-step verification and deletes their recovery codes. Use it for a user who lost their device and their recovery codes.</li>
   <li><strong>Delete:</strong> deletes the user with all their data, immediately and without undo. You cannot delete yourself.</li>
   <li id="strengthlevel-permissions"><strong>Strength Level permissions:</strong> <em>Enable Strength Level sync</em> lets that user store a Strength Level login and send single days. Once enabled, <em>Allow multi-day sync</em> additionally lets them run the background sync of many days.</li>
 </ul>
@@ -326,6 +340,9 @@
 
 <h3 id="admin-password-login">Password sign-in</h3>
 <p>See <a href="#password-login">Password sign-in</a>. Turn it off only after linking your own account to a provider.</p>
+
+<h3 id="admin-two-step">Two-step verification</h3>
+<p>See <a href="#two-step">Two-step verification</a>. Choose who must use it: <em>Nobody</em> (default), <em>Administrators</em> or <em>Everyone</em>.</p>
 
 <h3 id="admin-providers">Sign-in providers: the form field by field</h3>
 <p>Register this server with the provider first (callback URL in <a href="#providers">Sign-in providers</a>).</p>
@@ -365,7 +382,7 @@
 
 <section id="server-config">
 <h2>Server configuration</h2>
-<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix user</code> recovers accounts, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
 
 <h3 id="serve-flags"><code>serve</code></h3>
 <div class="scroll"><table>
@@ -409,6 +426,9 @@ dexa-fix serve --db-driver postgres</code></pre>
   </tbody>
 </table></div>
 <p class="docs-note">Database strings that contain a password are rejected on the command line, because other users on the machine can read command lines. Use the environment variable or the file variant. A plain <code>--dsn file:path.db</code> without a password still works.</p>
+<h3 id="user-reset-2fa"><code>user reset-2fa</code></h3>
+<p>Removes two-step verification and the recovery codes of the account with that e-mail address, for when nobody can sign in to turn it off on the Admin page. It works on the database directly, so it takes the same <code>--db-driver</code>, <code>--dsn</code> (or <code>DEXAFIX_DSN</code>, <code>--dsn-file</code>) and encryption key settings as <code>serve</code>. The server does not have to be stopped, but the change is not written to the audit log. An administrator who requires two-step verification gets the user set up again at the next sign-in.</p>
+<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexa-fix user reset-2fa you@example.com --db-driver postgres</code></pre>
 </section>
 
 <section id="reverse-proxy">
@@ -477,7 +497,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 
 <section id="encryption">
 <h2>Encryption</h2>
-<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, and e-mail addresses. Each value is tied to its row, so copying it to another row makes it unreadable. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords and access tokens are stored only as hashes.</p>
+<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, and each user's two-step verification secret. Each value is tied to its row, so copying it to another row makes it unreadable. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
 <p class="docs-warn">Names, measurements and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those.</p>
 <p>The key comes from, in this order:</p>
 <ol>
@@ -498,7 +518,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
   <li>Generate a new key, for example <code>openssl rand -hex 32</code>.</li>
   <li>Make it the current key and give the old one as a previous key: <code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt;</code> and <code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt;</code>, or a new key file plus <code>--encryption-key-previous-file</code>.</li>
   <li>Run <code>dexa-fix db rekey --dry-run</code>. It reports how many values would change and fails if any value cannot be opened.</li>
-  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key) and provider secrets, recomputes the e-mail lookup hashes and stores the new check value. It either completes or changes nothing, and can be repeated.</li>
+  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key), provider secrets and two-step verification secrets, recomputes the e-mail lookup hashes and stores the new check value. It prints a count for each kind, such as <code>two-step secrets re-encrypted: 2</code>. It either completes or changes nothing, and can be repeated.</li>
   <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
 </ol>
 <p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
@@ -509,7 +529,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 <h2>Data export and GDPR</h2>
 <p>Under <strong>Settings &rarr; Your data</strong> every user can download two JSON files. They serve a person's right of access and data portability (GDPR articles 15 and 20).</p>
 <ul>
-  <li><strong>Settings and personal details:</strong> name, e-mail, role, height, settings, permissions, sign-in methods (provider and account id), access token names and prefixes, whether Withings and Strength Level are connected (and the Strength Level e-mail address), and the audit events about the account.</li>
+  <li><strong>Settings and personal details:</strong> name, e-mail, role, height, settings, permissions, sign-in methods (provider and account id), access token names and prefixes, whether two-step verification is on (<code>two_factor.enabled</code>; never the secret or recovery codes), whether Withings and Strength Level are connected (and the Strength Level e-mail address), and the audit events about the account.</li>
   <li><strong>DEXA scans and scale readings:</strong> everything the user measured, including notes.</li>
 </ul>
 <p>Credentials are never included: the files say whether a password, token or integration exists, not what it is. The same files are available to scripts at <code>GET /api/v1/users/{id}/export/profile</code> and <code>/export/data</code>. Every export is recorded in the audit log. <strong>Erasure:</strong> an administrator deleting a user (Admin page) removes all their measurements and settings, clears the IP addresses in the events about them, and the events no longer refer to them.</p>
@@ -517,7 +537,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 
 <section id="audit-log">
 <h2>Audit log and retention</h2>
-<p>Security-relevant events are recorded in the database: sign-ins (successful, failed and blocked), sign-outs, account creation, profile, password, token and sign-in method changes, imports, integration connects, data deletions, exports, and every administrator action (users, roles, permissions, providers, server settings). Each event has a time, who did it, whom it concerned, a short detail and the client's IP address. Details never hold passwords, tokens, e-mail addresses or login names.</p>
+<p>Security-relevant events are recorded in the database: sign-ins (successful, failed and blocked), sign-outs, account creation, profile, password, token, sign-in method and two-step verification changes, imports, integration connects, data deletions, exports, and every administrator action (users, roles, permissions, providers, server settings). Each event has a time, who did it, whom it concerned, a short detail and the client's IP address. Details never hold passwords, tokens, e-mail addresses or login names.</p>
 <ul>
   <li><strong>Who sees it:</strong> administrators see the latest 100 events on the Admin page and the whole log at <code>GET /api/v1/audit</code>. Everyone sees the latest events about their own account in Settings (<em>Recent account activity</em>) and at <code>GET /api/v1/users/{id}/audit</code>.</li>
   <li><strong>Retention:</strong> events are deleted after <code>--audit-retention-days</code> (default 365; <code>0</code> keeps them forever). The purge runs at startup and then every few hours.</li>

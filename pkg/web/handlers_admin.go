@@ -39,6 +39,7 @@ type adminView struct {
 	Withings        adminWithings
 	Audit           []auditLine // the latest security events
 	Key             keyView
+	Require2FA      string // off, admins or everyone
 }
 
 // keyView describes the encryption key on the Admin page. Rotation is manual (docs/key-rotation.md);
@@ -74,6 +75,7 @@ type adminUser struct {
 	StrengthLevel bool
 	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
 	StrengthLevelBulk bool
+	TwoFactor         bool // two-step verification is on
 }
 
 type adminProvider struct {
@@ -155,7 +157,7 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 	view := &adminView{
 		Status: stats, Version: s.Version, GoVersion: runtime.Version(),
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
-		Withings: s.adminWithingsView(r), Key: s.keyView(stats),
+		Withings: s.adminWithingsView(r), Key: s.keyView(stats), Require2FA: s.twoFactorPolicy(ctx),
 		Form: adminProvider{AuthProvider: models.AuthProvider{Kind: models.ProviderKindOIDC}},
 	}
 	if view.SignupOpen, err = s.signupOpen(ctx); err != nil {
@@ -165,12 +167,17 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 	if view.Version == "" {
 		view.Version = "dev"
 	}
+	twoFactor, err := s.store.TwoFactorUsers(ctx)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	for _, x := range users {
 		signIn := strings.Join(ids[x.ID], ", ")
 		if signIn == "" {
 			signIn = "None"
 		}
-		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto, x.StrengthLevelBulk})
+		view.Users = append(view.Users, adminUser{x.ID, x.Name, x.Email, x.IsAdmin(), x.ID == u.ID, x.CreatedAt.UTC().Format(dateLayout), signIn, x.StrengthLevelAuto, x.StrengthLevelBulk, twoFactor[x.ID]})
 	}
 	events, err := s.store.ListAuditEvents(ctx, store.AuditFilter{Limit: auditPageSize})
 	if err != nil {

@@ -75,7 +75,7 @@ type Server struct {
 	oidcCache map[string]*oidc.Provider
 }
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
@@ -164,6 +164,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /docs", s.docsPage)
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
+	s.twoFactorRoutes(mux)
 	mux.HandleFunc("GET /u/{id}", s.user(s.home))
 
 	mux.HandleFunc("GET /u/{id}/dexa", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) { s.dexaPage(w, r, u, "", http.StatusOK) }))
@@ -240,7 +241,8 @@ type pageData struct {
 	Overview    *overviewView // summary above the estimates table, nil without data
 	Pager       *pager        // scale page: links to older readings
 
-	Login *loginView // sign-in page
+	Login     *loginView     // sign-in page
+	TwoFactor *twoFactorView // second step of a sign-in
 
 	SLSend        bool          // estimates page: show the button that sends one day to Strength Level
 	StrengthLevel *slView       // settings page: only for users an administrator has enabled it for

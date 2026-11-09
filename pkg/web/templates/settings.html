@@ -38,6 +38,45 @@
     {{else}}<form method="post" action="/auth/{{.Slug}}/login">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
 </section>
 {{end}}
+{{with .TwoFactor}}{{if or .Available .Enabled}}
+<section class="card" id="two-factor">
+  <div class="card-head">
+    <h2>Two-step verification</h2>
+    {{if .Enabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+  </div>
+  <p class="help">Adds a 6-digit code from an authenticator app to signing in with a password. It does not apply to providers or passkeys, which bring their own checks. API calls with your password stop working while it is on: use an access token.</p>
+  {{if .NewCodes}}<div class="notice" role="status"><strong>Save these recovery codes now.</strong> Each works once if you lose your app. They will not be shown again.
+    <ul class="recovery-codes">{{range .NewCodes}}<li><code>{{.}}</code></li>{{end}}</ul></div>{{end}}
+  {{if .Setup}}
+  <form method="post" action="/u/{{$.User.ID}}/2fa/confirm" class="fields">
+    <p class="help">Scan this code with an authenticator app, then enter the 6-digit code it shows.</p>
+    <div class="qr">{{.Setup.QR}}</div>
+    <p class="help">Cannot scan? Enter this key in the app: <code>{{.Setup.Secret}}</code></p>
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="12" required></label>
+    <div class="form-actions"><button type="submit">Turn on</button></div>
+  </form>
+  {{else if .Enabled}}
+  <p class="help">{{.RecoveryLeft}} recovery code{{if ne .RecoveryLeft 1}}s{{end}} left.</p>
+  <form method="post" action="/u/{{$.User.ID}}/2fa/recovery" class="form-row">
+    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
+    <div><button class="secondary" type="submit">Create new recovery codes</button></div>
+  </form>
+  {{if not .Required}}
+  <form method="post" action="/u/{{$.User.ID}}/2fa/disable" class="form-row" data-confirm="Turn off two-step verification?">
+    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
+    <div><button class="secondary" type="submit">Turn off</button></div>
+  </form>
+  {{else}}<p class="help">Your administrator requires two-step verification, so it cannot be turned off.</p>{{end}}
+  {{else}}
+  <form method="post" action="/u/{{$.User.ID}}/2fa/begin" class="form-row">
+    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <div><button type="submit">Set up</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}{{end}}
 {{if .PasswordEnabled}}
 <form method="post" action="/u/{{$.User.ID}}/password" class="card" id="password">
   <h2>Password {{help "password"}}</h2>

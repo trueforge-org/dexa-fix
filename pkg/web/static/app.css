@@ -564,3 +564,10 @@ form.fields.card > * + * { margin-top: 0; }
 .docs-body .scroll { max-height: none; }
 
 .pager { display: flex; gap: 1rem; justify-content: space-between; padding: .75rem 1rem; }
+
+/* Two-step verification: the QR code needs a white background to scan in the dark theme too. */
+.qr { display: inline-block; padding: .5rem; background: #fff; border-radius: .5rem; line-height: 0; }
+.qr svg { display: block; max-width: 100%; height: auto; }
+.recovery-codes { columns: 2; list-style: none; padding: 0; margin: .75rem 0; }
+.recovery-codes li { padding: .15rem 0; }
+@media (max-width: 30rem) { .recovery-codes { columns: 1; } }

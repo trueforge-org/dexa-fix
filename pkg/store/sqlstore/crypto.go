@@ -288,6 +288,7 @@ func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, fou
 		sets  []settingRow
 		provs []providerRow
 		users []userRow
+		totps []totpRow
 	)
 	if err = db.NewSelect().Model(&sets).Where("value LIKE ?", encPrefix+"%").Where("name <> ?", checkSetting).Limit(1).Scan(ctx); err != nil {
 		return
@@ -306,6 +307,12 @@ func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, fou
 	}
 	if len(users) > 0 {
 		return users[0].Email, emailContext(users[0].ID), true, nil
+	}
+	if err = db.NewSelect().Model(&totps).Where("secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
+		return
+	}
+	if len(totps) > 0 {
+		return totps[0].Secret, totpContext(totps[0].UserID), true, nil
 	}
 	if err = db.NewSelect().Model(&provs).Where("client_secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
@@ -466,6 +473,23 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 				return err
 			}
 			if _, err := tx.NewUpdate().Model((*providerRow)(nil)).Set("client_secret = ?", enc).Where("slug = ?", r.Slug).Exec(ctx); err != nil {
+				return err
+			}
+		}
+
+		var totps []totpRow
+		if err := tx.NewSelect().Model(&totps).Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range totps {
+			if !needs(r.Secret) {
+				continue
+			}
+			enc, err := s.cipher.seal(r.Secret, totpContext(r.UserID))
+			if err != nil {
+				return err
+			}
+			if _, err := tx.NewUpdate().Model((*totpRow)(nil)).Set("secret = ?", enc).Where("user_id = ?", r.UserID).Exec(ctx); err != nil {
 				return err
 			}
 		}

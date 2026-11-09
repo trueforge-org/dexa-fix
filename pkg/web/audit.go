@@ -50,6 +50,14 @@ const (
 	auditSettingChanged   = "server_setting_changed"
 	auditProviderSaved    = "provider_saved"
 	auditProviderRemoved  = "provider_removed"
+
+	auditTOTPEnabled           = "totp_enabled"
+	auditTOTPDisabled          = "totp_disabled"
+	auditTOTPRemovedByAdmin    = "totp_removed_by_admin"
+	auditRecoveryRegenerated   = "recovery_codes_regenerated"
+	auditRecoveryUsed          = "recovery_code_used"
+	auditSecondFactorFailed    = "second_factor_failed"
+	auditSecondFactorThrottled = "second_factor_throttled"
 )
 
 var auditLabels = map[string]string{
@@ -67,6 +75,10 @@ var auditLabels = map[string]string{
 	auditPasswordSet: "Password set by an administrator", auditStrengthLevel: "Strength Level permission changed",
 	auditStrengthLevelBlk: "Strength Level multi-day permission changed", auditSettingChanged: "Server setting changed",
 	auditProviderSaved: "Sign-in provider saved", auditProviderRemoved: "Sign-in provider removed",
+	auditTOTPEnabled: "Two-step verification turned on", auditTOTPDisabled: "Two-step verification turned off",
+	auditTOTPRemovedByAdmin: "Two-step verification removed by an administrator", auditRecoveryRegenerated: "Recovery codes replaced",
+	auditRecoveryUsed: "Recovery code used", auditSecondFactorFailed: "Wrong two-step code",
+	auditSecondFactorThrottled: "Two-step codes blocked (too many failures)",
 }
 
 const (
@@ -217,7 +229,7 @@ func (s *Server) StartMaintenance() {
 // noisyAudit lists events that anyone, signed in or not, can trigger at will. They are recorded at
 // most once per client address and minute, with a count of the ones left out, so a flood of failed
 // sign-ins cannot fill the database.
-var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true}
+var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true, auditSecondFactorFailed: true, auditSecondFactorThrottled: true}
 
 const (
 	auditNoiseWindow = time.Minute

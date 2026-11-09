@@ -109,6 +109,16 @@ func (s *Server) authBasic(r *http.Request) (models.User, bool, error) {
 	if err == nil && !ok {
 		s.auditAs(r, 0, 0, auditAPIAuthFailed, "")
 	}
+	if err == nil && ok { // a password alone is not enough for an account with two-step verification
+		has, herr := s.hasTwoFactor(r.Context(), u.ID)
+		if herr != nil {
+			return models.User{}, false, herr
+		}
+		if has || s.twoFactorRequired(r.Context(), u) {
+			s.auditAs(r, u.ID, u.ID, auditAPIAuthFailed, "second_factor")
+			return models.User{}, false, nil
+		}
+	}
 	return u, ok, err
 }
 
@@ -470,6 +480,11 @@ func (s *Server) signInJSON(w http.ResponseWriter, r *http.Request, u models.Use
 // is the place for rules that depend on how the user signed in (a second step, a required
 // enrolment); without such a rule it starts the session.
 func (s *Server) signInTarget(w http.ResponseWriter, r *http.Request, u models.User, method string) (string, error) {
+	if method == models.ProviderLocal { // see handlers_twofactor.go for why only the password asks
+		if next, err := s.secondStep(w, r, u, method); err != nil || next != "" {
+			return next, err
+		}
+	}
 	return s.completeSignIn(w, r, u, method)
 }
 

@@ -24,15 +24,16 @@ var (
 
 // Stats summarises the contents of the database.
 type Stats struct {
-	Driver        string
-	Encrypted     bool // sensitive columns are encrypted
-	SchemaVersion int64
-	Users         int
-	Admins        int
-	DexaScans     int
-	ScaleReadings int
-	Sessions      int
-	AccessTokens  int
+	Driver         string
+	Encrypted      bool // sensitive columns are encrypted
+	SchemaVersion  int64
+	Users          int
+	Admins         int
+	DexaScans      int
+	ScaleReadings  int
+	Sessions       int
+	AccessTokens   int
+	TwoFactorUsers int
 
 	KeyID       string    // id of the configured encryption key (empty when encryption is off)
 	KeySince    time.Time // when this key was introduced, at least (zero when unknown)
@@ -148,6 +149,17 @@ type Store interface {
 	CreateSession(ctx context.Context, tokenHash string, userID int64, method string, expires time.Time) error
 	// UserBySession returns the user of an unexpired session, or ErrNotFound.
 	UserBySession(ctx context.Context, tokenHash string) (models.User, error)
+	// Two-step verification with a one-time password. A setup is pending until ConfirmTOTP.
+	GetTOTP(ctx context.Context, userID int64) (models.TOTP, error)
+	PutPendingTOTP(ctx context.Context, userID int64, secret string) error
+	ConfirmTOTP(ctx context.Context, userID, step int64) error
+	// UseTOTPStep records a code step as used and reports whether it was fresh (replay guard).
+	UseTOTPStep(ctx context.Context, userID, step int64) (bool, error)
+	DeleteTOTP(ctx context.Context, userID int64) error
+	ReplaceRecoveryCodes(ctx context.Context, userID int64, hashes []string) error
+	UseRecoveryCode(ctx context.Context, userID int64, hash string) (bool, error)
+	CountRecoveryCodes(ctx context.Context, userID int64) (int, error)
+	TwoFactorUsers(ctx context.Context) (map[int64]bool, error)
 	// GetSession returns an unexpired session, or ErrNotFound.
 	GetSession(ctx context.Context, tokenHash string) (models.Session, error)
 	DeleteSession(ctx context.Context, tokenHash string) error

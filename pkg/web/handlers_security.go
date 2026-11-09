@@ -32,6 +32,7 @@ type securityView struct {
 	Tokens          []tokenView
 	NewToken        string // shown once, right after it was created
 	Linked          []linkedProvider
+	TwoFactor       twoFactorSettings
 }
 
 type tokenView struct {
@@ -64,6 +65,16 @@ func (s *Server) securityView(r *http.Request, u models.User, newToken string) (
 	pwOn := s.passwordEnabled(ctx)
 	hasPw := slices.Contains(mine, models.ProviderLocal)
 	view := &securityView{PasswordEnabled: pwOn, HasPassword: hasPw, ConfirmPassword: pwOn && hasPw, NewToken: newToken}
+	view.TwoFactor.Available = pwOn && hasPw
+	view.TwoFactor.Required = s.twoFactorRequired(ctx, u)
+	if view.TwoFactor.Enabled, err = s.hasTwoFactor(ctx, u.ID); err != nil {
+		return nil, err
+	}
+	if view.TwoFactor.Enabled {
+		if view.TwoFactor.RecoveryLeft, err = s.store.CountRecoveryCodes(ctx, u.ID); err != nil {
+			return nil, err
+		}
+	}
 	tokens, err := s.store.ListAccessTokens(ctx, u.ID)
 	if err != nil {
 		return nil, err

@@ -1,0 +1,34 @@
+{{define "content"}}
+{{with .TwoFactor}}
+<div class="login-stack">
+{{if eq .Mode "verify"}}
+  <form method="post" action="/login/2fa" class="card fields">
+    <h1>Two-step verification</h1>
+    <small>Enter the 6-digit code from your authenticator app. Lost your phone? Use one of your recovery codes instead.</small>
+    {{if .Error}}<p class="notice error" role="alert">{{.Error}}</p>{{end}}
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required autofocus></label>
+    <button type="submit">Verify</button>
+    <p class="help"><a href="/">Back to sign-in</a></p>
+  </form>
+{{else if eq .Mode "setup"}}
+  <form method="post" action="/login/2fa/setup" class="card fields">
+    <h1>Set up two-step verification</h1>
+    <small>Your administrator requires a second step when you sign in with a password. Scan the code with an authenticator app, then enter the 6-digit code it shows.</small>
+    {{if .Error}}<p class="notice error" role="alert">{{.Error}}</p>{{end}}
+    <div class="qr">{{.QR}}</div>
+    <p class="help">Cannot scan? Enter this key in the app: <code>{{.Secret}}</code></p>
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="12" required autofocus></label>
+    <button type="submit">Turn on and sign in</button>
+    <p class="help"><a href="/">Cancel</a></p>
+  </form>
+{{else}}
+  <div class="card fields">
+    <h1>Save your recovery codes</h1>
+    <p class="notice" role="status"><strong>Store these now.</strong> Each code works once if you lose your authenticator app. They are not shown again.</p>
+    <ul class="recovery-codes">{{range .Codes}}<li><code>{{.}}</code></li>{{end}}</ul>
+    <a class="button" href="{{.Continue}}">I have saved them, continue</a>
+  </div>
+{{end}}
+</div>
+{{end}}
+{{end}}

@@ -18,7 +18,10 @@ CREATE TABLE users (
   -- they are out of date (see Store.bumpVersion).
   data_version BIGINT NOT NULL DEFAULT 0,
   -- Set by an administrator: the user may also run the multi-day Strength Level sync from Settings.
-  strengthlevel_bulk BOOLEAN NOT NULL DEFAULT FALSE
+  strengthlevel_bulk BOOLEAN NOT NULL DEFAULT FALSE,
+  -- The user's IANA time zone: it decides which calendar day a reading belongs to, and how manual
+  -- date-times are read and shown.
+  timezone TEXT NOT NULL DEFAULT 'UTC'
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE TABLE scale_readings (
@@ -73,6 +76,23 @@ CREATE TABLE sessions (
   expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX idx_sessions_user ON sessions(user_id);
+-- Two-step verification with a time-based one-time password (TOTP). The secret is encrypted
+-- (context totp:<user id>); confirmed_at is NULL while the user is still setting it up. last_step
+-- is the newest 30-second step that was accepted, so a code cannot be used twice.
+CREATE TABLE user_totp (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  secret TEXT NOT NULL,
+  last_step BIGINT NOT NULL DEFAULT 0,
+  confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL
+);
+-- Single-use recovery codes, stored as hashes of long random values.
+CREATE TABLE user_recovery_codes (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, code_hash)
+);
 -- Logging in deletes expired sessions and the admin page counts them; both filter on expires_at.
 CREATE INDEX idx_sessions_expires ON sessions(expires_at);
 CREATE TABLE access_tokens (
@@ -125,6 +145,8 @@ CREATE INDEX idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX idx_audit_target ON audit_log(target_id);
 
 -- +goose Down
+DROP TABLE user_recovery_codes;
+DROP TABLE user_totp;
 DROP TABLE audit_log;DROP TABLE auth_providers;
 DROP TABLE app_settings;
 DROP TABLE access_tokens;

@@ -41,7 +41,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 	if sv != dv {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
-	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
+	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*totpRow)(nil), (*recoveryRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
 		q := dst.db.NewSelect().Model(m)
 		if _, ok := m.(*settingRow); ok {
 			q = q.Where("name <> ?", checkSetting) // written by Open when the target has a key
@@ -72,6 +72,12 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		// Sessions are not copied: they are short-lived, and users simply sign in again.
 		if stats.Identities, err = copyTable[identityRow](ctx, src, tx, "provider, subject"); err != nil {
 			return fmt.Errorf("user_identities: %w", err)
+		}
+		if _, err = copyTable[totpRow](ctx, src, tx, "user_id"); err != nil {
+			return fmt.Errorf("user_totp: %w", err)
+		}
+		if _, err = copyTable[recoveryRow](ctx, src, tx, "user_id, code_hash"); err != nil {
+			return fmt.Errorf("user_recovery_codes: %w", err)
 		}
 		if stats.AccessTokens, err = copyTable[tokenRow](ctx, src, tx, "id"); err != nil {
 			return fmt.Errorf("access_tokens: %w", err)

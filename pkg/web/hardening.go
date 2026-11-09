@@ -153,13 +153,22 @@ func (l *failLimiter) reset(key string) {
 // have expired anyway, so that a value which may work only once cannot be replayed. It lives in
 // memory: with several replicas behind one database the guarantee holds per replica.
 type usedNonces struct {
-	mu   sync.Mutex
-	seen map[string]time.Time // nonce -> when the sealed value expires
-	now  func() time.Time
+	mu    sync.Mutex
+	seen_ map[string]time.Time // nonce -> when the sealed value expires
+	now   func() time.Time
 }
 
 func newUsedNonces() *usedNonces {
-	return &usedNonces{seen: map[string]time.Time{}, now: time.Now}
+	return &usedNonces{seen_: map[string]time.Time{}, now: time.Now}
+}
+
+// seen reports whether nonce was already used, without recording it. A flow checks it before it
+// spends anything (a code) and records the nonce with use only once it has succeeded.
+func (u *usedNonces) seen(nonce string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	exp, ok := u.seen_[nonce]
+	return ok && !exp.Before(u.now())
 }
 
 // use records nonce and reports whether this is the first time it is seen. A nonce that was
@@ -168,20 +177,20 @@ func (u *usedNonces) use(nonce string, expires time.Time) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	now := u.now()
-	if len(u.seen) > maxLimiterKeys {
-		for k, exp := range u.seen {
+	if len(u.seen_) > maxLimiterKeys {
+		for k, exp := range u.seen_ {
 			if exp.Before(now) {
-				delete(u.seen, k)
+				delete(u.seen_, k)
 			}
 		}
-		if len(u.seen) > maxLimiterKeys { // still full: drop everything rather than grow
-			u.seen = map[string]time.Time{}
+		if len(u.seen_) > maxLimiterKeys { // still full: drop everything rather than grow
+			u.seen_ = map[string]time.Time{}
 		}
 	}
-	if exp, ok := u.seen[nonce]; ok && !exp.Before(now) {
+	if exp, ok := u.seen_[nonce]; ok && !exp.Before(now) {
 		return false
 	}
-	u.seen[nonce] = expires
+	u.seen_[nonce] = expires
 	return true
 }
 

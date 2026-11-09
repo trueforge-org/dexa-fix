@@ -1,7 +1,7 @@
 # Encryption key check and key rotation
 
 Status: implemented. This note records the problem, the design and the decisions taken while
-implementing it. User-facing instructions are in the README, section "Encryption".
+implementing it. User-facing instructions are in [Encryption](08-encryption.md).
 
 ## Where we were
 
@@ -10,8 +10,9 @@ comes from `DEXAFIX_ENCRYPTION_KEY`, or from a file (`--encryption-key-file`, de
 in the working directory) that `serve` creates with mode 0600 when it is missing.
 
 Encrypted: user e-mail addresses, integration data (provider tokens, the Strength Level login),
-server settings (the cookie key and other secrets) and the client secrets of sign-in providers. The
-associated data ties a value to its row, so ciphertext copied to another row fails to open. A key
+server settings (the cookie key and other secrets), the client secrets of sign-in providers and the
+two-step verification secrets (context `totp:<user id>`). Recovery codes are hashed, not encrypted.
+The associated data ties a value to its row, so ciphertext copied to another row fails to open. A key
 derived from the master key (HKDF) produces the HMAC used to look users up by e-mail
 (`email_lookup`).
 
@@ -69,9 +70,9 @@ Stop the server, back up the database and key, make the new key current and list
 previous, then run `db rekey`. In one transaction (SQLite and Postgres alike) it
 
 - opens every encrypted value with whichever key made it and seals it with the current key: user
-  e-mail, integrations, settings (including the cookie key), provider client secrets. Values that
-  are already `v2` under the current key are skipped, so the command is idempotent and a repeat
-  after a failure picks up where the database stands,
+  e-mail, integrations, settings (including the cookie key), provider client secrets, two-step
+  verification secrets. Values that are already `v2` under the current key are skipped, so the
+  command is idempotent and a repeat after a failure picks up where the database stands,
 - recomputes `email_lookup` for every user from the decrypted address under the current lookup key,
 - writes the new check value.
 
@@ -110,7 +111,7 @@ We considered rotating the key automatically every month and decided against it.
 - **Rotation does not help against what it is usually meant for.** A leaked old key still opens every
   backup made before the rotation.
 
-Rotate by hand (see the README, "Rotating the key") when the key may have leaked, when someone with
+Rotate by hand (see [Rotating the key](08-encryption.md#rotating-the-key)) when the key may have leaked, when someone with
 access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has
 been in use, as a lower bound: databases created before the key check only learned the date when the
 check was first written. Set `--key-rotation-reminder-days` (`DEXAFIX_KEY_ROTATION_REMINDER_DAYS`) to

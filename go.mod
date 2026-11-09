@@ -16,6 +16,7 @@ require (
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20261105095718-a1058eb15227
 	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.62.0
+	rsc.io/qr v0.2.0
 )
 
 require (

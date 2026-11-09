@@ -261,6 +261,7 @@ DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db r
 		fmt.Fprintf(out, "integrations %s:     %d\n", verb, stats.Integrations)
 		fmt.Fprintf(out, "settings %s:         %d\n", verb, stats.Settings)
 		fmt.Fprintf(out, "auth providers %s:   %d\n", verb, stats.Providers)
+		fmt.Fprintf(out, "two-step secrets %s: %d\n", verb, stats.TOTP)
 		fmt.Fprintf(out, "e-mail lookups recomputed: %d\n", stats.Lookups)
 		fmt.Fprintf(out, "already under the current key: %d\n", stats.Current)
 		return nil
