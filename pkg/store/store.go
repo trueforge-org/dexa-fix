@@ -193,6 +193,9 @@ type Store interface {
 	GetSetting(ctx context.Context, name string) (string, error)
 	PutSetting(ctx context.Context, name, value string) error
 	DeleteSetting(ctx context.Context, name string) error
+	// SettingsGeneration grows whenever a setting is written or deleted, by any process. A process
+	// that caches the settings compares it with the number it last read to know when to reload.
+	SettingsGeneration(ctx context.Context) (int64, error)
 
 	ListAuthProviders(ctx context.Context) ([]models.AuthProvider, error)
 	GetAuthProvider(ctx context.Context, slug string) (models.AuthProvider, error)

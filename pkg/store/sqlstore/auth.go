@@ -387,15 +387,35 @@ func (s *Store) PutSetting(ctx context.Context, name, value string) error {
 		return err
 	}
 	row := settingRow{Name: name, Value: enc, UpdatedAt: now()}
-	_, err = s.db.NewInsert().Model(&row).
-		On("CONFLICT (name) DO UPDATE").
-		Set("value = EXCLUDED.value").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
-	return err
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().Model(&row).
+			On("CONFLICT (name) DO UPDATE").
+			Set("value = EXCLUDED.value").Set("updated_at = EXCLUDED.updated_at").Exec(ctx); err != nil {
+			return err
+		}
+		return bumpSettingsGeneration(ctx, tx)
+	})
 }
 
 func (s *Store) DeleteSetting(ctx context.Context, name string) error {
-	_, err := s.db.NewDelete().Model((*settingRow)(nil)).Where("name = ?", name).Exec(ctx)
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*settingRow)(nil)).Where("name = ?", name).Exec(ctx); err != nil {
+			return err
+		}
+		return bumpSettingsGeneration(ctx, tx)
+	})
+}
+
+func bumpSettingsGeneration(ctx context.Context, tx bun.Tx) error {
+	_, err := tx.ExecContext(ctx, "UPDATE app_settings_meta SET generation = generation + 1 WHERE id = 1")
 	return err
+}
+
+// SettingsGeneration returns a number that grows whenever a setting is written or deleted.
+func (s *Store) SettingsGeneration(ctx context.Context) (int64, error) {
+	var g int64
+	err := s.db.NewSelect().TableExpr("app_settings_meta").ColumnExpr("generation").Where("id = 1").Scan(ctx, &g)
+	return g, err
 }
 
 // ---- providers ----

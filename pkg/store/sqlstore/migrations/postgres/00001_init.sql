@@ -138,6 +138,13 @@ CREATE TABLE app_settings (
   value TEXT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
+-- generation counts changes to app_settings, so that every process that caches the settings can
+-- tell cheaply that it has to read them again (the web and api processes, or several replicas).
+CREATE TABLE app_settings_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generation BIGINT NOT NULL
+);
+INSERT INTO app_settings_meta (id, generation) VALUES (1, 0);
 CREATE TABLE auth_providers (
   slug TEXT PRIMARY KEY,
   label TEXT NOT NULL,
@@ -177,6 +184,7 @@ DROP TABLE password_resets;
 DROP TABLE user_recovery_codes;
 DROP TABLE user_totp;
 DROP TABLE audit_log;DROP TABLE auth_providers;
+DROP TABLE app_settings_meta;
 DROP TABLE app_settings;
 DROP TABLE access_tokens;
 DROP TABLE sessions;
