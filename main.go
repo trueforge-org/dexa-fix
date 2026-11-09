@@ -21,7 +21,7 @@ var Version = "dev"
 func main() {
 	configureLogging()
 	cmd.Version = Version
-	fmt.Printf("---\ndexa-fix version: %s\n---\n", Version)
+	fmt.Fprintf(os.Stderr, "---\ndexa-fix version: %s\n---\n", Version) // stderr: some commands print data on stdout
 	if err := cmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute command")
 	}
