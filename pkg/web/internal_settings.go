@@ -3,9 +3,9 @@ package web
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // Internal endpoints for the estimates and settings pages and the HTML exports.

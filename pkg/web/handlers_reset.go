@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // Password reset.

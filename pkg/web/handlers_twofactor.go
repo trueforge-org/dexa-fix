@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // Two-step verification with a one-time password from an authenticator app.

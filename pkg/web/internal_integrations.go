@@ -16,8 +16,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel"
 	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel/client"

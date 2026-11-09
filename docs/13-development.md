@@ -31,10 +31,10 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
   (`serve_split.go`) run the frontend and the backend as two processes. `db`
   migrates and copies the database, `secrets` creates the service secret, and
   `info` prints binary information.
-- `pkg/edge/`: HTTP edge code that both processes share: the visitor's address
+- `pkg/shared/edge/`: HTTP edge code that both processes share: the visitor's address
   behind a proxy, the PROXY protocol and request limits. It must not import the
   store.
-- `pkg/apiclient/`: the frontend's client for the backend's internal API under
+- `pkg/shared/apiclient/`: the frontend's client for the backend's internal API under
   `/internal/v1`, and the in-process transport that `serve` uses to run both
   halves in one process. It must not import the store or `pkg/web`.
 - `pkg/estimate/`: estimation logic.

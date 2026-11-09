@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 func newInternalServer(t *testing.T) (*httptest.Server, *Server, *http.Cookie) {

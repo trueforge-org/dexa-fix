@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
 // The generic HTTP hardening (security headers, body limits, compression, the failure limiter)
-// lives in pkg/edge. What stays here is specific to the sign-in and page code.
+// lives in pkg/shared/edge. What stays here is specific to the sign-in and page code.
 
 const (
 	maxLoginFail = 10 // per login name

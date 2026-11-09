@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // withVisitor attaches the visitor's request to the context, so calls to the backend carry the

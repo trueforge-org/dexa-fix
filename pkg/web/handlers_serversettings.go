@@ -3,8 +3,8 @@ package web
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // The server, e-mail and test e-mail forms of the Admin page. The backend validates and stores.

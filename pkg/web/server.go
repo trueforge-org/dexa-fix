@@ -15,11 +15,11 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 

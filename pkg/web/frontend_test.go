@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
 func TestFrontendFollowsBackendSettings(t *testing.T) {

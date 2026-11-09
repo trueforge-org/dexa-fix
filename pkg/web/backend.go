@@ -15,8 +15,8 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 // Passkeys (WebAuthn) are a way to sign in without a password. They replace the password rather

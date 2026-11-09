@@ -4,10 +4,10 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
-// PROXY protocol: the policy lives in pkg/edge. See edge.ProxyListener.
+// PROXY protocol: the policy lives in pkg/shared/edge. See edge.ProxyListener.
 
 // WrapListener makes ln understand the PROXY protocol according to the current settings. Wrap the
 // listener once at start; it costs nothing while the setting is off.

@@ -20,8 +20,8 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
 // The frontend half on its own: a process with no database that renders pages from what the

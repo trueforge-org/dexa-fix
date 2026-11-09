@@ -5,10 +5,10 @@ import (
 	"net/netip"
 	"net/url"
 
-	"github.com/trueforge-org/dexa-fix/pkg/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
-// Running behind a reverse proxy: the logic lives in pkg/edge, which the frontend and the backend
+// Running behind a reverse proxy: the logic lives in pkg/shared/edge, which the frontend and the backend
 // share. These are thin wrappers over the current settings.
 
 // ParseTrustedProxies turns addresses, CIDR ranges and the keywords "loopback" and "private" into
