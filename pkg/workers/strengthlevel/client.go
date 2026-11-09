@@ -1,10 +1,10 @@
-// Package client talks to my.strengthlevel.com the way its own web app does: it signs in with an
+// Package strengthlevel is the worker for Strength Level. It talks to my.strengthlevel.com the way its own web app does: it signs in with an
 // e-mail address and password and uses the app's JSON bodyweight endpoints. Strength Level
 // publishes no API; use is by agreement with its developer, and only for the user's own account.
 //
 // Days missing on Strength Level are added. An existing day is changed only by Update, by Upsert,
 // or by Sync with Options.Update set. Nothing is ever deleted.
-package client
+package strengthlevel
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 )
 
 // DefaultBase is the Strength Level web app.
@@ -60,9 +60,9 @@ type Client struct {
 	Delay time.Duration
 }
 
-// New returns a client for the given base URL ("" means DefaultBase). A nil httpClient gets a
+// newClient returns a client for the given base URL ("" means DefaultBase). A nil httpClient gets a
 // default one; its cookie jar is replaced so that every Client has its own session.
-func New(base string, httpClient *http.Client) *Client {
+func newClient(base string, httpClient *http.Client) *Client {
 	if base == "" {
 		base = DefaultBase
 	}
@@ -171,7 +171,7 @@ func (c *Client) List(ctx context.Context) (map[string]Day, error) {
 }
 
 // Add creates the entry of one day. Body fat is left out when there is none.
-func (c *Client) Add(ctx context.Context, e strengthlevel.Entry) error {
+func (c *Client) Add(ctx context.Context, e workerapi.ExportEntry) error {
 	payload := map[string]any{
 		"user_id": c.userID, "date": e.Day, "bodyweight": round1(e.WeightKg),
 		"timezone": "UTC", "timezone_offset_mins": 0,
@@ -185,7 +185,7 @@ func (c *Client) Add(ctx context.Context, e strengthlevel.Entry) error {
 
 // Update changes the existing entry of a day the way the web app's edit form does. The entry keeps
 // its time zone, and keeps its body fat when e has none.
-func (c *Client) Update(ctx context.Context, old Day, e strengthlevel.Entry) error {
+func (c *Client) Update(ctx context.Context, old Day, e workerapi.ExportEntry) error {
 	payload := map[string]any{
 		"user_id": c.userID, "date": old.Date, "bodyweight": round1(e.WeightKg),
 		"timezone": old.Timezone, "timezone_offset_mins": old.OffsetMins,
@@ -217,7 +217,7 @@ const (
 )
 
 // Upsert adds the day, or updates it when it exists with other values.
-func (c *Client) Upsert(ctx context.Context, e strengthlevel.Entry) (Outcome, error) {
+func (c *Client) Upsert(ctx context.Context, e workerapi.ExportEntry) (Outcome, error) {
 	remote, err := c.List(ctx)
 	if err != nil {
 		return "", err
@@ -226,7 +226,7 @@ func (c *Client) Upsert(ctx context.Context, e strengthlevel.Entry) (Outcome, er
 }
 
 // apply adds e, or when it exists and update is set, updates it if the values differ.
-func (c *Client) apply(ctx context.Context, remote map[string]Day, e strengthlevel.Entry, update bool) (Outcome, error) {
+func (c *Client) apply(ctx context.Context, remote map[string]Day, e workerapi.ExportEntry, update bool) (Outcome, error) {
 	old, ok := remote[e.Day]
 	switch {
 	case !ok:
@@ -239,7 +239,7 @@ func (c *Client) apply(ctx context.Context, remote map[string]Day, e strengthlev
 
 // same reports whether the entry on Strength Level already has the values of e, to one decimal.
 // An e without body fat leaves the body fat there alone.
-func same(old Day, e strengthlevel.Entry) bool {
+func same(old Day, e workerapi.ExportEntry) bool {
 	if round1(old.Weight) != round1(e.WeightKg) {
 		return false
 	}
@@ -291,13 +291,13 @@ type Options struct {
 // Days missing on Strength Level are added. Days that exist are left alone, or updated when
 // opt.Update is set. Nothing is ever deleted. It stops at the first error that is not about a
 // single day, such as a canceled context.
-func (c *Client) Sync(ctx context.Context, local []strengthlevel.Entry, since string, opt Options) (Result, error) {
+func (c *Client) Sync(ctx context.Context, local []workerapi.ExportEntry, since string, opt Options) (Result, error) {
 	var res Result
 	remote, err := c.List(ctx)
 	if err != nil {
 		return res, err
 	}
-	var todo []strengthlevel.Entry
+	var todo []workerapi.ExportEntry
 	for i := len(local) - 1; i >= 0; i-- { // oldest first
 		if local[i].Day >= since {
 			todo = append(todo, local[i])

@@ -1,7 +1,6 @@
 package mainbackend
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -18,9 +17,8 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel"
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel/client"
 )
 
 // Internal endpoints for provider imports, the OAuth flow and Strength Level. The answers carry the
@@ -52,30 +50,44 @@ func (s *Backend) internalImport(w http.ResponseWriter, r *http.Request, u model
 	if !internalDecode(w, r, &in) {
 		return
 	}
-	imp, ok := s.importers.Get(r.PathValue("provider"))
+	p, ok := s.importProvider(r.PathValue("provider"))
 	if !ok {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
 	}
-	o, err := parseOptions("", in.Day)
+	opts, err := parseOptions("", in.Day)
 	if err != nil {
 		flashed(w, err.Error())
 		return
 	}
-	res, err := imp.Import(r.Context(), s.store, u.ID, o)
-	if err != nil {
-		flashed(w, importError(label(imp.Name()), err))
+	if _, msg := s.importBlocker(r, p, u.ID); msg != "" {
+		flashed(w, msg)
 		return
 	}
-	s.audit(r, u.ID, auditImport, imp.Name())
-	flashed(w, summary(label(imp.Name()), res, in.Day))
+	job, err := s.queueImport(r, p, u.ID, opts, true)
+	if msg, known := queueFailure(p.Label, err); known {
+		flashed(w, msg)
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	job, err = s.waitJob(r.Context(), job.PublicID, importWait)
+	if err != nil {
+		if r.Context().Err() == nil {
+			internalError(w, err)
+		}
+		return
+	}
+	flashed(w, s.importMessage(p, in.Day, job))
 }
 
 // internalConnect sets the anti-CSRF state cookie, which carries the user id because the provider
 // returns to a fixed callback URL, and answers with the provider's authorize URL.
 func (s *Backend) internalConnect(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := r.PathValue("provider")
-	p, ok := s.oauthProvider(name)
+	p, ok := s.oauthProvider(r.Context(), name)
 	if !ok {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
@@ -86,11 +98,16 @@ func (s *Backend) internalConnect(w http.ResponseWriter, r *http.Request, u mode
 		return
 	}
 	state := hex.EncodeToString(b)
+	authURL, err := p.OAuth.AuthURL(r.Context(), s, state)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: oauthCookiePrefix + name, Value: strconv.FormatInt(u.ID, 10) + "." + state, Path: "/",
 		MaxAge: int(oauthStateTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r),
 	})
-	internalJSON(w, http.StatusOK, map[string]string{"redirect": p.AuthURL(state)})
+	internalJSON(w, http.StatusOK, map[string]string{"redirect": authURL})
 }
 
 func (s *Backend) internalCallback(w http.ResponseWriter, r *http.Request) {
@@ -99,8 +116,8 @@ func (s *Backend) internalCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("provider")
-	p, ok := s.oauthProvider(name)
-	if !ok {
+	p, ok := s.oauthProvider(r.Context(), name)
+	if !ok || p.kind(workerapi.ActionConnect) == nil {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
 	}
@@ -127,7 +144,7 @@ func (s *Backend) internalCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	f := apiclient.Flash{UserID: cu.ID}
 	if in.Error != "" {
-		f.Message = label(name) + " connection was not authorised."
+		f.Message = p.Label + " connection was not authorised."
 		internalJSON(w, http.StatusOK, f)
 		return
 	}
@@ -135,36 +152,65 @@ func (s *Backend) internalCallback(w http.ResponseWriter, r *http.Request) {
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, "missing code")
 		return
 	}
-	if err := p.Connect(r.Context(), s.store, cu.ID, in.Code); err != nil {
-		log.Error().Err(err).Str("provider", name).Msg("connect failed")
-		f.Message = "Could not connect " + label(name) + ". The details are in the server log."
+	// The code works once and only for a moment: a worker exchanges it, and the page waits for that.
+	job, _, err := s.enqueueJob(r.Context(), enqueueSpec{
+		UserID: cu.ID, Kind: p.kind(workerapi.ActionConnect).Kind, Origin: models.JobOriginUser, Interactive: true,
+		Payload: connectPayload{Code: in.Code}, Expires: connectExpiry,
+	})
+	if msg, known := queueFailure(p.Label, err); known {
+		f.Message = "Could not connect " + p.Label + ". " + msg
 		internalJSON(w, http.StatusOK, f)
 		return
 	}
-	s.audit(r, cu.ID, auditConnect, name)
-	f.Message = label(name) + " connected. Use “Import” to fetch your measurements."
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if job, err = s.waitJob(r.Context(), job.PublicID, importWait); err != nil {
+		if r.Context().Err() == nil {
+			internalError(w, err)
+		}
+		return
+	}
+	switch job.State {
+	case models.JobSucceeded:
+		f.Message = p.Label + " connected. Use “Import” to fetch your measurements."
+	case models.JobQueued, models.JobRunning:
+		f.Message = p.Label + " is being connected in the background. Reload in a moment."
+	default:
+		log.Error().Str("provider", name).Str("job", job.PublicID).Str("error", job.Error).Msg("connect failed")
+		f.Message = "Could not connect " + p.Label + ". The details are in the server log."
+	}
 	internalJSON(w, http.StatusOK, f)
 }
 
 func (s *Backend) internalDisconnect(w http.ResponseWriter, r *http.Request, u models.User) {
 	name := r.PathValue("provider")
-	p, ok := s.oauthProvider(name)
-	if !ok {
+	p, ok := s.providerNamed(name)
+	if !ok || p.Integration == "" {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
 	}
-	if err := p.Disconnect(r.Context(), s.store, u.ID); err != nil {
+	ctx := r.Context()
+	if err := s.store.DeleteIntegration(ctx, u.ID, p.Integration); err != nil {
 		internalError(w, err)
 		return
 	}
+	// Nothing of this provider may go on for a user who disconnected: stop what is queued or running
+	// and forget the schedule.
+	if err := s.store.CancelJobs(ctx, u.ID, p.kindNames(), time.Now()); err != nil {
+		internalError(w, err)
+		return
+	}
+	s.resumeSchedule(ctx, u.ID, p.kindNames()...)
 	s.audit(r, u.ID, auditDisconnect, name)
-	flashed(w, label(name)+" disconnected. Imported readings were kept.")
+	flashed(w, p.Label+" disconnected. Imported readings were kept.")
 }
 
 // ---- Strength Level ----
 
-// strengthLevelSaveLogin stores the user's Strength Level login. It is refused with 403 unless an
-// administrator enabled automatic sync for the user.
+// strengthLevelSaveLogin stores the user's Strength Level login once a worker saw Strength Level
+// accept it. It is refused with 403 unless an administrator enabled automatic sync for the user.
 func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "Strength Level sync is not enabled for this account")
@@ -180,37 +226,57 @@ func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u 
 		flashed(w, "Enter the e-mail address and password of your Strength Level account.")
 		return
 	}
-	// Sign in first, so a wrong password is reported now and nothing wrong is stored. The check
-	// signs in to another service from this server, so the failures are limited like sign-ins.
+	// Signing in goes to another service on the user's behalf, so wrong logins are limited like
+	// sign-ins here: a wrong password is reported now and nothing wrong is stored.
 	limitKey := "sl:" + strconv.FormatInt(u.ID, 10)
 	if s.limiter.Blocked(r.Context(), limitKey, maxStrengthLevelLoginFail) {
 		flashed(w, "Too many failed Strength Level sign-ins. Try again in a few minutes.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), strengthLevelTimeout)
-	defer cancel()
-	if err := client.New(strengthLevelBase, nil).Login(ctx, email, password); err != nil {
-		if errors.Is(err, client.ErrLogin) {
-			s.limiter.Fail(r.Context(), limitKey)
-		}
-		flashed(w, "Could not sign in to Strength Level: "+strengthLevelError(err))
+	job, created, err := s.enqueueJob(r.Context(), enqueueSpec{
+		UserID: u.ID, Kind: kindStrengthLevelCheckLogin, Origin: models.JobOriginUser, Interactive: true,
+		Payload: slLogin{Email: email, Password: password},
+	})
+	if msg, known := queueFailure("Strength Level", err); known {
+		flashed(w, msg)
 		return
-	}
-	s.limiter.Reset(r.Context(), limitKey)
-	data, err := json.Marshal(slLogin{Email: email, Password: password})
-	if err == nil {
-		err = s.store.PutIntegration(r.Context(), u.ID, strengthLevelProvider, data)
 	}
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	s.audit(r, u.ID, auditSLLoginSaved, "")
-	flashed(w, "Strength Level login saved.")
+	if !created { // the earlier check carries the earlier login: do not mix them up
+		flashed(w, "A Strength Level login check is already running. Try again in a moment.")
+		return
+	}
+	if job, err = s.waitJob(r.Context(), job.PublicID, importWait); err != nil {
+		if r.Context().Err() == nil {
+			internalError(w, err)
+		}
+		return
+	}
+	switch job.State {
+	case models.JobSucceeded:
+		var res workerapi.CheckLoginResult
+		if err := json.Unmarshal([]byte(job.Result), &res); err == nil && res.LoginOK {
+			flashed(w, "Strength Level login saved.")
+			return
+		} else if err == nil {
+			flashed(w, "Could not sign in to Strength Level: "+res.Message)
+			return
+		}
+		flashed(w, "Could not sign in to Strength Level.")
+	case models.JobQueued, models.JobRunning:
+		flashed(w, "Your Strength Level login is being checked in the background. Reload in a moment.")
+	case models.JobCanceled:
+		flashed(w, "The Strength Level login check was canceled.")
+	default:
+		flashed(w, "Could not sign in to Strength Level: "+job.Error)
+	}
 }
 
 func (s *Backend) internalSLDeleteLogin(w http.ResponseWriter, r *http.Request, u models.User) {
-	s.sl.stop(u.ID)
+	s.stopStrengthLevel(r.Context(), u.ID)
 	if err := s.store.DeleteIntegration(r.Context(), u.ID, strengthLevelProvider); err != nil && !errors.Is(err, store.ErrNotFound) {
 		internalError(w, err)
 		return
@@ -219,8 +285,8 @@ func (s *Backend) internalSLDeleteLogin(w http.ResponseWriter, r *http.Request, 
 	flashed(w, "Strength Level login removed.")
 }
 
-// internalSLSync starts the multi-day sync in the background and returns at once; the settings
-// page shows its progress. It is allowed only for users an administrator permitted to run it.
+// internalSLSync queues the multi-day sync and returns at once; the settings page shows its
+// progress. It is allowed only for users an administrator permitted to run it.
 func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto || !u.StrengthLevelBulk {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "the Strength Level multi-day sync is not enabled for this account")
@@ -233,8 +299,7 @@ func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u model
 	if !internalDecode(w, r, &in) {
 		return
 	}
-	login, err := s.strengthLevelLogin(r, u)
-	if err != nil {
+	if _, err := s.strengthLevelLogin(r, u); err != nil {
 		flashed(w, "Save your Strength Level login first.")
 		return
 	}
@@ -247,42 +312,21 @@ func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u model
 		}
 		days = n
 	}
-	update := in.Update
-	est, err := s.computeEstimates(r, u)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	entries := strengthlevel.FromEstimates(est.Days)
-	since := time.Now().UTC().AddDate(0, 0, -days).Format(strengthlevel.DayLayout)
-
-	// Every written day is one request, so allow time for as many as were asked for. The job does
-	// not belong to this request: it carries on after the response.
-	ctx, cancel := context.WithTimeout(s.bg.Ctx, strengthLevelTimeout+time.Duration(days)*2*time.Second)
-	job, ok, err := s.sl.begin(r.Context(), u.ID, days, update, cancel)
-	if err != nil {
-		cancel()
-		internalError(w, err)
-		return
-	}
-	if !ok {
-		cancel()
-		flashed(w, "A sync is already running.")
-		return
-	}
-	started := s.bg.Start(func() {
-		// Only a few syncs hit Strength Level at once; the others wait their turn.
-		select {
-		case s.slSlots <- struct{}{}:
-			defer func() { <-s.slSlots }()
-		case <-ctx.Done():
-			return
-		}
-		s.runStrengthLevelSync(ctx, job, login, entries, since, update)
+	// Every written day is one request, so allow time for as many as were asked for.
+	_, created, err := s.enqueueJob(r.Context(), enqueueSpec{
+		UserID: u.ID, Kind: kindStrengthLevelSync, Origin: models.JobOriginUser, Interactive: true,
+		Payload: slSyncPayload{Days: days, Update: in.Update}, Timeout: strengthLevelTimeout + time.Duration(days)*2*time.Second,
 	})
-	if !started {
-		cancel()
-		flashed(w, "The server is shutting down.")
+	if msg, known := queueFailure("Strength Level", err); known {
+		flashed(w, msg)
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if !created {
+		flashed(w, "A sync is already running.")
 		return
 	}
 	s.audit(r, u.ID, auditSLSync, strconv.Itoa(days)+" days")
@@ -296,7 +340,7 @@ func (s *Backend) internalSLStatus(w http.ResponseWriter, r *http.Request, u mod
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
 	}
-	v, err := s.sl.view(r.Context(), u.ID)
+	v, err := s.slJobViewOf(r.Context(), u.ID)
 	if err != nil {
 		internalError(w, err)
 		return
@@ -305,7 +349,7 @@ func (s *Backend) internalSLStatus(w http.ResponseWriter, r *http.Request, u mod
 }
 
 // internalSLDay sends one day's estimate to Strength Level now, adding the day or overwriting the
-// entry that exists there. It is what the button on the estimates page does.
+// entry that exists. It is what the button on the estimates page does.
 func (s *Backend) internalSLDay(w http.ResponseWriter, r *http.Request, u models.User) {
 	if !u.StrengthLevelAuto {
 		internalFail(w, http.StatusForbidden, apiclient.CodeForbidden, "Strength Level sync is not enabled for this account")
@@ -316,44 +360,52 @@ func (s *Backend) internalSLDay(w http.ResponseWriter, r *http.Request, u models
 		return
 	}
 	day := in.Day
-	if t, err := time.Parse(strengthlevel.DayLayout, day); err != nil || t.Format(strengthlevel.DayLayout) != day {
+	if t, err := time.Parse(dateLayout, day); err != nil || t.Format(dateLayout) != day {
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, "invalid day")
 		return
 	}
-	login, err := s.strengthLevelLogin(r, u)
-	if err != nil {
+	if _, err := s.strengthLevelLogin(r, u); err != nil {
 		flashed(w, "Save your Strength Level login in Settings first.")
 		return
 	}
-	est, err := s.computeEstimates(r, u)
+	job, _, err := s.enqueueJob(r.Context(), enqueueSpec{
+		UserID: u.ID, Kind: kindStrengthLevelDay, Origin: models.JobOriginUser, Interactive: true,
+		Dedupe:  fmt.Sprintf("%s:%d:%s", kindStrengthLevelDay, u.ID, day),
+		Payload: slDayPayload{Day: day},
+	})
+	if msg, known := queueFailure("Strength Level", err); known {
+		flashed(w, msg)
+		return
+	}
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	var entry *strengthlevel.Entry
-	for _, e := range strengthlevel.FromEstimates(est.Days) {
-		if e.Day == day {
-			entry = &e
-			break
+	if job, err = s.waitJob(r.Context(), job.PublicID, importWait); err != nil {
+		if r.Context().Err() == nil {
+			internalError(w, err)
 		}
-	}
-	if entry == nil {
-		flashed(w, "There is no weight estimate for "+day+" to send.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), strengthLevelTimeout)
-	defer cancel()
-	c := client.New(strengthLevelBase, nil)
-	if err := c.Login(ctx, login.Email, login.Password); err != nil {
-		flashed(w, "Could not sign in to Strength Level: "+strengthLevelError(err))
-		return
+	switch job.State {
+	case models.JobSucceeded:
+		var res workerapi.ExportResult
+		if err := json.Unmarshal([]byte(job.Result), &res); err != nil {
+			flashed(w, "Could not send "+day+".")
+			return
+		}
+		what := "already up to date"
+		if res.Added > 0 {
+			what = "added"
+		} else if res.Updated > 0 {
+			what = "overwritten"
+		}
+		flashed(w, fmt.Sprintf("Strength Level: %s %s.", day, what))
+	case models.JobQueued, models.JobRunning:
+		flashed(w, "Sending "+day+" to Strength Level in the background. Reload in a moment.")
+	case models.JobCanceled:
+		flashed(w, "Sending "+day+" was canceled.")
+	default:
+		flashed(w, job.Error)
 	}
-	out, err := c.Upsert(ctx, *entry)
-	if err != nil {
-		flashed(w, "Could not send "+day+": "+strengthLevelError(err))
-		return
-	}
-	flashed(w, fmt.Sprintf("Strength Level: %s %s.", day, map[client.Outcome]string{
-		client.Added: "added", client.Updated: "overwritten", client.Unchanged: "already up to date",
-	}[out]))
 }

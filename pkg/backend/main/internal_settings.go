@@ -21,7 +21,7 @@ func (s *Backend) internalSettingsRoutes(mux *http.ServeMux) {
 }
 
 func (s *Backend) internalEstimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
-	res, err := s.computeEstimates(r, u)
+	res, err := s.computeEstimates(r.Context(), u)
 	if err != nil {
 		internalError(w, err)
 		return

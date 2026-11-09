@@ -27,10 +27,11 @@ ENV DEXAFIX_LISTEN=:8080 \
 # 8080 is plain HTTP. HTTPS (and HTTP/3 on UDP) listen on the port set on the Admin page, 8443 by
 # default, once a certificate is configured; publish it with -p 8443:8443 -p 8443:8443/udp.
 #
-# Two processes instead of one: run the image with `serve api` (the database; public API on 8080 and
-# the internal API on 8081) and with `serve web` (the pages and the public listeners, no database).
-# 8081 is the internal API: never publish it, keep it on a private network between the two. It is
-# only used by `serve api`, see docs/15-split-deployment.md.
+# Separate processes instead of one: run the image with `serve api` (the database; public API on 8080
+# and the internal API on 8081), with `serve web` (the pages and the public listeners, no database)
+# and with `serve worker` (talks to Withings and Strength Level for the api, no database).
+# 8081 is the internal API: never publish it, keep it on a private network between them. It is
+# only used by `serve api`, see docs/15-split-deployment.md and docs/16-workers.md.
 EXPOSE 8080 8081 8443 8443/udp
 ENTRYPOINT ["/dexa-fix"]
 CMD ["serve"]

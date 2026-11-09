@@ -36,6 +36,7 @@ create db_password random_hex
 create dsn sh -c 'printf "postgres://dexafix:%s@db:5432/dexafix?sslmode=disable" "$(cat secrets/db_password)"'
 create encryption_key random_hex
 create service_secret random_hex
+create worker_secret random_hex # differs from service_secret: they open different doors
 
 echo
 echo "Back up secrets/encryption_key together with the database."

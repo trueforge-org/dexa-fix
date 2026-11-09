@@ -42,6 +42,9 @@ that faces visitors holds neither the database nor the keys.
   runs the maintenance (`--maintenance=false` on the others). The URL web uses
   for the backend may point at a load balancer in front of them. See
   [Running more api processes](#running-more-api-processes).
+- Workers (`serve worker`) call the same internal listener with the worker
+  secret and reach the outside services for the api process. See
+  [Workers](16-workers.md).
 - The HTTPS and HTTP/3 listeners belong to web. See
   [TLS and HTTP/3](#tls-and-http3).
 

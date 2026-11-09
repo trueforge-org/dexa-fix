@@ -252,7 +252,7 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if err != nil {
 			return err
 		}
-		row = userRow{Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email)}
+		row = userRow{Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}

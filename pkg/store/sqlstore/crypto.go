@@ -494,6 +494,31 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			}
 		}
 
+		var jobs []jobRow
+		if err := tx.NewSelect().Model(&jobs).Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range jobs {
+			if needs(r.Payload) {
+				enc, err := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
+				if err != nil {
+					return err
+				}
+				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("payload = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+					return err
+				}
+			}
+			if needs(r.Result) {
+				enc, err := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
+				if err != nil {
+					return err
+				}
+				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+					return err
+				}
+			}
+		}
+
 		return s.backfillEmails(ctx, tx)
 	})
 }

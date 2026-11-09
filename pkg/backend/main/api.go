@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -43,10 +42,6 @@ func apiError(w http.ResponseWriter, err error) {
 		status, msg = http.StatusConflict, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, importer.ErrNotImplemented), errors.Is(err, importer.ErrNotConfigured):
-		status, msg = http.StatusNotImplemented, err.Error()
-	case errors.Is(err, importer.ErrNotConnected):
-		status, msg = http.StatusConflict, err.Error()
 	default:
 		log.Error().Err(err).Msg("api request failed")
 	}
@@ -140,7 +135,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 			err error
 		)
 		if in.Password == "" { // such a user signs in after an admin sets a password
-			if u, err = s.store.CreateUser(r.Context(), in.Name); err == nil {
+			if u, err = s.createUser(r.Context(), in.Name); err == nil {
 				if err = s.store.UpdateUserProfile(r.Context(), u.ID, u.Name, email, nil); err != nil {
 					_ = s.store.DeleteUser(r.Context(), u.ID) // do not leave an account behind without its address
 				}
@@ -153,7 +148,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 			}
 			var hash string
 			if hash, err = hashPassword(in.Password); err == nil {
-				u, err = s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+				u, err = s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 			}
 		}
 		if err != nil {
@@ -281,7 +276,7 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		res, err := s.computeEstimates(r, u)
+		res, err := s.computeEstimates(r.Context(), u)
 		if err != nil {
 			apiError(w, err)
 			return

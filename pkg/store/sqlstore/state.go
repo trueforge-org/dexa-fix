@@ -2,11 +2,7 @@ package sqlstore
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"time"
-
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // ---- single-use values ----
@@ -61,28 +57,4 @@ func (s *Store) PurgeFailures(ctx context.Context, before time.Time) (int64, err
 		return 0, err
 	}
 	return res.RowsAffected()
-}
-
-// ---- Strength Level sync status ----
-
-func (s *Store) PutStrengthLevelJob(ctx context.Context, userID int64, state string) error {
-	row := strengthLevelJobRow{UserID: userID, State: state, UpdatedAt: now()}
-	_, err := s.db.NewInsert().Model(&row).
-		On("CONFLICT (user_id) DO UPDATE").
-		Set("state = EXCLUDED.state").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
-	if isFK(err) {
-		return store.ErrNotFound
-	}
-	return err
-}
-
-func (s *Store) GetStrengthLevelJob(ctx context.Context, userID int64) (string, time.Time, error) {
-	var row strengthLevelJobRow
-	if err := s.db.NewSelect().Model(&row).Where("user_id = ?", userID).Scan(ctx); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", time.Time{}, store.ErrNotFound
-		}
-		return "", time.Time{}, err
-	}
-	return row.State, row.UpdatedAt.UTC(), nil
 }

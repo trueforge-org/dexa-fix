@@ -18,8 +18,6 @@ import (
 
 	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
 	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
@@ -242,7 +240,7 @@ API and another the internal one on the same database.`,
 			// certificate; the others load what it stored.
 			backendOpts = append(backendOpts, mainbackend.WithoutCertificateGeneration())
 		}
-		srv, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)), backendOpts...)
+		srv, err := mainbackend.NewBackend(st, backendOpts...)
 		if err != nil {
 			return err
 		}
@@ -298,6 +296,7 @@ func init() {
 	serveAPICmd.Flags().String("internal-listen", envOr("DEXAFIX_INTERNAL_LISTEN", ":8081"), "address of the internal API for the web frontend (empty: off); keep it on a private network")
 	serveAPICmd.Flags().Bool("maintenance", envOr("DEXAFIX_MAINTENANCE", "true") != "false", "run the maintenance loop (audit log purge, self-signed certificate renewal); turn it off on all but one api process")
 	addServiceSecretFlag(serveAPICmd)
+	addWorkerSecretFlag(serveAPICmd, "file with the secret the api process and its workers share, one per line (the first is the one workers send); create one with `dexa-fix secrets worker-secret`; it must differ from the service secret")
 	addInternalTLSFlags(serveAPICmd)
 	addDBFlags(serveAPICmd)
 	serveAPICmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")

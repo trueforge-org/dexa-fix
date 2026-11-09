@@ -54,6 +54,8 @@ type liveSettings struct {
 	tlsInfo        *tlsutil.Info
 	http3          bool
 	httpsPort      string // TCP port for HTTPS, and UDP port for HTTP/3
+	workers        workerSettings
+	generation     int64 // the settings generation this set was read at; workers compare it
 }
 
 // smtpSettings is what the Admin page shows and saves for e-mail.
@@ -132,6 +134,11 @@ func (s *Backend) reloadSettingsGenerating(ctx context.Context) error { return s
 
 func (s *Backend) reload(ctx context.Context, generate bool) error {
 	l := &liveSettings{}
+	var err error
+	// Read before the values: a change made meanwhile makes the next poll reload again.
+	if l.generation, err = s.store.SettingsGeneration(ctx); err != nil {
+		return err
+	}
 
 	if v, err := s.settingValue(ctx, settingBaseURL); err != nil {
 		return err
@@ -193,6 +200,9 @@ func (s *Backend) reload(ctx context.Context, generate bool) error {
 		} else {
 			l.mailer = m
 		}
+	}
+	if l.workers, err = s.loadWorkerSettings(ctx); err != nil {
+		return err
 	}
 	s.swapSettings(l)
 	return nil

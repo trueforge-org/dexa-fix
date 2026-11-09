@@ -30,6 +30,7 @@ type userRow struct {
 	StrengthLevelBulk bool      `bun:"strengthlevel_bulk"`
 	DataVersion       int64     `bun:"data_version"`
 	PasskeyHandle     *string   `bun:"passkey_handle"`
+	JobPriority       int       `bun:"job_priority"`
 }
 
 func (r *userRow) toModel() models.User {
@@ -58,6 +59,7 @@ func (r *userRow) toModel() models.User {
 		StrengthLevelAuto: r.StrengthLevelAuto,
 		StrengthLevelBulk: r.StrengthLevelBulk,
 		DataVersion:       r.DataVersion,
+		JobPriority:       r.JobPriority,
 	}
 }
 
@@ -150,13 +152,5 @@ type integrationRow struct {
 	UserID    int64     `bun:"user_id,pk"`
 	Provider  string    `bun:"provider,pk"`
 	Data      string    `bun:"data"`
-	UpdatedAt time.Time `bun:"updated_at"`
-}
-
-type strengthLevelJobRow struct {
-	bun.BaseModel `bun:"table:strengthlevel_jobs"`
-
-	UserID    int64     `bun:"user_id,pk"`
-	State     string    `bun:"state"`
 	UpdatedAt time.Time `bun:"updated_at"`
 }

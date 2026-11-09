@@ -22,8 +22,6 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -574,10 +572,11 @@ func TestPasskeyRegistrationNeedsReauth(t *testing.T) {
 	})
 
 	t.Run("a session older than the window is refused", func(t *testing.T) {
-		aged, err := New(agedSessions{Store: st, age: reauthWindow + time.Minute}, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+		aged, err := New(agedSessions{Store: st, age: reauthWindow + time.Minute})
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(aged.Close)
 		ats := httptest.NewServer(aged.Handler())
 		t.Cleanup(ats.Close)
 		resp, body := pkSiteOf(t, ats).postForm(t, path, url.Values{"name": {"Phone"}}, sess)

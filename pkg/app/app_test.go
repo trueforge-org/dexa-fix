@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -20,7 +19,7 @@ func newApp(t *testing.T) (*Server, *httptest.Server) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv, err := New(st, importer.NewRegistry())
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}

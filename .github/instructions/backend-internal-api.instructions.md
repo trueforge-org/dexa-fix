@@ -18,10 +18,14 @@ The internal API is `/internal/v1/...`. It is the only way the frontend gets dat
 4. **Tests**: at least one over a real TCP split (`splitClient`, see `internal_signin_test.go`), covering the guard, an error code, and anything that crosses the process boundary (forwarded address, cookies, headers).
 5. **Docs** if the behaviour is user-visible.
 
+## The workers' endpoints
+
+`/internal/v1/worker/*` (`internal_worker.go`, contract `pkg/shared/workerapi`) is a second door on the same listener with its own secret (`X-Dexafix-Worker`). It is not behind `visitorContext` or a session: a worker has no visitor. Every call about a job carries its lease token (`X-Dexafix-Lease`); a stale token answers 409 (`ErrLeaseLost`). Keep these endpoints narrow and validate everything a worker sends. Workers have their own load budget; leasing requests wait up to 20 seconds, so they are capped separately.
+
 ## Conventions
 
 - Verbs and paths: `GET .../pages/<page>` returns what one page render needs in one call; mutations use `POST`, `DELETE` on resources; ids in the path (`/users/{id}/...`), never a user id in the body.
-- Answer errors with `internalFail(w, status, code, message)`; `message` is the exact user-facing string. Map store and importer errors with `internalError`. Codes are in `apiclient` (`CodeInvalid`, `CodeThrottled`, `CodeForbidden`, `CodeUnauthorized`, `CodeStepUp`, `CodeNotFound`, `CodeExists`, `CodeUnavailable`, `CodeInternal`). Server errors (5xx) reach the frontend as `ErrUnavailable`.
+- Answer errors with `internalFail(w, status, code, message)`; `message` is the exact user-facing string. Map store errors with `internalError`. Codes are in `apiclient` (`CodeInvalid`, `CodeThrottled`, `CodeForbidden`, `CodeUnauthorized`, `CodeStepUp`, `CodeNotFound`, `CodeExists`, `CodeUnavailable`, `CodeInternal`). Server errors (5xx) reach the frontend as `ErrUnavailable`.
 - A step of signing in answers `SignInOutcome` (`Redirect` or `Error` and `Status`), not an HTTP error, for failures the person can fix.
 - **Cookies:** the handler reads the browser's cookies as usual (`r.Cookie`) and sets them with `http.SetCookie`; `visitorContext` restores the `Cookie` header and the frontend relays `Set-Cookie`. Keep attributes (`HttpOnly`, `Secure` from `isSecure(r)`, `SameSite`, `Path`) exactly as before.
 - **Visitor context:** after the service secret is verified, `visitorContext` sets the client address, host and scheme from `X-Dexafix-*`. Use `clientIP(r)`, `externalURL(r, ...)` and `isSecure(r)`; never read forwarding headers yourself.

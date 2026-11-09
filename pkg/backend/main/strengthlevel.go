@@ -1,44 +1,16 @@
 package mainbackend
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/rs/zerolog/log"
+
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel"
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel/client"
 )
 
-// strengthLevelBase is the Strength Level web app; tests point it at a fake.
-var strengthLevelBase = client.DefaultBase
-
-// A sync adds the missing days of the last N days. N defaults to 90 and is at most 10 years, so a
-// slip of the finger does not write a lifetime of data.
-const (
-	strengthLevelDefaultDays = 90
-	strengthLevelMaxDays     = 3650
-
-	maxStrengthLevelJobs      = 3 // syncs running at the same time, over all users
-	maxStrengthLevelLoginFail = 5 // wrong Strength Level logins per user and limiter window
-)
-
-// strengthLevelDelay is the pause between two writes to Strength Level; tests shorten it.
-var strengthLevelDelay = 300 * time.Millisecond
-
-// strengthLevelTimeout bounds a sign-in.
-const strengthLevelTimeout = 2 * time.Minute
-
-// strengthLevelProvider is the integration name under which the login is stored (encrypted).
-const strengthLevelProvider = "strengthlevel"
-
-// slLogin is the Strength Level login, stored as the data of the integration.
-type slLogin struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
+// The Strength Level feature is in workerprovider_strengthlevel.go (the jobs) and
+// internal_integrations.go (the pages' endpoints). This file has what the pages show.
 
 // strengthLevelView returns the settings card, or nil when an administrator has not enabled
 // automatic sync for the user.
@@ -51,10 +23,13 @@ func (s *Backend) strengthLevelView(r *http.Request, u models.User) *slView {
 	if err == nil {
 		v.Saved, v.Email = true, login.Email
 	}
+	if v.Saved {
+		v.AutoPaused = s.pausedReason(r.Context(), u.ID, kindStrengthLevelSync)
+	}
 	if u.StrengthLevelBulk {
 		v.Bulk = true
 		var err error
-		if v.Job, err = s.sl.view(r.Context(), u.ID); err != nil {
+		if v.Job, err = s.slJobViewOf(r.Context(), u.ID); err != nil {
 			log.Warn().Err(err).Msg("read the Strength Level sync status")
 		}
 	}
@@ -68,29 +43,6 @@ func (s *Backend) strengthLevelLogin(r *http.Request, u models.User) (slLogin, e
 		return l, err
 	}
 	return l, json.Unmarshal(data, &l)
-}
-
-func (s *Backend) runStrengthLevelSync(ctx context.Context, job *slJob, login slLogin, entries []strengthlevel.Entry, since string, update bool) {
-	go s.sl.keepAlive(ctx, job)
-	c := client.New(strengthLevelBase, nil)
-	c.Delay = strengthLevelDelay
-	if err := c.Login(ctx, login.Email, login.Password); err != nil {
-		s.sl.finish(job, func(j *slState) { j.Err = "could not sign in: " + strengthLevelError(err) })
-		return
-	}
-	res, err := c.Sync(ctx, entries, since, client.Options{
-		Update:   update,
-		Progress: func(done, total int) { s.sl.progress(job, done, total) },
-	})
-	if len(res.Failed) > 0 {
-		log.Warn().Strs("failed", res.Failed).Msg("strengthlevel sync")
-	}
-	s.sl.finish(job, func(j *slState) {
-		j.Added, j.Updated, j.Unchanged, j.Failed = res.Added, res.Updated, res.Skipped, len(res.Failed)
-		if err != nil && !j.Canceled {
-			j.Err = strengthLevelError(err)
-		}
-	})
 }
 
 // strengthLevelReady reports whether the single-day button is shown: the user may sync and has

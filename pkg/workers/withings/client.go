@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 )
 
 const (
@@ -22,18 +24,14 @@ const (
 	measTypes = "1,5,6,8,76,77,88,170"
 )
 
-// Config holds the server-wide Withings OAuth application settings.
+// Config holds what only a test changes; the application's credentials come with every job.
 type Config struct {
-	ClientID     string
-	ClientSecret string
-	// RedirectURL must match the callback URL registered with the Withings application.
-	RedirectURL string
-	// APIBase and AuthBase override the Withings endpoints (used by tests).
-	APIBase  string
-	AuthBase string
+	// APIBase overrides the Withings API address (used by tests).
+	APIBase string
 }
 
-// tokens is what we keep per user in user_integrations.
+// tokens is what the backend keeps per user (user_integrations, provider "withings"). The format
+// is part of stored data: do not rename the fields.
 type tokens struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
@@ -75,27 +73,12 @@ type measBody struct {
 }
 
 func (c Config) apiBase() string { return strings.TrimRight(orDefault(c.APIBase, defaultAPIBase), "/") }
-func (c Config) authBase() string {
-	return strings.TrimRight(orDefault(c.AuthBase, defaultAuthBase), "/")
-}
 
 func orDefault(v, def string) string {
 	if v == "" {
 		return def
 	}
 	return v
-}
-
-// authURL builds the URL the user is sent to for granting access.
-func (c Config) authURL(state string) string {
-	q := url.Values{
-		"response_type": {"code"},
-		"client_id":     {c.ClientID},
-		"redirect_uri":  {c.RedirectURL},
-		"scope":         {"user.metrics"},
-		"state":         {state},
-	}
-	return c.authBase() + "/oauth2_user/authorize2?" + q.Encode()
 }
 
 // Retry settings for read-only calls: a transport error, an HTTP 5xx or 429, or the Withings
@@ -118,10 +101,10 @@ func retryBackoff(attempt int) time.Duration {
 
 // callRetry is call for requests that are safe to repeat (reading measurements). Token requests
 // are not: a refresh token is single use.
-func (i *Importer) callRetry(ctx context.Context, path, bearer string, form url.Values, out any) error {
+func (w *Worker) callRetry(ctx context.Context, path, bearer string, form url.Values, out any) error {
 	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = i.call(ctx, path, bearer, form, out); err == nil || !errors.Is(err, errRetryable) {
+		if err = w.call(ctx, path, bearer, form, out); err == nil || !errors.Is(err, errRetryable) {
 			return err
 		}
 		if attempt == maxAttempts-1 {
@@ -137,8 +120,8 @@ func (i *Importer) callRetry(ctx context.Context, path, bearer string, form url.
 }
 
 // call POSTs a form to the Withings API and decodes the "body" of a status-0 response into out.
-func (i *Importer) call(ctx context.Context, path, bearer string, form url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.config().apiBase()+path, strings.NewReader(form.Encode()))
+func (w *Worker) call(ctx context.Context, path, bearer string, form url.Values, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.cfg.apiBase()+path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -146,7 +129,7 @@ func (i *Importer) call(ctx context.Context, path, bearer string, form url.Value
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	resp, err := i.http.Do(req)
+	resp, err := w.http.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("withings request: %w", err)
@@ -179,12 +162,12 @@ func (i *Importer) call(ctx context.Context, path, bearer string, form url.Value
 }
 
 // requestToken exchanges an authorisation code or refresh token for a new token set.
-func (i *Importer) requestToken(ctx context.Context, form url.Values) (tokens, error) {
+func (w *Worker) requestToken(ctx context.Context, app workerapi.OAuthApp, form url.Values) (tokens, error) {
 	form.Set("action", "requesttoken")
-	form.Set("client_id", i.config().ClientID)
-	form.Set("client_secret", i.config().ClientSecret)
+	form.Set("client_id", app.ClientID)
+	form.Set("client_secret", app.ClientSecret)
 	var b tokenBody
-	if err := i.call(ctx, "/v2/oauth2", "", form, &b); err != nil {
+	if err := w.call(ctx, "/v2/oauth2", "", form, &b); err != nil {
 		return tokens{}, err
 	}
 	if b.AccessToken == "" || b.RefreshToken == "" {
@@ -193,13 +176,13 @@ func (i *Importer) requestToken(ctx context.Context, form url.Values) (tokens, e
 	return tokens{
 		AccessToken:  b.AccessToken,
 		RefreshToken: b.RefreshToken,
-		ExpiresAt:    i.now().Add(time.Duration(b.ExpiresIn) * time.Second).UTC(),
+		ExpiresAt:    w.now().Add(time.Duration(b.ExpiresIn) * time.Second).UTC(),
 		UserID:       b.UserID.String(),
 	}, nil
 }
 
 // getMeas fetches all real measurement groups (category 1) in [start, end]; zero times are open ends.
-func (i *Importer) getMeas(ctx context.Context, accessToken string, start, end time.Time) ([]measureGroup, error) {
+func (w *Worker) getMeas(ctx context.Context, accessToken string, start, end time.Time) ([]measureGroup, error) {
 	var all []measureGroup
 	offset := 0
 	for page := 0; page < 1000; page++ {
@@ -214,7 +197,7 @@ func (i *Importer) getMeas(ctx context.Context, accessToken string, start, end t
 			form.Set("offset", strconv.Itoa(offset))
 		}
 		var b measBody
-		if err := i.callRetry(ctx, "/measure", accessToken, form, &b); err != nil {
+		if err := w.callRetry(ctx, "/measure", accessToken, form, &b); err != nil {
 			return nil, err
 		}
 		all = append(all, b.Groups...)

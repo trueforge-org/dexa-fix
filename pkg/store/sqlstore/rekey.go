@@ -19,13 +19,14 @@ type RekeyStats struct {
 	Settings     int
 	Providers    int
 	TOTP         int // two-step verification secrets re-encrypted
+	Jobs         int // queued or running worker jobs re-encrypted
 	Lookups      int // e-mail lookup hashes recomputed
 	Current      int // encrypted values already under the current key
 }
 
 // Changed is the number of values that were or would be rewritten.
 func (r RekeyStats) Changed() int {
-	return r.Emails + r.Integrations + r.Settings + r.Providers + r.TOTP + r.Lookups
+	return r.Emails + r.Integrations + r.Settings + r.Providers + r.TOTP + r.Jobs + r.Lookups
 }
 
 // Rekey re-encrypts every encrypted value with the current key, recomputes the e-mail lookup
@@ -141,6 +142,39 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 				continue
 			}
 			if _, err := tx.NewUpdate().Model((*totpRow)(nil)).Set("secret = ?", enc).Where("user_id = ?", r.UserID).Exec(ctx); err != nil {
+				return err
+			}
+		}
+
+		// Ended jobs have no payload left and their result is only a summary, but all are resealed.
+		var jobs []jobRow
+		if err := tx.NewSelect().Model(&jobs).OrderExpr("id").Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range jobs {
+			payload, err := reseal("payload of job "+r.PublicID, r.Payload, jobPayloadContext(r.PublicID))
+			if err != nil {
+				return err
+			}
+			result, err := reseal("result of job "+r.PublicID, r.Result, jobResultContext(r.PublicID))
+			if err != nil {
+				return err
+			}
+			if payload == "" && result == "" {
+				continue
+			}
+			stats.Jobs++
+			if dryRun {
+				continue
+			}
+			q := tx.NewUpdate().Model((*jobRow)(nil)).Where("id = ?", r.ID)
+			if payload != "" {
+				q = q.Set("payload = ?", payload)
+			}
+			if result != "" {
+				q = q.Set("result = ?", result)
+			}
+			if _, err := q.Exec(ctx); err != nil {
 				return err
 			}
 		}

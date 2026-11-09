@@ -195,6 +195,9 @@ type User struct {
 	// StrengthLevelBulk additionally allows the multi-day sync on the settings page. It needs
 	// StrengthLevelAuto.
 	StrengthLevelBulk bool `json:"-"`
+	// JobPriority (1-100) orders the user's worker jobs among those of other users: a higher number
+	// goes first. Administrators' jobs always go before everyone's. Set by an administrator.
+	JobPriority int `json:"-"`
 	// DataVersion changes whenever the scans, readings or settings that estimates are computed
 	// from change, in any way and from any process. Cached results are valid for one version.
 	DataVersion int64 `json:"-"`

@@ -10,7 +10,7 @@ import (
 // them, nor on the store. Test files do not count.
 func TestSharedDoesNotDependOnEitherSide(t *testing.T) {
 	const module = "github.com/trueforge-org/dexa-fix/"
-	forbidden := []string{module + "pkg/frontend", module + "pkg/backend", module + "pkg/app", module + "pkg/store"}
+	forbidden := []string{module + "pkg/frontend", module + "pkg/backend", module + "pkg/app", module + "pkg/store", module + "pkg/workers"}
 	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", "./...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)

@@ -23,9 +23,10 @@ description: "Rules for the command line and process wiring: flags and environme
 
 | Command | What runs |
 | --- | --- |
-| `dexa-fix serve` | Both halves in one process through `app.New` (in-process transport, random service secret). |
+| `dexa-fix serve` | Both halves and the workers in one process through `app.New` (in-process transport, random service and worker secrets). |
 | `dexa-fix serve web` | `frontend.NewFrontend`: needs `--backend-url` and a service secret file, waits up to 60 s for the backend, follows its settings. No database flags. |
-| `dexa-fix serve api` | `mainbackend.NewBackend`: public listener (`--listen`, may be empty), internal listener (`--internal-listen`, may be empty; requires the service secret), optional mutual TLS, `--maintenance`. |
+| `dexa-fix serve api` | `mainbackend.NewBackend`: public listener (`--listen`, may be empty), internal listener (`--internal-listen`, may be empty; requires the service secret), optional worker secret (`--worker-secret-file`, must differ from the service secret), optional mutual TLS, `--maintenance`. |
+| `dexa-fix serve worker` | `runner.Runner` with the built-in providers (`--providers`): needs `--backend-url` and a worker secret file, no database flags, the same mutual TLS client flags as `serve web`. |
 
 `serveCmd` has `Args: cobra.NoArgs` so that a typo (`serve wbe`) cannot start the combined server.
 
@@ -35,4 +36,4 @@ Update the table in `docs/02-configuration.md`, the commands in `docs/05-command
 
 ## `pkg/app`
 
-`app` is the only package that imports both halves for serving. Keep it thin: construct, wire, expose `Handler`, `Close`, `SetVersion`, `WrapListener`. Behaviour belongs in the frontend or the backend.
+`app` is the only package that imports both halves and the workers for serving. Keep it thin: construct, wire, expose `Handler`, `Close`, `SetVersion`, `WrapListener`. Behaviour belongs in the frontend or the backend.

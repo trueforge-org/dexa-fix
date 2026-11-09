@@ -20,7 +20,6 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/jobs"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
@@ -65,8 +64,7 @@ func publicInFlight(st store.Store) int {
 type Backend struct {
 	bg *jobs.Group // background jobs, stopped by Close
 
-	store     store.Store
-	importers *importer.Registry
+	store store.Store
 
 	// Version is shown on the admin page.
 	Version string
@@ -85,8 +83,14 @@ type Backend struct {
 	bcryptSlots    chan struct{} // limits password checks running at the same time
 	internalBudget *edge.Limiter // load budget of the internal API; nil in the combined process
 
-	sl      slJobs        // background Strength Level syncs
-	slSlots chan struct{} // limits Strength Level syncs running at the same time
+	// Work for the workers: the queue is in the database; these are the registry of providers and
+	// what the worker endpoints need. See workerproviders.go and internal_worker.go.
+	providers     []workerProvider
+	kinds         map[string]*kindSpec
+	workerSecrets [][32]byte    // accepted by the worker endpoints
+	workerBudget  *edge.Limiter // load budget of the worker endpoints; nil in the combined process
+	leasePolls    chan struct{} // worker requests waiting for a job
+	lastSweep     atomic.Int64  // when this process last ended expired leases (UnixNano)
 
 	auditNoise *auditNoise
 	estCache   *estimateCache
@@ -113,17 +117,15 @@ func WithoutCertificateGeneration() Option { return func(s *Backend) { s.noCertG
 //
 // Any number of backends may share one database; exactly one of them should run the maintenance
 // (StartMaintenance) and the others should be made WithoutCertificateGeneration.
-func NewBackend(st store.Store, importers *importer.Registry, opts ...Option) (*Backend, error) {
+func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 	s := &Backend{
 		bg:          jobs.New(),
 		store:       st,
-		importers:   importers,
 		httpClient:  &http.Client{Timeout: providerTimeout},
 		oidcCache:   map[string]*oidc.Provider{},
 		limiter:     newDBLimiter(st),
 		nonces:      dbNonces{st},
-		sl:          slJobs{store: st},
-		slSlots:     make(chan struct{}, maxStrengthLevelJobs),
+		leasePolls:  make(chan struct{}, maxLeasePolls),
 		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
 		auditNoise:  newAuditNoise(),
 		estCache:    newEstimateCache(),
@@ -131,19 +133,20 @@ func NewBackend(st store.Store, importers *importer.Registry, opts ...Option) (*
 	for _, o := range opts {
 		o(s)
 	}
+	// The providers that ship with the program; their settings are read below.
+	s.addWorkerProvider(withingsProvider())
+	s.addWorkerProvider(strengthLevelProviderSpec())
 	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
 	ctx := context.Background()
 	var err error
 	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.applyWithingsCredentials(ctx); err != nil {
-		return nil, err
-	}
 	if err := s.reloadSettings(ctx); err != nil {
 		return nil, err
 	}
 	s.publicSlots = publicInFlight(st)
+	s.workerBudget = newWorkerBudget()
 	s.internalBudget = &edge.Limiter{
 		MaxInFlight: internalMaxInFlight, MaxQueue: internalMaxQueue, MaxWait: budgetMaxWait,
 		Rate: internalRate, Burst: internalBurst,
@@ -211,9 +214,9 @@ func (s *Backend) apiMux() *http.ServeMux {
 // PublicHandler: the combined process mounts it on the pages' handler, which does both.
 func (s *Backend) APIHandler() http.Handler { return s.withAuth(s.apiMux()) }
 
-// DisableInternalBudget removes the load budget of the internal API. The combined process uses it:
-// there is no flood protection between the halves of one process.
-func (s *Backend) DisableInternalBudget() { s.internalBudget = nil }
+// DisableInternalBudget removes the load budget of the internal API, and of the worker endpoints.
+// The combined process uses it: there is no flood protection between the halves of one process.
+func (s *Backend) DisableInternalBudget() { s.internalBudget, s.workerBudget = nil, nil }
 
 // OnSettingsChange sets a function that is called after the settings in force change. The combined
 // process uses it to pass a changed setting on to the frontend at once. Set it before serving.

@@ -11,14 +11,15 @@ These rules apply to `pkg/backend/` (today only `pkg/backend/main`, package `mai
 
 ## What the backend is
 
-The only owner of the store, the encryption keys, the cookie sealing key, importers, the mailer and provider credentials, and the place where **every security decision is made**. It serves two listeners with separate load budgets: the public API (`PublicHandler`, `/api/v1`, behind the reverse proxy) and the internal API (`InternalHandler`, `/internal/v1`, for the frontend on a private network).
+The only owner of the store, the encryption keys, the cookie sealing key, the job queue, the mailer and provider credentials (it hands them to a worker only inside a lease), and the place where **every security decision is made**. It serves two listeners with separate load budgets: the public API (`PublicHandler`, `/api/v1`, behind the reverse proxy) and the internal API (`InternalHandler`, `/internal/v1`, for the frontend on a private network).
 
 ## Hard rules
 
-- **Never import** `pkg/frontend`. (`pkg/app` imports both and is the only place that wires them.) `boundary_test.go` checks it.
+- **Never import** `pkg/frontend` or `pkg/workers`. (`pkg/app` imports all of them and is the only place that wires them.) `boundary_test.go` checks it.
+- **Never call an outside service** (Withings, Strength Level, ...) yourself: queue a job (`enqueueJob`, then `waitJob` if somebody waits) and let a worker do it. The backend's half of a provider is a descriptor, `workerprovider_<name>.go`; see [`workers.instructions.md`](workers.instructions.md).
 - **Authorise on every request, again.** Own data only (`internalUser` / `apiUser`), admin role plus step-up proof for admin endpoints (`internalAdmin`). Never take a user id, role or ownership from a request body.
 - **Validate again.** Values from forms were parsed by the frontend; check ranges and formats here (`validate.go`).
-- **State lives in the database.** Single-use nonces (`dbNonces`), failed-attempt counters (`dbLimiter`) and Strength Level sync status are tables so that several backends agree. Do not add process memory that has to be consistent. Allowed in memory: caches keyed by data version (`estCache`), the OIDC discovery cache, audit-noise de-duplication, and the cancel functions of the sync running in this process.
+- **State lives in the database.** Single-use nonces (`dbNonces`), failed-attempt counters (`dbLimiter`) and the job queue are tables so that several backends agree. Do not add process memory that has to be consistent. Allowed in memory: caches keyed by data version (`estCache`), the OIDC discovery cache, audit-noise de-duplication. Nothing about a job lives in memory: a worker may report to any backend.
 - **Fail closed.** If the database cannot say whether a nonce was spent or an address is locked out, treat it as spent / locked out and log it.
 - **Audit** security-relevant actions with `s.audit` / `s.auditAs` (the address is the visitor's, forwarded by the frontend). Keep the existing action names.
 - **No secrets in logs, URLs or error messages.** Passwords are checked with bcrypt behind the shared slots (`bcryptSlots`); the answer for unknown and known accounts must look the same (dummy hash).

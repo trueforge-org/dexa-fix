@@ -19,8 +19,6 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
@@ -60,7 +58,7 @@ func newEncryptedTLSRig(t *testing.T) *tlsRig {
 	if err := st.PutSetting(ctx, settingSignup, valueEnabled); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}

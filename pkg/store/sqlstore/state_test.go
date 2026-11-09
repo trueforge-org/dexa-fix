@@ -2,13 +2,10 @@ package sqlstore
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 func TestNonceIsSingleUseUntilItExpires(t *testing.T) {
@@ -88,29 +85,5 @@ func TestFailuresAreCountedInAWindowAndCleared(t *testing.T) {
 	}
 	if n, err := st.PurgeFailures(ctx, t0.Add(time.Minute)); err != nil || n != 1 {
 		t.Errorf("purged %d (%v)", n, err)
-	}
-}
-
-func TestStrengthLevelJobStatusIsStoredPerUser(t *testing.T) {
-	st := newStore(t)
-	ctx := context.Background()
-	u, err := st.CreateUser(ctx, "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := st.GetStrengthLevelJob(ctx, u.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("want ErrNotFound, got %v", err)
-	}
-	for _, s := range []string{`{"a":1}`, `{"a":2}`} {
-		if err := st.PutStrengthLevelJob(ctx, u.ID, s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, at, err := st.GetStrengthLevelJob(ctx, u.ID)
-	if err != nil || got != `{"a":2}` || time.Since(at) > time.Minute || time.Until(at) > time.Minute {
-		t.Fatalf("got %q at %v (%v)", got, at, err)
-	}
-	if err := st.PutStrengthLevelJob(ctx, u.ID+999, "{}"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown user: %v", err)
 	}
 }

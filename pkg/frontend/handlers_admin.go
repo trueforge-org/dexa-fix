@@ -39,6 +39,7 @@ func (s *Frontend) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users/{id}/delete", s.admin(s.adminDeleteUser))
 	mux.HandleFunc("POST /admin/password-login", s.admin(s.adminPasswordLogin))
 	s.adminSettingRoutes(mux)
+	s.adminWorkerRoutes(mux)
 	s.adminTLSRoutes(mux)
 	mux.HandleFunc("POST /admin/signup", s.admin(s.adminSignup))
 	mux.HandleFunc("POST /admin/providers", s.admin(s.adminSaveProvider))

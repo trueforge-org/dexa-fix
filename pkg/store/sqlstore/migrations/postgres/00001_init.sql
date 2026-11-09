@@ -23,7 +23,10 @@ CREATE TABLE users (
   -- date-times are read and shown.
   timezone TEXT NOT NULL DEFAULT 'UTC',
   -- Random handle that identifies the user to passkeys (WebAuthn user.id). It is not personal data.
-  passkey_handle TEXT
+  passkey_handle TEXT,
+  -- Set by an administrator: orders the user's worker jobs among other users' (1-100, higher first).
+  -- Administrators' jobs always go before everyone's, whatever this says.
+  job_priority INTEGER NOT NULL DEFAULT 50
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE UNIQUE INDEX idx_users_passkey_handle ON users(passkey_handle);
@@ -193,16 +196,64 @@ CREATE TABLE auth_failures (
 );
 CREATE INDEX idx_auth_failures_key ON auth_failures(fail_key, failed_at);
 CREATE INDEX idx_auth_failures_at ON auth_failures(failed_at);
--- The status of a user's Strength Level sync (a JSON view), written by the backend that runs it and
--- read by any backend. A 'running' state that stopped being updated belongs to a dead process.
-CREATE TABLE strengthlevel_jobs (
-  user_id BIGINT NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+-- The queue of work for the workers (processes without database access that talk to Withings,
+-- Strength Level and the like). The backend owns it: a worker sees a job only inside a lease.
+-- payload and result are encrypted; payload is cleared when the job ends.
+CREATE TABLE worker_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  public_id TEXT NOT NULL,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  interactive BOOLEAN NOT NULL DEFAULT FALSE,
+  -- At most one queued or running job per non-empty key.
+  dedupe_key TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
+  payload TEXT NOT NULL DEFAULT '',
+  progress TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL,
+  timeout_seconds INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  run_after TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL,
+  lease_owner TEXT NOT NULL DEFAULT '',
+  -- Hash of the secret only the leaseholder knows: a worker that lost its lease cannot report.
+  lease_token_hash TEXT NOT NULL DEFAULT '',
+  lease_until TIMESTAMPTZ,
+  deadline_at TIMESTAMPTZ,
+  cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE UNIQUE INDEX idx_worker_jobs_public ON worker_jobs(public_id);
+CREATE UNIQUE INDEX idx_worker_jobs_dedupe ON worker_jobs(dedupe_key) WHERE dedupe_key <> '' AND state IN ('queued', 'running');
+CREATE INDEX idx_worker_jobs_ready ON worker_jobs(state, run_after);
+CREATE INDEX idx_worker_jobs_user ON worker_jobs(user_id, kind, id);
+-- Worker processes that recently asked for work, so the pages can say whether anything is listening.
+CREATE TABLE worker_instances (
+  id TEXT NOT NULL PRIMARY KEY,
+  kinds TEXT NOT NULL,
+  version TEXT NOT NULL DEFAULT '',
+  last_seen TIMESTAMPTZ NOT NULL
+);
+-- What the scheduler remembers about a user and a kind of job.
+CREATE TABLE worker_schedules (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  last_enqueued_at TIMESTAMPTZ,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  paused_reason TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (user_id, kind)
 );
 
 -- +goose Down
-DROP TABLE strengthlevel_jobs;
+DROP TABLE worker_schedules;
+DROP TABLE worker_instances;
+DROP TABLE worker_jobs;
 DROP TABLE auth_failures;
 DROP TABLE used_nonces;
 DROP TABLE passkeys;

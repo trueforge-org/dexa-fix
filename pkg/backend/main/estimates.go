@@ -1,26 +1,26 @@
 package mainbackend
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 )
 
 // computeEstimates loads a user's data and runs the estimator.
 // The result comes from the cache when the user's data has not changed since it was computed (see
 // estcache.go) and is shared, so callers must not modify it.
-func (s *Backend) computeEstimates(r *http.Request, u models.User) (estimate.Result, error) {
+func (s *Backend) computeEstimates(ctx context.Context, u models.User) (estimate.Result, error) {
 	now, loc := time.Now(), u.Location()
 	key := estimateKey{version: u.DataVersion, day: now.In(loc).Format(dateLayout)}
 	return s.estCache.get(u.ID, key, func() (estimate.Result, error) {
-		scans, err := s.store.ListDexaScans(r.Context(), u.ID)
+		scans, err := s.store.ListDexaScans(ctx, u.ID)
 		if err != nil {
 			return estimate.Result{}, err
 		}
-		readings, err := s.store.ListScaleReadings(r.Context(), u.ID)
+		readings, err := s.store.ListScaleReadings(ctx, u.ID)
 		if err != nil {
 			return estimate.Result{}, err
 		}
@@ -34,19 +34,18 @@ func (s *Backend) computeEstimates(r *http.Request, u models.User) (estimate.Res
 	})
 }
 
-// withingsView reports the Withings state for a user, or nil if the importer is not registered.
-// Unlike oauthProvider it also returns a view when the server lacks credentials, so the pages can
-// say so instead of showing nothing.
+// withingsView reports the Withings state for a user. Unlike oauthProvider it also returns a view
+// when the server lacks credentials, so the pages can say so instead of showing nothing.
 func (s *Backend) withingsView(r *http.Request, u models.User) *integrationView {
-	imp, ok := s.importers.Get(providerWithings)
-	if !ok {
+	p, ok := s.providerNamed(providerWithings)
+	if !ok || p.OAuth == nil {
 		return nil
 	}
-	p, ok := imp.(importer.OAuthProvider)
-	if !ok {
-		return nil
+	configured, _ := p.OAuth.Configured(r.Context(), s)
+	v := &integrationView{Configured: configured}
+	v.Connected = configured && s.connected(r.Context(), p, u.ID)
+	if v.Connected {
+		v.AutoPaused = s.pausedReason(r.Context(), u.ID, kindWithingsImport)
 	}
-	v := &integrationView{Configured: p.Configured()}
-	v.Connected = v.Configured && p.Connected(r.Context(), s.store, u.ID)
 	return v
 }

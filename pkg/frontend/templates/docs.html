@@ -41,6 +41,7 @@
         <li><a href="#admin-network">Network and retention</a></li>
         <li><a href="#admin-email">E-mail</a></li>
         <li><a href="#admin-tls">HTTPS</a></li>
+        <li><a href="#admin-workers">Workers</a></li>
       </ul></li>
     <li><a href="#server-config">Server configuration</a></li>
     <li><a href="#reverse-proxy">Reverse proxy</a>
@@ -326,6 +327,7 @@
   <li>As an administrator, enter the client id and secret in the <a href="#withings-app">Withings application</a> card on the Admin page. They are stored encrypted. The redirect URL defaults to this server's own callback address. Withings is configured only there; the old <code>DEXAFIX_WITHINGS_*</code> variables are ignored with a warning.</li>
 </ol>
 <p>Connecting works only when client id, secret and redirect URL are all set.</p>
+<p>A <a href="#admin-workers">worker</a> does the talking to Withings: connecting and importing are jobs in a queue, and wait there while no worker runs the <code>withings</code> provider. Automatic imports are off until an administrator gives <em>Withings import</em> an interval in hours on the Workers page of the Admin section. Each run fetches the last 14 days for every linked user. After the number of failed runs in a row that the administrator set, your automatic imports pause, until you disconnect and connect Withings again or an administrator resumes them.</p>
 <h4 id="withings-import">Connecting and importing (user)</h4>
 <ol>
   <li>On the Settings or Estimates page choose <strong>Connect Withings</strong> and grant access. Finish within 10 minutes.</li>
@@ -426,6 +428,10 @@
 <p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links.</p>
 <h3 id="admin-tls">HTTPS, HTTP/2 and HTTP/3</h3>
 <p>An optional HTTPS listener on its own port, with an uploaded certificate or a generated self-signed one. The page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. See <a href="#https">HTTPS, HTTP/2 and HTTP/3</a>.</p>
+<h3 id="admin-workers">Workers</h3>
+<p>Imports and syncs with Withings and Strength Level run as jobs in a queue. Workers do them: processes without a database or key that ask the api process for a job, call the outside service, and report back. A user's credentials reach a worker only inside one job. <code>dexa-fix serve</code> runs the workers inside its own process. In a split deployment start them with <code>dexa-fix serve worker --backend-url http://api:8081 --worker-secret-file worker.secret --providers withings</code>; without one, jobs stay queued. Create the secret with <code>dexa-fix secrets worker-secret</code>; it must differ from the service secret and both the api process and the workers read it with <code>--worker-secret-file</code>. Other flags: <code>--providers</code> (<code>strengthlevel</code>, <code>withings</code>; empty runs both), <code>--concurrency</code> (1 to 64, default 2) and <code>--worker-id</code>.</p>
+<p>The <strong>Workers</strong> page of the Admin section holds the rest, applied without a restart: per kind of job whether it is on, the jobs at once, attempts, retry delay, time limit, the automatic run interval in hours (<code>0</code> is off), and when to pause: after a number of failed runs in a row for one user's schedule, and after a number in a row for the whole kind (the circuit breaker). A paused schedule starts again when the user reconnects or imports by hand, or when an administrator resumes it. It also sets the priority of new accounts and how long finished jobs are kept, and lists the running workers and the queue. An administrator sets each account's job priority on the Users list.</p>
+
 <h3 id="admin-audit">Audit log</h3>
 <p>The latest events on the page. See <a href="#audit-log">Audit log</a>.</p>
 </section>

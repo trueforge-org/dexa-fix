@@ -15,7 +15,8 @@ func TestBackendDoesNotImportTheFrontend(t *testing.T) {
 		t.Fatalf("go list: %v", err)
 	}
 	for _, d := range strings.Fields(string(out)) {
-		if d == module+"pkg/frontend" || strings.HasPrefix(d, module+"pkg/frontend/") || d == module+"pkg/app" {
+		if d == module+"pkg/frontend" || strings.HasPrefix(d, module+"pkg/frontend/") || d == module+"pkg/app" ||
+			d == module+"pkg/workers" || strings.HasPrefix(d, module+"pkg/workers/") {
 			t.Errorf("the main backend depends on %s", d)
 		}
 	}

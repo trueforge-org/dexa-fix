@@ -20,6 +20,9 @@ var (
 	ErrInvalid = errors.New("invalid input")
 	// ErrLastAdmin is returned when a change would leave no administrator.
 	ErrLastAdmin = errors.New("cannot remove the last administrator")
+	// ErrLeaseLost: the worker no longer holds the job (the lease ran out and the job was handed
+	// on, canceled or finished). It must stop working on it.
+	ErrLeaseLost = errors.New("lease lost")
 )
 
 // Stats summarises the contents of the database.
@@ -223,10 +226,33 @@ type Store interface {
 	ClearFailures(ctx context.Context, key string) error
 	PurgeFailures(ctx context.Context, before time.Time) (int64, error)
 
-	// PutStrengthLevelJob stores the status (a JSON document) of the user's Strength Level sync;
-	// GetStrengthLevelJob returns it with the time it was last written, or ErrNotFound.
-	PutStrengthLevelJob(ctx context.Context, userID int64, state string) error
-	GetStrengthLevelJob(ctx context.Context, userID int64) (state string, updatedAt time.Time, err error)
+	// The queue of work for the workers. See pkg/store/sqlstore/jobs.go for the rules; in short,
+	// every state change is conditional on the state and lease token it expects.
+	EnqueueJob(ctx context.Context, j models.NewJob) (job models.Job, created bool, err error)
+	GetJob(ctx context.Context, publicID string) (models.Job, error)
+	ListJobs(ctx context.Context, f models.JobFilter) ([]models.Job, error)
+	LastFinishedStates(ctx context.Context, kind string, n int, since time.Time) ([]string, error)
+	LeaseJob(ctx context.Context, req models.LeaseRequest, at time.Time) (job models.Job, ok bool, err error)
+	HeartbeatJob(ctx context.Context, publicID, tokenHash string, extend time.Duration, progress *string, at time.Time) (cancel bool, err error)
+	CompleteJob(ctx context.Context, publicID, tokenHash string, c models.Completion, at time.Time) (models.Job, error)
+	ReleaseJob(ctx context.Context, publicID, tokenHash string, at time.Time) error
+	CancelJob(ctx context.Context, publicID string, userID int64, at time.Time) (models.Job, error)
+	CancelJobs(ctx context.Context, userID int64, kinds []string, at time.Time) error
+	ReapExpiredLeases(ctx context.Context, at time.Time, backoff func(models.Job) time.Duration) ([]models.Job, error)
+	RunningJob(ctx context.Context, publicID, tokenHash string) (models.Job, error)
+	JobStats(ctx context.Context, failedSince time.Time) ([]models.JobKindStats, error)
+	ExpireQueuedJobs(ctx context.Context, at time.Time) (int64, error)
+	PurgeJobs(ctx context.Context, before time.Time) (int64, error)
+	TouchWorker(ctx context.Context, id string, kinds []string, version string, at time.Time) error
+	ListWorkers(ctx context.Context, since time.Time) ([]models.WorkerInstance, error)
+	PurgeWorkers(ctx context.Context, before time.Time) (int64, error)
+	GetJobSchedule(ctx context.Context, userID int64, kind string) (models.JobSchedule, error)
+	ListJobSchedules(ctx context.Context, kind string) ([]models.JobSchedule, error)
+	PutJobSchedule(ctx context.Context, j models.JobSchedule) error
+	DeleteJobSchedule(ctx context.Context, userID int64, kind string) error
+	ListUsersWithIntegration(ctx context.Context, provider string) ([]int64, error)
+	// SetUserJobPriority sets the 1-100 priority of a user's jobs (higher goes first).
+	SetUserJobPriority(ctx context.Context, userID int64, priority int) error
 
 	// PurgeAuditEvents deletes events older than the cutoff and returns how many.
 	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)

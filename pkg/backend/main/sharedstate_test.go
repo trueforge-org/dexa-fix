@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
@@ -32,13 +30,12 @@ func twoBackends(t *testing.T, optsB ...Option) (a, b *Backend, st *sqlstore.Sto
 
 func twoBackendsOn(t *testing.T, st *sqlstore.Store, optsB ...Option) (a, b *Backend, _ *sqlstore.Store) {
 	t.Helper()
-	reg := importer.NewRegistry(withings.New(withings.Config{}, nil))
-	a, err := NewBackend(st, reg)
+	a, err := NewBackend(st)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.Close)
-	b, err = NewBackend(st, reg, optsB...)
+	b, err = NewBackend(st, optsB...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +89,7 @@ func TestSecondStepCookieIsNotReplayableOnAnotherBackend(t *testing.T) {
 	signup(t, ts, c, "alice")
 	_, codes := tfEnable(t, srv, 1)
 
-	srv2, err := New(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	srv2, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,6 +174,8 @@ func TestLockOutLeavesTheWindow(t *testing.T) {
 	}
 }
 
+// The state of a sync is a job in the database, so every backend shows the same: whichever one
+// the page happens to ask, and whichever one a worker reported to.
 func TestStrengthLevelStatusIsVisibleFromAnotherBackend(t *testing.T) {
 	a, b, st := twoBackends(t)
 	ctx := context.Background()
@@ -184,54 +183,68 @@ func TestStrengthLevelStatusIsVisibleFromAnotherBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, err := b.sl.view(ctx, u.ID); v != nil || err != nil {
+	if err := st.SetUserStrengthLevelAuto(ctx, u.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := b.slJobViewOf(ctx, u.ID); v != nil || err != nil {
 		t.Fatalf("view before any sync: %v %v", v, err)
 	}
-	jobCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	job, ok, err := a.sl.begin(ctx, u.ID, 30, false, cancel)
-	if err != nil || !ok {
-		t.Fatalf("begin: %v %v", ok, err)
+	job, created, err := a.enqueueJob(ctx, enqueueSpec{UserID: u.ID, Kind: kindStrengthLevelSync, Origin: models.JobOriginUser, Payload: slSyncPayload{Days: 30}})
+	if err != nil || !created {
+		t.Fatalf("enqueue: %v %v", created, err)
 	}
-	if _, ok, _ := b.sl.begin(ctx, u.ID, 30, false, cancel); ok {
-		t.Fatal("B started a second sync while A's runs")
+	// A second sync is not started while one waits or runs, from whichever backend it is asked.
+	if _, created, err := b.enqueueJob(ctx, enqueueSpec{UserID: u.ID, Kind: kindStrengthLevelSync, Origin: models.JobOriginUser, Payload: slSyncPayload{Days: 7}}); err != nil || created {
+		t.Fatalf("B queued a second sync: created=%v err=%v", created, err)
 	}
-	if v, _ := b.sl.view(ctx, u.ID); v == nil || !v.Running || !strings.Contains(v.Text, "signing in") {
+	if v, _ := b.slJobViewOf(ctx, u.ID); v == nil || !v.Running || !strings.Contains(v.Text, "waiting for a worker") {
+		t.Fatalf("B sees %+v of a queued sync", v)
+	}
+	leased, ok, err := st.LeaseJob(ctx, models.LeaseRequest{Kinds: []string{kindStrengthLevelSync}, Owner: "w", TokenHash: "t", LeaseFor: time.Minute}, time.Now())
+	if err != nil || !ok || leased.PublicID != job.PublicID {
+		t.Fatalf("lease: %v %v", ok, err)
+	}
+	if v, _ := b.slJobViewOf(ctx, u.ID); v == nil || !v.Running || !strings.Contains(v.Text, "signing in") {
 		t.Fatalf("B sees %+v", v)
 	}
-	a.sl.progress(job, 3, 30)
-	if v, _ := b.sl.view(ctx, u.ID); v == nil || v.Done != 3 || v.Total != 30 || !strings.Contains(v.Text, "3 of 30 days") {
+	progress := `{"done":3,"total":30}`
+	if _, err := st.HeartbeatJob(ctx, job.PublicID, "t", time.Minute, &progress, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := b.slJobViewOf(ctx, u.ID); v == nil || v.Done != 3 || v.Total != 30 || !strings.Contains(v.Text, "3 of 30 days") {
 		t.Fatalf("B sees %+v after progress", v)
 	}
-	a.sl.finish(job, func(j *slState) { j.Added = 2 })
-	if v, _ := b.sl.view(ctx, u.ID); v == nil || v.Running || !strings.Contains(v.Text, "added 2") {
-		t.Fatalf("B sees %+v after finish", v)
+	result := `{"added":2,"updated":0,"unchanged":1,"failed":0,"days":30}`
+	if _, err := st.CompleteJob(ctx, job.PublicID, "t", models.Completion{Outcome: models.OutcomeOK, Result: result}, time.Now()); err != nil {
+		t.Fatal(err)
 	}
-	if jobCtx.Err() == nil {
-		t.Error("finish did not release the job's context")
+	if v, _ := b.slJobViewOf(ctx, u.ID); v == nil || v.Running || !strings.Contains(v.Text, "added 2") || !strings.Contains(v.Text, "last 30 days") {
+		t.Fatalf("B sees %+v after finish", v)
 	}
 }
 
-func TestStaleRunningStrengthLevelSyncCountsAsInterrupted(t *testing.T) {
+// A worker that dies without a word does not leave a sync "running" for good: its lease runs out,
+// and whichever backend notices puts the job back in the queue, or ends it when it ran out of tries.
+func TestSyncOfAVanishedWorkerIsPutBack(t *testing.T) {
 	a, b, st := twoBackends(t)
 	ctx := context.Background()
 	u, _ := st.CreateUser(ctx, "alice")
-	_, cancel := context.WithCancel(ctx)
-	defer cancel()
-	if _, ok, err := a.sl.begin(ctx, u.ID, 30, false, cancel); !ok || err != nil {
-		t.Fatalf("begin: %v %v", ok, err)
+	job, _, err := a.enqueueJob(ctx, enqueueSpec{UserID: u.ID, Kind: kindStrengthLevelSync, Origin: models.JobOriginUser, Payload: slSyncPayload{Days: 30}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A's process dies without a word: no more writes. Two minutes and a bit later:
-	b.sl.clock = func() time.Time { return time.Now().Add(slStale + time.Second) }
-	v, err := b.sl.view(ctx, u.ID)
-	if err != nil || v == nil || v.Running || !strings.Contains(v.Text, "stopped before it finished") {
-		t.Fatalf("view = %+v %v", v, err)
+	t0 := time.Now().UTC()
+	if _, ok, err := st.LeaseJob(ctx, models.LeaseRequest{Kinds: []string{kindStrengthLevelSync}, Owner: "w", TokenHash: "t", LeaseFor: time.Minute}, t0); !ok || err != nil {
+		t.Fatalf("lease: %v %v", ok, err)
 	}
-	// and a new sync may start
-	_, cancel2 := context.WithCancel(ctx)
-	defer cancel2()
-	if _, ok, err := b.sl.begin(ctx, u.ID, 7, false, cancel2); !ok || err != nil {
-		t.Fatalf("B could not start after the interruption: %v %v", ok, err)
+	// The worker is gone: no heartbeat for two minutes. Another backend's sweep finds it.
+	b.lastSweep.Store(0)
+	reaped, err := st.ReapExpiredLeases(ctx, t0.Add(2*time.Minute), b.kindBackoff)
+	if err != nil || len(reaped) != 1 || reaped[0].PublicID != job.PublicID || reaped[0].State != models.JobQueued {
+		t.Fatalf("reap: %+v %v", reaped, err)
+	}
+	if v, _ := a.slJobViewOf(ctx, u.ID); v == nil || !v.Running || !strings.Contains(v.Text, "waiting for a worker") {
+		t.Fatalf("A sees %+v", v)
 	}
 }
 
@@ -245,8 +258,7 @@ func TestSelfSignedCertificateIsMadeOnlyByTheBackendThatMayGenerate(t *testing.T
 	if err := st.PutSetting(ctx, settingTLSMode, apiclient.TLSSelfSigned); err != nil {
 		t.Fatal(err)
 	}
-	reg := importer.NewRegistry(withings.New(withings.Config{}, nil))
-	restricted, err := NewBackend(st, reg, WithoutCertificateGeneration())
+	restricted, err := NewBackend(st, WithoutCertificateGeneration())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +274,7 @@ func TestSelfSignedCertificateIsMadeOnlyByTheBackendThatMayGenerate(t *testing.T
 		t.Fatal("the restricted backend generated in its maintenance round")
 	}
 
-	maintainer, err := NewBackend(st, reg)
+	maintainer, err := NewBackend(st)
 	if err != nil {
 		t.Fatal(err)
 	}

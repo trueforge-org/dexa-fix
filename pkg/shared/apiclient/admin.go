@@ -70,6 +70,9 @@ type AdminUser struct {
 	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
 	StrengthLevelBulk bool
 	TwoFactor         bool // two-step verification is on
+	// JobPriority (1-100) orders the user's worker jobs among other users'; a higher number goes
+	// first, and administrators always go before everyone.
+	JobPriority int
 }
 
 // AdminProvider is a sign-in provider as the Admin page shows it. The secret is never sent.

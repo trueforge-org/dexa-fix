@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
@@ -44,7 +42,7 @@ func newBackendPair(t *testing.T) (pub, internal *httptest.Server, slow *slowSto
 		t.Fatal(err)
 	}
 	slow = &slowStore{Store: st, release: make(chan struct{}), started: make(chan struct{})}
-	b, err := NewBackend(slow, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	b, err := NewBackend(slow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +142,7 @@ func TestBackendPicksUpSettingsChangedByAnotherProcess(t *testing.T) {
 	settingsPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() { settingsPollInterval = old })
 	_, _, slow, _, _ := newBackendPair(t)
-	b, err := NewBackend(slow.Store, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	b, err := NewBackend(slow.Store)
 	if err != nil {
 		t.Fatal(err)
 	}

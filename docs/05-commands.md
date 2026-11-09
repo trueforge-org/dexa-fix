@@ -7,7 +7,9 @@
 | `serve`                   | Run everything in one process: pages, API, database and keys.               |
 | `serve web`               | Run the frontend of a [split deployment](15-split-deployment.md): pages, static files and the public HTTP, HTTPS and HTTP/3 listeners. No database. |
 | `serve api`               | Run the backend of a split deployment: database, keys, public API, internal API and maintenance. |
+| `serve worker`            | Run a [worker](16-workers.md): it talks to Withings and Strength Level for the api process. No database. |
 | `secrets service-secret`  | Print a new service secret of 64 hexadecimal characters for `serve web` and `serve api`. |
+| `secrets worker-secret`   | Print a new worker secret of 64 hexadecimal characters for `serve api` and `serve worker`. It must differ from the service secret. |
 | `secrets mtls`            | Create certificates for [mTLS](15-split-deployment.md#mutual-tls-between-web-and-api).   |
 
 Create the service secret file and keep it private:

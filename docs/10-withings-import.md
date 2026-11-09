@@ -28,6 +28,22 @@ bone mass and visceral fat. Measurements Withings marks as possibly belonging
 to someone else (for example a guest) are ignored. Days are calendar days in the
 user's time zone.
 
+## Workers
+
+Talking to Withings is done by a [worker](16-workers.md), never by the web or
+api process. Connecting and importing are jobs in a queue. Without a running
+worker for the `withings` provider (in a split deployment, `serve worker
+--providers withings`) they wait there and nothing is imported. An
+administrator sets limits, retries and time limits per kind of job on the
+Workers page of the Admin section.
+
+Automatic imports are off by default. An administrator turns them on by giving
+*Withings import* an interval in hours on that page. Each run then fetches the
+last 14 days for every user with a linked account. After the number of failed
+runs in a row that the administrator set, a user's automatic imports pause. They
+start again when the user disconnects and connects Withings again, or when an
+administrator resumes them.
+
 ## Bulk import
 
 **Import from Withings** fetches the whole history. Each day is handled by what

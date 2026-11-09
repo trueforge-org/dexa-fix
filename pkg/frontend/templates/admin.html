@@ -23,6 +23,7 @@
     <div><dt>Active sessions</dt><dd>{{.Status.Sessions}}</dd></div>
     <div><dt>Access tokens</dt><dd>{{.Status.AccessTokens}}</dd></div>
     <div><dt>Withings</dt><dd>{{if .Withings.Configured}}Configured{{else}}Not set up{{end}}</dd></div>
+    <div><dt>Workers</dt><dd><a href="/admin/workers">Settings, queue and priorities</a></dd></div>
   </dl>
   {{if .Key.Rekey}}<p class="notice" role="status">The database is still encrypted with a previous key. Stop the server and run <code>dexa-fix db rekey</code>; see <a href="/docs#encryption">Rotating the key</a>.</p>
   {{else if .Key.Due}}<p class="notice" role="status">The encryption key is {{.Key.AgeDays}} days old, past your reminder. Rotation is manual: see <a href="/docs#encryption">Rotating the key</a>.</p>{{end}}
@@ -31,13 +32,14 @@
 <section class="card flush" id="users">
   <div class="card-head"><h2>Users {{help "admin-users"}}</h2></div>
   <div class="scroll"><table>
-    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Two-step</th><th>Created</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Two-step</th><th>Job priority</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{{range .Users}}<tr>
       <td>{{.Name}}{{if .Self}} <small>you</small>{{end}}</td>
       <td>{{.Email}}</td>
       <td>{{if .Admin}}<span class="status on">Admin</span>{{else}}<span class="status">User</span>{{end}}</td>
       <td>{{.SignIn}}</td>
       <td>{{if .TwoFactor}}On{{else}}Off{{end}}</td>
+      <td>{{if .Admin}}first{{else}}<form method="post" action="/admin/users/{{.ID}}/priority" class="row-actions"><input type="number" name="priority" value="{{.JobPriority}}" min="1" max="100" required style="width:4.5rem" aria-label="Job priority of {{.Name}}" title="1 to 100: a higher number goes first. Administrators always go before everyone."><button class="secondary" type="submit">Set</button></form>{{end}}</td>
       <td>{{.Created}}</td>
       <td><div class="row-actions">
         <form method="post" action="/admin/users/{{.ID}}/role"><input type="hidden" name="role" value="{{if .Admin}}user{{else}}admin{{end}}"><button class="secondary" type="submit">{{if .Admin}}Remove admin{{else}}Make admin{{end}}</button></form>

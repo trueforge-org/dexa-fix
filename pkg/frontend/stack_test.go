@@ -16,8 +16,6 @@ import (
 	"time"
 
 	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
@@ -37,7 +35,7 @@ func newBackendServer(t *testing.T) (*httptest.Server, *mainbackend.Backend, *sq
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	b, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	b, err := mainbackend.NewBackend(st)
 	if err != nil {
 		t.Fatal(err)
 	}

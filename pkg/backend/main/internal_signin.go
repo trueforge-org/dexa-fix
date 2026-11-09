@@ -123,7 +123,7 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
 		s.limiter.Fail(r.Context(), ipKey(r)) // repeated probing for registered addresses is throttled

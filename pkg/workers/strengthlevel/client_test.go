@@ -1,4 +1,4 @@
-package client
+package strengthlevel
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/strengthlevel"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
 )
 
 const (
@@ -120,7 +120,7 @@ func newFake(t *testing.T) (*fake, *Client) {
 	}}
 	ts := httptest.NewServer(f.handler())
 	t.Cleanup(ts.Close)
-	c := New(ts.URL, nil)
+	c := newClient(ts.URL, nil)
 	c.Delay = 0
 	return f, c
 }
@@ -131,7 +131,7 @@ func TestLoginAndSync(t *testing.T) {
 	if err := c.Login(ctx, "a@b.c", "pw"); err != nil {
 		t.Fatal(err)
 	}
-	local := []strengthlevel.Entry{ // newest first, as DailyEntries returns them
+	local := []workerapi.ExportEntry{ // newest first, as DailyEntries returns them
 		{Day: "2026-11-08", WeightKg: 72.74, FatPct: fp(15.84)},
 		{Day: "2026-11-07", WeightKg: 73},
 		{Day: "2026-11-06", WeightKg: 99}, // exists remotely with another value: left alone
@@ -193,7 +193,7 @@ func TestSyncUpdatesExistingDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	var progress []int
-	local := []strengthlevel.Entry{
+	local := []workerapi.ExportEntry{
 		{Day: "2026-11-07", WeightKg: 73},
 		{Day: "2026-11-06", WeightKg: 71.04, FatPct: fp(14.26)}, // other values than on the site
 	}
@@ -214,11 +214,11 @@ func TestSyncUpdatesExistingDays(t *testing.T) {
 
 	// The same values again change nothing; an entry without body fat keeps the one on the site.
 	f.puts = nil
-	res, _ = c.Sync(ctx, []strengthlevel.Entry{{Day: "2026-11-06", WeightKg: 71.0, FatPct: fp(14.3)}}, "", Options{Update: true})
+	res, _ = c.Sync(ctx, []workerapi.ExportEntry{{Day: "2026-11-06", WeightKg: 71.0, FatPct: fp(14.3)}}, "", Options{Update: true})
 	if res.Updated != 0 || res.Skipped != 1 || len(f.puts) != 0 {
 		t.Fatalf("unchanged day: %+v %v", res, f.puts)
 	}
-	res, _ = c.Sync(ctx, []strengthlevel.Entry{{Day: "2026-11-06", WeightKg: 70}}, "", Options{Update: true})
+	res, _ = c.Sync(ctx, []workerapi.ExportEntry{{Day: "2026-11-06", WeightKg: 70}}, "", Options{Update: true})
 	if res.Updated != 1 || f.puts[0]["bodyfat"] != 14.3 || f.puts[0]["bodyweight"] != 70.0 {
 		t.Fatalf("body fat on the site must survive: %+v %+v", res, f.puts)
 	}
@@ -231,11 +231,11 @@ func TestUpsertSingleDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	for day, want := range map[string]Outcome{"2026-11-09": Added, "2026-11-06": Updated} {
-		if got, err := c.Upsert(ctx, strengthlevel.Entry{Day: day, WeightKg: 75}); err != nil || got != want {
+		if got, err := c.Upsert(ctx, workerapi.ExportEntry{Day: day, WeightKg: 75}); err != nil || got != want {
 			t.Fatalf("%s: %v %v", day, got, err)
 		}
 	}
-	if got, _ := c.Upsert(ctx, strengthlevel.Entry{Day: "2026-11-06", WeightKg: 75}); got != Unchanged || len(f.puts) != 1 {
+	if got, _ := c.Upsert(ctx, workerapi.ExportEntry{Day: "2026-11-06", WeightKg: 75}); got != Unchanged || len(f.puts) != 1 {
 		t.Fatalf("second upsert must not write: %v %d", got, len(f.puts))
 	}
 }

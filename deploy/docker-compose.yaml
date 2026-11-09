@@ -1,17 +1,21 @@
-# dexa-fix as two containers and PostgreSQL: the recommended way to run it when it faces the
+# dexa-fix as separate containers and PostgreSQL: the recommended way to run it when it faces the
 # internet. A flood of requests on the web container cannot take down the api container, and the
-# database is reachable from the api container only.
+# database is reachable from the api container only. The workers are the only containers that talk
+# to Withings and Strength Level; they have no database and the api container needs no internet.
 #
 #   internet --> web (pages, HTTP/HTTPS/HTTP3, no database)
 #                  |  internal network "link", authenticated with the service secret
 #                  v
-#                api ("main backend": database, keys, every security decision)
-#                  |  internal network "data"
-#                  v
-#                db (PostgreSQL)
+#                api ("main backend": database, keys, every security decision, the job queue)
+#                  |  internal network "data"            ^  internal network "link",
+#                  v                                     |  authenticated with the worker secret
+#                db (PostgreSQL)           worker-withings, worker-strengthlevel (no database)
+#                                                        |  network "egress" (outbound only)
+#                                                        v
+#                                          Withings, Strength Level
 #
 # Start:
-#   ./init-secrets.sh        # once: creates ./secrets (database password, encryption key, service secret)
+#   ./init-secrets.sh        # once: creates ./secrets (database password, encryption key, service and worker secrets)
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
@@ -19,8 +23,8 @@
 # keys, tokens) cannot be read without it.
 #
 # Pin the version for production, for example DEXAFIX_VERSION=1.2.3 in a .env file next to this file.
-# Both containers must run the same version.
-# Documentation: docs/15-split-deployment.md
+# All containers must run the same version.
+# Documentation: docs/15-split-deployment.md and docs/16-workers.md
 
 name: dexa-fix
 
@@ -60,10 +64,12 @@ services:
       DEXAFIX_DSN_FILE: /run/secrets/dsn
       DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
       DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
+      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
       DEXAFIX_INTERNAL_LISTEN: ":8081"
       # With several api containers on the same database run the maintenance loop (audit log
-      # purge, certificate renewal) in one of them only: DEXAFIX_MAINTENANCE: "false" on the rest.
-    secrets: [dsn, encryption_key, service_secret]
+      # purge, certificate renewal, the job sweeps and the scheduler) in one of them only:
+      # DEXAFIX_MAINTENANCE: "false" on the rest.
+    secrets: [dsn, encryption_key, service_secret, worker_secret]
     depends_on:
       db:
         condition: service_healthy
@@ -88,12 +94,41 @@ services:
       - "8443:8443/udp"
     networks: [link, public]
 
+  # One worker container per provider, so one that hangs or is blocked cannot hold up the other.
+  # Start as many of each as you need (docker compose up -d --scale worker-withings=2): the api
+  # container hands every job to exactly one. A worker has no database and no encryption key; it
+  # gets a user's credentials only inside the job it works on. Which providers a worker runs is
+  # chosen here (--providers); everything else (time limits, retries, pauses, priorities) is on the
+  # Admin page, under Workers.
+  worker-withings:
+    <<: *hardened
+    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    command: ["serve", "worker", "--providers", "withings"]
+    environment:
+      DEXAFIX_BACKEND_URL: http://api:8081
+      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
+    secrets: [worker_secret]
+    depends_on: [api]
+    networks: [link, egress]
+
+  worker-strengthlevel:
+    <<: *hardened
+    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    command: ["serve", "worker", "--providers", "strengthlevel"]
+    environment:
+      DEXAFIX_BACKEND_URL: http://api:8081
+      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
+    secrets: [worker_secret]
+    depends_on: [api]
+    networks: [link, egress]
+
 networks:
   data:
     internal: true # the database has no way out and no way in except through api
   link:
-    internal: true # web and api talk here; nothing else can reach api's internal port
+    internal: true # web, workers and api talk here; nothing else can reach api's internal port
   public: {}
+  egress: {} # outbound only: the workers reach Withings and Strength Level through it; nothing is published
 
 volumes:
   db-data: {}
@@ -108,6 +143,8 @@ secrets:
     file: ./secrets/encryption_key
   service_secret:
     file: ./secrets/service_secret
+  worker_secret:
+    file: ./secrets/worker_secret
 
 # OPTIONAL: mutual TLS between web and api (docs/15-split-deployment.md#mutual-tls-between-web-and-api).
 # Without it the internal link is protected by the service secret alone. Leave this block commented
@@ -136,6 +173,9 @@ secrets:
 #      DEXAFIX_BACKEND_CLIENT_CERT_FILE: /run/secrets/mtls_web_cert
 #      DEXAFIX_BACKEND_CLIENT_KEY_FILE: /run/secrets/mtls_web_key
 #    secrets: [service_secret, mtls_ca, mtls_web_cert, mtls_web_key]
+#    The workers connect to the same internal listener, so each worker service needs the same four
+#    lines (with secrets: [worker_secret, mtls_ca, mtls_web_cert, mtls_web_key]); the client
+#    certificate proves the link, the worker secret proves the role.
 #
 # 4. Add the new files to the top-level secrets block:
 #  mtls_ca:

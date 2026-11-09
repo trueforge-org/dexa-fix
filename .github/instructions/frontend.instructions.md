@@ -15,7 +15,7 @@ It renders pages and owns the public listeners (plain HTTP, HTTPS, HTTP/3). It h
 
 ## Hard rules
 
-- **Never import** the backend, `pkg/app`, `pkg/store` (anything under it), `pkg/importer`, `pkg/mailer`, `pkg/strengthlevel`, a database driver or query library, `go-oidc` or `go-webauthn`. `boundary_test.go` runs `go list -deps` and fails on them. If you need data, add an internal API endpoint instead (see [`backend-internal-api.instructions.md`](backend-internal-api.instructions.md)).
+- **Never import** the backend, `pkg/app`, `pkg/store` (anything under it), `pkg/workers`, `pkg/mailer`, a database driver or query library, `go-oidc` or `go-webauthn`. `boundary_test.go` runs `go list -deps` and fails on them. If you need data, add an internal API endpoint instead (see [`backend-internal-api.instructions.md`](backend-internal-api.instructions.md)).
 - **Never seal, open or inspect sensitive cookies or tokens.** The frontend forwards the browser's `Cookie` header and relays the backend's `Set-Cookie` (done by `apiclient.WithRequest` in `withVisitor`). Do not parse the session cookie value, and never log cookies.
 - **Do not decide anything about security here.** Guards like `s.user`, `s.adminPage` only redirect for convenience; the backend enforces the real rules again.
 - **Keep user-visible strings and status codes.** Messages for failed steps come from the backend (`apiclient.Error.Message`, `SignInOutcome.Error`); render them as they are.

@@ -15,10 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
 )
 
 func mustGet(t *testing.T, c *http.Client, u string) []byte {
@@ -37,16 +36,16 @@ var testServers sync.Map
 
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
-	return newServerWith(t, withings.New(withings.Config{}, nil))
+	return newServerWith(t, builtin.Options{})
 }
 
-func newServerWith(t *testing.T, wi *withings.Importer) (*httptest.Server, *http.Client) {
+func newServerWith(t *testing.T, wo builtin.Options) (*httptest.Server, *http.Client) {
 	t.Helper()
-	ts, c, _ := newServerAndStore(t, wi)
+	ts, c, _ := newServerAndStore(t, wo)
 	return ts, c
 }
 
-func newServerAndStore(t *testing.T, wi *withings.Importer) (*httptest.Server, *http.Client, *sqlstore.Store) {
+func newServerAndStore(t *testing.T, wo builtin.Options) (*httptest.Server, *http.Client, *sqlstore.Store) {
 	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {
@@ -58,12 +57,13 @@ func newServerAndStore(t *testing.T, wi *withings.Importer) (*httptest.Server, *
 	}
 	var ts *httptest.Server
 	if splitTests() {
-		ts = newSplitServer(t, st, wi)
+		ts = newSplitServer(t, st, wo)
 	} else {
-		srv, err := New(st, importer.NewRegistry(wi))
+		srv, err := newStack(st, wo)
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(srv.Close) // stops the workers before the store closes
 		ts = httptest.NewServer(srv.Handler())
 		t.Cleanup(ts.Close)
 		testServers.Store(ts, srv)
@@ -348,9 +348,20 @@ func fakeWithingsAPI(t *testing.T) *httptest.Server {
 	return ts
 }
 
+// setWithingsApp stores the application credentials an administrator would enter.
+func setWithingsApp(t *testing.T, st *sqlstore.Store) {
+	t.Helper()
+	for name, v := range map[string]string{settingWithingsClientID: "id", settingWithingsSecret: "s", settingWithingsRedirect: "http://app/integrations/withings/callback"} {
+		if err := st.PutSetting(context.Background(), name, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestWithingsFlow(t *testing.T) {
 	api := fakeWithingsAPI(t)
-	ts, c := newServerWith(t, withings.New(withings.Config{ClientID: "id", ClientSecret: "s", RedirectURL: "http://app/integrations/withings/callback", APIBase: api.URL}, nil))
+	ts, c, st := newServerAndStore(t, builtin.Options{WithingsAPIBase: api.URL})
+	setWithingsApp(t, st)
 	signup(t, ts, c, "dora")
 
 	flash := func(resp *http.Response) string {
@@ -601,6 +612,7 @@ func TestDailyTableRemembersHiddenColumns(t *testing.T) {
 
 // fakeSL is a minimal my.strengthlevel.com: one account (a@b.c / pw) with a few entries.
 type fakeSL struct {
+	url     string
 	mu      sync.Mutex
 	entries map[string]map[string]any // by date
 	posts   []map[string]any
@@ -675,9 +687,8 @@ func fakeStrengthLevel(t *testing.T, entries map[string]map[string]any) *fakeSL 
 		http.NotFound(w, r)
 	})
 	ts := httptest.NewServer(mux)
-	old := strengthLevelBase
-	strengthLevelBase = ts.URL
-	t.Cleanup(func() { ts.Close(); strengthLevelBase = old })
+	t.Cleanup(ts.Close)
+	f.url = ts.URL
 	return f
 }
 
@@ -701,8 +712,14 @@ func TestStrengthLevel(t *testing.T) {
 		day(0): {"id": "e0", "date": day(0), "bodyweight": 80.0},                                               // same as our estimate
 		day(1): {"id": "e1", "date": day(1), "bodyweight": 70.0, "bodyfat": 12.0, "bodyfat_method": "caliper"}, // other value
 	})
-	strengthLevelDelay = 0
-	ts, c, st := newServerAndStore(t, withings.New(withings.Config{}, nil))
+	ts, c, st := newServerAndStore(t, builtin.Options{StrengthLevelBase: fake.url})
+	// No pause between writes: it is an Admin setting now, which reaches the workers like any other.
+	if err := st.PutSetting(context.Background(), optionSettingName(kindStrengthLevelSync, optionRequestDelay), "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverOf(ts).Backend.reloadSettings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	signup(t, ts, c, "alice") // first account is the administrator
 	bob := &http.Client{CheckRedirect: c.CheckRedirect}
 	signup(t, ts, bob, "bob")

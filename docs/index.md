@@ -18,6 +18,7 @@ in reading order:
 13. [Development](13-development.md): tests, project layout, schema changes and adding an importer.
 14. [Limitations and security](14-limitations-and-security.md): read before you expose the app.
 15. [Split deployment](15-split-deployment.md): running the frontend (`serve web`) and the backend (`serve api`) as two processes, with the service secret and troubleshooting.
+16. [Workers](16-workers.md): the processes that talk to Withings and Strength Level, the worker secret and the Workers page of the Admin section.
 
 Other pages:
 

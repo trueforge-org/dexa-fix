@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
 )
 
 func noRedirectClient() *http.Client {
@@ -35,7 +35,7 @@ func noRedirectClient() *http.Client {
 
 func newAuthServer(t *testing.T) (*httptest.Server, *http.Client, *sqlstore.Store) {
 	t.Helper()
-	return newServerAndStore(t, withings.New(withings.Config{}, nil))
+	return newServerAndStore(t, builtin.Options{})
 }
 
 func apiCall(t *testing.T, c *http.Client, method, u, payload string, hdr http.Header) (int, string) {

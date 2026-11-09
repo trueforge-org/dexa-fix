@@ -20,8 +20,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trueforge-org/dexa-fix/pkg/app"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -241,8 +239,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 				log.Warn().Str("variable", name).Msg("ignored: Withings credentials are set on the Admin page")
 			}
 		}
-		wi := withings.New(withings.Config{}, nil)
-		srv, err := app.New(st, importer.NewRegistry(wi))
+		srv, err := app.New(st)
 		if err != nil {
 			return err
 		}
