@@ -149,6 +149,42 @@ func (l *failLimiter) reset(key string) {
 	delete(l.fails, key)
 }
 
+// usedNonces remembers the nonces of sealed values that were already used, until the value would
+// have expired anyway, so that a value which may work only once cannot be replayed. It lives in
+// memory: with several replicas behind one database the guarantee holds per replica.
+type usedNonces struct {
+	mu   sync.Mutex
+	seen map[string]time.Time // nonce -> when the sealed value expires
+	now  func() time.Time
+}
+
+func newUsedNonces() *usedNonces {
+	return &usedNonces{seen: map[string]time.Time{}, now: time.Now}
+}
+
+// use records nonce and reports whether this is the first time it is seen. A nonce that was
+// forgotten under memory pressure can only belong to a value that is about to expire.
+func (u *usedNonces) use(nonce string, expires time.Time) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	now := u.now()
+	if len(u.seen) > maxLimiterKeys {
+		for k, exp := range u.seen {
+			if exp.Before(now) {
+				delete(u.seen, k)
+			}
+		}
+		if len(u.seen) > maxLimiterKeys { // still full: drop everything rather than grow
+			u.seen = map[string]time.Time{}
+		}
+	}
+	if exp, ok := u.seen[nonce]; ok && !exp.Before(now) {
+		return false
+	}
+	u.seen[nonce] = expires
+	return true
+}
+
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

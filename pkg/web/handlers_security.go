@@ -146,32 +146,68 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.Us
 // whether to go on; if not, the response has been written. Users without a password (they sign in
 // through a provider) and servers with password sign-in off have nothing to confirm with.
 func (s *Server) confirmPassword(w http.ResponseWriter, r *http.Request, u models.User) bool {
-	ctx := r.Context()
-	if !s.passwordEnabled(ctx) {
-		return true
-	}
-	id, err := s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
-	if errors.Is(err, store.ErrNotFound) {
-		return true
-	}
-	if err != nil {
+	ok, status, msg, err := s.checkReauth(r, u, false)
+	switch {
+	case err != nil:
 		s.fail(w, err)
 		return false
+	case !ok:
+		s.settingsPage(w, r, u, msg, "", status)
+		return false
+	}
+	return true
+}
+
+// reauthWindow is how recent the sign-in of a user without a password must be for a sensitive
+// change, where recent sign-in is required.
+const reauthWindow = 10 * time.Minute
+
+// checkReauth is confirmPassword without the response, for callers that answer in their own way
+// (the JSON endpoints of the passkey page). A user with a password confirms it in the form field
+// "current". A user without one has nothing to confirm with: unless recent is set they pass, and
+// with it they need a session that is at most reauthWindow old. When it reports false, status and
+// msg are what to answer; err is a server failure.
+func (s *Server) checkReauth(r *http.Request, u models.User, recent bool) (ok bool, status int, msg string, err error) {
+	ctx := r.Context()
+	var id models.Identity
+	hasPassword := false
+	if s.passwordEnabled(ctx) {
+		id, err = s.store.GetIdentity(ctx, models.ProviderLocal, localSubject(u.ID))
+		switch {
+		case err == nil:
+			hasPassword = true
+		case errors.Is(err, store.ErrNotFound):
+			err = nil
+		default:
+			return false, 0, "", err
+		}
+	}
+	if !hasPassword {
+		if !recent {
+			return true, 0, "", nil
+		}
+		c, cerr := r.Cookie(sessionCookie)
+		if cerr != nil {
+			return false, http.StatusUnauthorized, "Sign in again to make this change.", nil
+		}
+		sess, serr := s.store.GetSession(ctx, hashToken(c.Value))
+		if errors.Is(serr, store.ErrNotFound) || (serr == nil && (sess.UserID != u.ID || time.Since(sess.CreatedAt) > reauthWindow)) {
+			return false, http.StatusUnauthorized, "Sign in again to make this change.", nil
+		}
+		return serr == nil, 0, "", serr
 	}
 	key := "pw:" + strconv.FormatInt(u.ID, 10)
 	if s.limiter.blocked(key, maxLoginFail) || s.limiter.blocked(ipKey(r), maxIPFail) {
-		s.settingsPage(w, r, u, "Too many wrong passwords. Try again later.", "", http.StatusTooManyRequests)
-		return false
+		return false, http.StatusTooManyRequests, "Too many wrong passwords. Try again later.", nil
 	}
 	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
 		s.limiter.fail(key)
 		s.limiter.fail(ipKey(r))
 		s.audit(r, u.ID, auditPasswordWrong, "")
-		s.settingsPage(w, r, u, "Enter your current password to make this change.", "", http.StatusUnprocessableEntity)
-		return false
+		return false, http.StatusUnprocessableEntity, "Enter your current password to make this change.", nil
 	}
 	s.limiter.reset(key)
-	return true
+	return true, 0, "", nil
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -280,8 +316,13 @@ func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u models
 }
 
 func settingsRedirect(w http.ResponseWriter, r *http.Request, userID int64, msg string) {
+	http.Redirect(w, r, settingsPath(userID, msg), http.StatusSeeOther)
+}
+
+// settingsPath is the address of a user's settings page with a message to show.
+func settingsPath(userID int64, msg string) string {
 	if len(msg) > maxFlashLen {
 		msg = msg[:maxFlashLen]
 	}
-	http.Redirect(w, r, userPath(userID, "settings")+"?msg="+url.QueryEscape(msg), http.StatusSeeOther)
+	return userPath(userID, "settings") + "?msg=" + url.QueryEscape(msg)
 }

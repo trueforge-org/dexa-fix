@@ -423,7 +423,7 @@ func (s *Server) adminSaveProvider(w http.ResponseWriter, r *http.Request, _ mod
 		Scopes: field("scopes"), SubjectClaim: field("subject_claim"), NameClaim: field("name_claim"),
 		AllowSignup: r.PostFormValue("allow_signup") != "",
 	}
-	if !providerSlug.MatchString(p.Slug) || p.Slug == models.ProviderLocal {
+	if !providerSlug.MatchString(p.Slug) || p.Slug == models.ProviderLocal || p.Slug == models.ProviderPasskey {
 		adminRedirect(w, r, "The short name may use lowercase letters, digits and dashes, up to 32 characters.")
 		return
 	}

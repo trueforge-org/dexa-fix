@@ -68,6 +68,7 @@ type Server struct {
 	estCache        *estimateCache
 	warnedUntrusted atomic.Bool
 	limiter         *failLimiter      // failed sign-in attempts
+	nonces          *usedNonces       // sealed values that were already used
 	assetVer        map[string]string // content hash per static file, for cache-busting URLs
 
 	oidcMu    sync.Mutex
@@ -92,6 +93,7 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 		httpClient: &http.Client{Timeout: providerTimeout},
 		oidcCache:  map[string]*oidc.Provider{},
 		limiter:    newFailLimiter(),
+		nonces:     newUsedNonces(),
 		slSlots:    make(chan struct{}, maxStrengthLevelJobs),
 		auditNoise: newAuditNoise(),
 		estCache:   newEstimateCache(),

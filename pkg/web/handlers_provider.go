@@ -46,35 +46,19 @@ type providerState struct {
 	Verifier string `json:"v"`
 	Nonce    string `json:"n"`
 	Link     int64  `json:"l,omitempty"` // the user linking this account; 0 for a sign-in
-	Expires  int64  `json:"e"`
 }
 
+const sealProvider = "provider"
+
 func (s *Server) sealState(st providerState) (string, error) {
-	raw, err := json.Marshal(st)
-	if err != nil {
-		return "", err
-	}
-	payload := base64.RawURLEncoding.EncodeToString(raw)
-	return payload + "." + s.stateMAC(payload), nil
+	sealed, _, err := s.sealValue(sealProvider, st, providerStateTTL)
+	return sealed, err
 }
 
 func (s *Server) openState(value string) (providerState, bool) {
 	var st providerState
-	payload, mac, found := strings.Cut(value, ".")
-	if !found || !hmac.Equal([]byte(mac), []byte(s.stateMAC(payload))) {
-		return st, false
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(payload)
-	if err != nil || json.Unmarshal(raw, &st) != nil || time.Now().Unix() > st.Expires {
-		return st, false
-	}
-	return st, true
-}
-
-func (s *Server) stateMAC(payload string) string {
-	m := hmac.New(sha256.New, s.cookieKey)
-	m.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+	_, _, ok := s.openValue(sealProvider, value, &st)
+	return st, ok
 }
 
 func setProviderCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
@@ -194,7 +178,7 @@ func (s *Server) providerStart(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, p.Label+" sign-in is not available right now.", http.StatusBadGateway)
 		return
 	}
-	st := providerState{Slug: p.Slug, Verifier: oauth2.GenerateVerifier(), Expires: time.Now().Add(providerStateTTL).Unix()}
+	st := providerState{Slug: p.Slug, Verifier: oauth2.GenerateVerifier()}
 	if st.State, err = randomHex(16); err == nil {
 		st.Nonce, err = randomHex(16)
 	}
@@ -268,7 +252,7 @@ func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		s.finishSignIn(w, r, u, slug)
+		s.signIn(w, r, u, slug)
 		return
 	}
 	open, err := s.signupOpen(ctx)
@@ -292,7 +276,7 @@ func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.finishSignIn(w, r, u, slug)
+	s.signIn(w, r, u, slug)
 }
 
 func (s *Server) providerFailed(w http.ResponseWriter, r *http.Request, st providerState, msg string) {

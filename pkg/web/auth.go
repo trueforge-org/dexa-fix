@@ -441,20 +441,48 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, "Wrong e-mail address or password.", http.StatusUnauthorized)
 		return
 	}
-	s.finishSignIn(w, r, u, models.ProviderLocal)
+	s.signIn(w, r, u, models.ProviderLocal)
 }
 
-func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, u models.User, method string) {
-	if err := s.startSession(w, r, u.ID, method); err != nil {
+// signIn is where every way of signing in ends, once the user has proved who they are by method
+// (ProviderLocal, a provider slug, ProviderPasskey). It redirects to the page to continue on.
+func (s *Server) signIn(w http.ResponseWriter, r *http.Request, u models.User, method string) {
+	target, err := s.signInTarget(w, r, u, method)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.auditAs(r, u.ID, u.ID, auditLogin, method)
-	if u.Email == "" {
-		settingsRedirect(w, r, u.ID, "Please add your e-mail address: it is how you sign in from now on.")
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// signInJSON is signIn for scripts that sign in with fetch, such as the passkey page: it answers
+// {"redirect": target} instead of redirecting.
+func (s *Server) signInJSON(w http.ResponseWriter, r *http.Request, u models.User, method string) {
+	target, err := s.signInTarget(w, r, u, method)
+	if err != nil {
+		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, userPath(u.ID, ""), http.StatusSeeOther)
+	writeJSON(w, http.StatusOK, map[string]string{"redirect": target})
+}
+
+// signInTarget decides what follows a proven identity and returns where to send the browser. It
+// is the place for rules that depend on how the user signed in (a second step, a required
+// enrolment); without such a rule it starts the session.
+func (s *Server) signInTarget(w http.ResponseWriter, r *http.Request, u models.User, method string) (string, error) {
+	return s.completeSignIn(w, r, u, method)
+}
+
+// completeSignIn starts the session and records the sign-in.
+func (s *Server) completeSignIn(w http.ResponseWriter, r *http.Request, u models.User, method string) (string, error) {
+	if err := s.startSession(w, r, u.ID, method); err != nil {
+		return "", err
+	}
+	s.auditAs(r, u.ID, u.ID, auditLogin, method)
+	if u.Email == "" {
+		return settingsPath(u.ID, "Please add your e-mail address: it is how you sign in from now on."), nil
+	}
+	return userPath(u.ID, ""), nil
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
@@ -499,7 +527,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 	default:
 		s.auditAs(r, u.ID, u.ID, auditSignup, models.ProviderLocal)
-		s.finishSignIn(w, r, u, models.ProviderLocal)
+		s.signIn(w, r, u, models.ProviderLocal)
 	}
 }
 

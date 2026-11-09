@@ -148,6 +148,8 @@ type Store interface {
 	CreateSession(ctx context.Context, tokenHash string, userID int64, method string, expires time.Time) error
 	// UserBySession returns the user of an unexpired session, or ErrNotFound.
 	UserBySession(ctx context.Context, tokenHash string) (models.User, error)
+	// GetSession returns an unexpired session, or ErrNotFound.
+	GetSession(ctx context.Context, tokenHash string) (models.Session, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteUserSessions(ctx context.Context, userID int64) error
 

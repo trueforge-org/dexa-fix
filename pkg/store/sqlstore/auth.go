@@ -278,6 +278,15 @@ func (s *Store) UserBySession(ctx context.Context, tokenHash string) (models.Use
 	return s.userModel(&row)
 }
 
+func (s *Store) GetSession(ctx context.Context, tokenHash string) (models.Session, error) {
+	var row sessionRow
+	err := s.db.NewSelect().Model(&row).Where("token_hash = ? AND expires_at > ?", tokenHash, now()).Scan(ctx)
+	if err != nil {
+		return models.Session{}, notFound(err)
+	}
+	return models.Session{UserID: row.UserID, Method: row.Method, CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt}, nil
+}
+
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	_, err := s.db.NewDelete().Model((*sessionRow)(nil)).Where("token_hash = ?", tokenHash).Exec(ctx)
 	return err

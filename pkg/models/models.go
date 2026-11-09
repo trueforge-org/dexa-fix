@@ -86,6 +86,10 @@ const (
 // ProviderLocal is the identity provider of username and password sign-in.
 const ProviderLocal = "local"
 
+// ProviderPasskey is the pseudo-provider of passkey sign-in. Like ProviderLocal it cannot be used
+// as the short name of an external provider.
+const ProviderPasskey = "passkey"
+
 // Kinds of external sign-in provider.
 const (
 	ProviderKindOIDC   = "oidc"   // OpenID Connect with discovery, e.g. Google
@@ -102,6 +106,14 @@ type Identity struct {
 	// Secret holds the password hash for ProviderLocal and is empty otherwise.
 	Secret    string
 	CreatedAt time.Time
+}
+
+// Session is a signed-in browser session. The token itself is never stored, only its hash.
+type Session struct {
+	UserID    int64
+	Method    string // how the user signed in: ProviderLocal, ProviderPasskey or a provider slug
+	CreatedAt time.Time
+	ExpiresAt time.Time
 }
 
 // AccessToken is a personal access token. Only a hash of the token is stored.
