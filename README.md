@@ -102,6 +102,7 @@ overrides the variable.
 | `--trusted-proxies`        | `DEXAFIX_TRUSTED_PROXIES`        | empty                                                                 | Reverse proxies whose `X-Forwarded-*` headers are believed. See [Running behind a reverse proxy](#running-behind-a-reverse-proxy). |
 | `--base-url`               | `DEXAFIX_BASE_URL`               | empty                                                                 | Public address, such as `https://dexa.example.com`. |
 | `--audit-retention-days`   | `DEXAFIX_AUDIT_RETENTION_DAYS`   | `365`                                                                 | Delete audit log events, and the IP addresses in them, after this many days. `0` keeps them forever. |
+| `--key-rotation-reminder-days` | `DEXAFIX_KEY_ROTATION_REMINDER_DAYS` | `0` | Show a reminder on the Admin page when the encryption key is older than this many days. `0` never reminds. Rotation stays manual. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
 | `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing, but only for a database without encrypted values. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
@@ -532,6 +533,15 @@ previous key, writes new ones with the current key, and logs a warning until
 keeps its keys in memory. The cookie key itself does not change, so sessions
 stay valid. `db rekey` was tested on SQLite; on Postgres it is the same code in
 one transaction.
+
+Rotation is manual on purpose: the key belongs to the operator, `db rekey` is
+offline and the AES-GCM usage limits are far out of reach (see
+[docs/key-rotation.md](docs/key-rotation.md)). Rotate when the key may have
+leaked, when someone with access leaves, or when your policy asks for it. The
+Admin page shows the key id and since when it is in use (at least). To get a
+reminder there, set `--key-rotation-reminder-days` or
+`DEXAFIX_KEY_ROTATION_REMINDER_DAYS` (default 0, no reminder). The page also
+says when `db rekey` is due after a key change.
 
 ### Storage and rate limiting
 

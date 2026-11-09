@@ -472,5 +472,8 @@ func (s *Store) Stats(ctx context.Context) (store.Stats, error) {
 	}
 	n, err := s.db.NewSelect().Model((*sessionRow)(nil)).Where("expires_at > ?", now()).Count(ctx)
 	st.Sessions = int(n)
-	return st, err
+	if err != nil {
+		return st, err
+	}
+	return st, s.keyInfo(ctx, &st)
 }

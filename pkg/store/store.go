@@ -33,6 +33,10 @@ type Stats struct {
 	ScaleReadings int
 	Sessions      int
 	AccessTokens  int
+
+	KeyID       string    // id of the configured encryption key (empty when encryption is off)
+	KeySince    time.Time // when this key was introduced, at least (zero when unknown)
+	KeyPrevious bool      // the database still belongs to a previous key: `db rekey` is due
 }
 
 // Cursor marks a position in a listing that is sorted newest first, by measurement time and id.

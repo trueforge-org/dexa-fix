@@ -19,6 +19,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // encPrefix marks an encrypted value of any version; values without it are rows from before
@@ -381,8 +382,34 @@ func (s *Store) writeCheck(ctx context.Context, db execer) error {
 	row := settingRow{Name: checkSetting, Value: s.cipher.current.check, UpdatedAt: now()}
 	_, err := db.NewInsert().Model(&row).
 		On("CONFLICT (name) DO UPDATE").
-		Set("value = EXCLUDED.value").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
+		Set("value = EXCLUDED.value").
+		// The date marks when this key was introduced: writing the same check again keeps it.
+		Set("updated_at = CASE WHEN setting_row.value = EXCLUDED.value THEN setting_row.updated_at ELSE EXCLUDED.updated_at END").
+		Exec(ctx)
 	return err
+}
+
+// keyInfo reports which key the database check belongs to and since when, for the admin page.
+func (s *Store) keyInfo(ctx context.Context, st *store.Stats) error {
+	if s.cipher == nil {
+		return nil
+	}
+	st.KeyID = s.cipher.current.id
+	var row settingRow
+	err := s.db.NewSelect().Model(&row).Where("name = ?", checkSetting).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if e := s.cipher.matchCheck(row.Value); e != nil {
+		st.KeyPrevious = e != s.cipher.current
+		if !st.KeyPrevious {
+			st.KeySince = row.UpdatedAt
+		}
+	}
+	return nil
 }
 
 // encryptExisting encrypts values stored before encryption was enabled. It runs in one transaction

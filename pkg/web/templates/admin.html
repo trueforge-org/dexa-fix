@@ -10,6 +10,7 @@
     <div><dt>Go</dt><dd>{{.GoVersion}}</dd></div>
     <div><dt>Database</dt><dd>{{.Status.Driver}}, schema {{.Status.SchemaVersion}}</dd></div>
     <div><dt>Encryption</dt><dd>{{if .Status.Encrypted}}On{{else}}Off{{end}}</dd></div>
+    {{if .Key.Shown}}<div><dt>Encryption key</dt><dd>{{.Key.ID}}{{if .Key.Since}}, in use since at least {{.Key.Since}} ({{.Key.AgeDays}} days){{end}}</dd></div>{{end}}
     <div><dt>Users</dt><dd>{{.Status.Users}} ({{.Status.Admins}} admin)</dd></div>
     <div><dt>DEXA scans</dt><dd>{{.Status.DexaScans}}</dd></div>
     <div><dt>Scale readings</dt><dd>{{.Status.ScaleReadings}}</dd></div>
@@ -17,6 +18,8 @@
     <div><dt>Access tokens</dt><dd>{{.Status.AccessTokens}}</dd></div>
     <div><dt>Withings</dt><dd>{{if .Withings.Configured}}Configured{{else}}Not set up{{end}}</dd></div>
   </dl>
+  {{if .Key.Rekey}}<p class="notice" role="status">The database is still encrypted with a previous key. Stop the server and run <code>dexa-fix db rekey</code>; see <a href="/docs#encryption">Rotating the key</a>.</p>
+  {{else if .Key.Due}}<p class="notice" role="status">The encryption key is {{.Key.AgeDays}} days old, past your reminder. Rotation is manual: see <a href="/docs#encryption">Rotating the key</a>.</p>{{end}}
 </section>
 
 <section class="card flush" id="users">

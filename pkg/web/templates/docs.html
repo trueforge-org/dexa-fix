@@ -377,6 +377,7 @@
     <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
     <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
     <tr><td><code>--audit-retention-days</code></td><td><code>DEXAFIX_AUDIT_RETENTION_DAYS</code></td><td><code>365</code></td><td>Delete audit events, and the IP addresses in them, after this many days. <code>0</code> keeps them forever. An invalid <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> (not a whole number, or negative) is ignored without a warning, and 365 is used.</td></tr>
+    <tr><td><code>--key-rotation-reminder-days</code></td><td><code>DEXAFIX_KEY_ROTATION_REMINDER_DAYS</code></td><td><code>0</code></td><td>Show a reminder on the Admin page when the encryption key is older than this many days. <code>0</code> never reminds. Rotation stays manual.</td></tr>
     <tr><td><code>--trusted-proxies</code></td><td><code>DEXAFIX_TRUSTED_PROXIES</code></td><td>empty</td><td>Reverse proxies whose <code>X-Forwarded-*</code> headers are believed. See <a href="#reverse-proxy">below</a>.</td></tr>
     <tr><td><code>--base-url</code></td><td><code>DEXAFIX_BASE_URL</code></td><td>empty</td><td>Public address, such as <code>https://dexa.example.com</code>.</td></tr>
     <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout. Only the exact value <code>true</code> turns it on; <code>1</code> or <code>TRUE</code> does not.</td></tr>
@@ -501,6 +502,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
   <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
 </ol>
 <p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
+<p>Rotation is manual on purpose: the key belongs to the operator, <code>db rekey</code> is offline, and the AES-GCM usage limits are far out of reach. Rotate when the key may have leaked, when someone with access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has been in use (at least). Set <code>--key-rotation-reminder-days</code> (or <code>DEXAFIX_KEY_ROTATION_REMINDER_DAYS</code>) to get a reminder there when the key is older than that; the default 0 gives none. The page also says when <code>db rekey</code> is due after a key change.</p>
 </section>
 
 <section id="data-export">

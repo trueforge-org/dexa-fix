@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
@@ -37,6 +38,28 @@ type adminView struct {
 	Editing         bool
 	Withings        adminWithings
 	Audit           []auditLine // the latest security events
+	Key             keyView
+}
+
+// keyView describes the encryption key on the Admin page. Rotation is manual (docs/key-rotation.md);
+// the page only shows the key's age and asks for a rotation when a reminder is configured.
+type keyView struct {
+	Shown   bool
+	ID      string
+	Since   string // date the key was introduced, at least; empty when unknown
+	AgeDays int
+	Due     bool // older than the reminder
+	Rekey   bool // the database still belongs to a previous key
+}
+
+func (s *Server) keyView(st store.Stats) keyView {
+	v := keyView{Shown: st.Encrypted, ID: st.KeyID, Rekey: st.KeyPrevious}
+	if !st.KeySince.IsZero() {
+		v.Since = st.KeySince.UTC().Format(dateLayout)
+		v.AgeDays = int(time.Since(st.KeySince) / (24 * time.Hour))
+		v.Due = s.KeyReminder > 0 && time.Since(st.KeySince) > s.KeyReminder
+	}
+	return v
 }
 
 type adminUser struct {
@@ -132,8 +155,8 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request, u models.User
 	view := &adminView{
 		Status: stats, Version: s.Version, GoVersion: runtime.Version(),
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
-		Withings: s.adminWithingsView(r),
-		Form:     adminProvider{AuthProvider: models.AuthProvider{Kind: models.ProviderKindOIDC}},
+		Withings: s.adminWithingsView(r), Key: s.keyView(stats),
+		Form: adminProvider{AuthProvider: models.AuthProvider{Kind: models.ProviderKindOIDC}},
 	}
 	if view.SignupOpen, err = s.signupOpen(ctx); err != nil {
 		s.fail(w, err)

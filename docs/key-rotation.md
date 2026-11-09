@@ -93,6 +93,30 @@ lookup secret would avoid the rewrite but add a second secret to manage.
 `auth.cookie_key` is stored encrypted and not derived from the master key, so `rekey` re-encrypts it
 but does not change it. Sessions stay valid. Session tokens are stored as hashes and are unaffected.
 
+## Decision: no automatic rotation
+
+We considered rotating the key automatically every month and decided against it.
+
+- **The operator owns the key.** It comes from an environment variable, a secret store or a file.
+  A server that generated a new key could not safely persist it: the file may be read-only, the
+  variable lives outside the process, and a key stored next to the database defeats the purpose of
+  encrypting it. A rotation the server cannot write down would lock the operator out.
+- **Rekey is offline.** `db rekey` runs in one transaction and expects the server to be stopped,
+  because a running process keeps its cipher in memory. Doing it on a schedule means either downtime
+  every month or a new online mode with its own failure cases.
+- **There is no usage pressure.** Values are sealed with AES-256-GCM and a random nonce, which is
+  safe for roughly 2^32 encryptions under one key. This app writes a handful of encrypted values per
+  user, so that limit is far out of reach.
+- **Rotation does not help against what it is usually meant for.** A leaked old key still opens every
+  backup made before the rotation.
+
+Rotate by hand (see the README, "Rotating the key") when the key may have leaked, when someone with
+access leaves, or when your policy asks for it. The Admin page shows the key id and since when it has
+been in use, as a lower bound: databases created before the key check only learned the date when the
+check was first written. Set `--key-rotation-reminder-days` (`DEXAFIX_KEY_ROTATION_REMINDER_DAYS`) to
+show a reminder when the key is older than that many days. The page also says when the database still
+belongs to a previous key and `db rekey` is due. Neither the reminder nor the notice changes anything.
+
 ## Open questions
 
 - `db rekey` while `serve` runs: the transaction keeps the data safe, but the running process keeps

@@ -259,6 +259,8 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 		}
 		days, _ := cmd.Flags().GetInt("audit-retention-days")
 		srv.AuditRetention = time.Duration(days) * 24 * time.Hour
+		reminder, _ := cmd.Flags().GetInt("key-rotation-reminder-days")
+		srv.KeyReminder = time.Duration(reminder) * 24 * time.Hour
 		srv.StartMaintenance()
 		srv.ForcePasswordLogin, _ = cmd.Flags().GetBool("force-password-login")
 		httpSrv := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
@@ -289,6 +291,7 @@ func init() {
 	addDBFlags(serveCmd)
 	serveCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	serveCmd.Flags().Int("audit-retention-days", envInt("DEXAFIX_AUDIT_RETENTION_DAYS", 365), "delete audit log events (and the IP addresses in them) after this many days; 0 keeps them forever")
+	serveCmd.Flags().Int("key-rotation-reminder-days", envInt("DEXAFIX_KEY_ROTATION_REMINDER_DAYS", 0), "show a reminder on the Admin page when the encryption key is older than this many days; 0 never reminds (rotation is manual, see docs/key-rotation.md)")
 	serveCmd.Flags().String("trusted-proxies", envOr("DEXAFIX_TRUSTED_PROXIES", ""), "comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-* headers are believed; also \"loopback\" and \"private\"")
 	serveCmd.Flags().String("base-url", envOr("DEXAFIX_BASE_URL", ""), "public address of the app, such as https://dexa.example.com; used for sign-in callback URLs and to decide that cookies are Secure")
 	serveCmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")

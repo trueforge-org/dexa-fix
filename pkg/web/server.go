@@ -41,6 +41,8 @@ type Server struct {
 	Version string
 	// AuditRetention is how long audit events are kept; zero keeps them for good.
 	AuditRetention time.Duration
+	// KeyReminder is the key age after which the Admin page asks for a rotation; zero never does.
+	KeyReminder time.Duration
 	// TrustedProxies are the reverse proxies whose X-Forwarded-* headers are believed.
 	TrustedProxies []netip.Prefix
 	// BaseURL is the public address of the app (scheme and host); nil derives it from requests.
