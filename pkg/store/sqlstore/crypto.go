@@ -343,62 +343,48 @@ type queryer interface {
 	NewSelect() *bun.SelectQuery
 }
 
-// firstEncrypted finds one encrypted value and the context that seals it. found is false when the
-// database holds none. body is true when the value belongs to the body domain, which has its own
-// cipher. The key check row is not a ciphertext and is skipped.
-func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, body, found bool, err error) {
+// firstEncrypted finds one encrypted value of the main database and the context that seals it.
+// found is false when the database holds none. The key check row is not a ciphertext and is
+// skipped. (The body domain has its own: firstEncryptedBody.)
+func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, found bool, err error) {
 	var (
 		integ []integrationRow
 		sets  []settingRow
 		provs []providerRow
 		users []userRow
 		totps []totpRow
-		scale []scaleRow
-		dexa  []dexaRow
 	)
 	if err = db.NewSelect().Model(&sets).Where("value LIKE ?", encPrefix+"%").Where("name <> ?", checkSetting).Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(sets) > 0 {
-		return sets[0].Value, settingContext(sets[0].Name), false, true, nil
+		return sets[0].Value, settingContext(sets[0].Name), true, nil
 	}
 	if err = db.NewSelect().Model(&integ).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(integ) > 0 {
-		return integ[0].Data, integrationContext(integ[0].UserID, integ[0].Provider), false, true, nil
+		return integ[0].Data, integrationContext(integ[0].UserID, integ[0].Provider), true, nil
 	}
 	if err = db.NewSelect().Model(&users).Where("email LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(users) > 0 {
-		return users[0].Email, emailContext(users[0].ID), false, true, nil
+		return users[0].Email, emailContext(users[0].ID), true, nil
 	}
 	if err = db.NewSelect().Model(&totps).Where("secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(totps) > 0 {
-		return totps[0].Secret, totpContext(totps[0].UserID), false, true, nil
+		return totps[0].Secret, totpContext(totps[0].UserID), true, nil
 	}
 	if err = db.NewSelect().Model(&provs).Where("client_secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(provs) > 0 {
-		return provs[0].ClientSecret, providerContext(provs[0].Slug), false, true, nil
+		return provs[0].ClientSecret, providerContext(provs[0].Slug), true, nil
 	}
-	if err = db.NewSelect().Model(&scale).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
-		return
-	}
-	if len(scale) > 0 {
-		return scale[0].Data, scaleContext(scale[0].UserID, scale[0].RowUID), true, true, nil
-	}
-	if err = db.NewSelect().Model(&dexa).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
-		return
-	}
-	if len(dexa) > 0 {
-		return dexa[0].Data, dexaContext(dexa[0].UserID, dexa[0].RowUID), true, true, nil
-	}
-	return "", "", false, false, nil
+	return "", "", false, nil
 }
 
 // HasEncryptedValues reports whether the database already holds encrypted values, without
@@ -410,11 +396,27 @@ func HasEncryptedValues(ctx context.Context, driver, dsn string) (bool, error) {
 		return false, err
 	}
 	defer s.Close()
-	_, _, _, found, err := firstEncrypted(ctx, s.db)
-	if err != nil && isMissingTable(err) {
+	_, _, found, err := firstEncrypted(ctx, s.db)
+	if err != nil && !isMissingTable(err) {
+		return false, err
+	}
+	if found {
+		return true, nil
+	}
+	if s.BodyStore == nil {
 		return false, nil
 	}
-	return found, err
+	return s.BodyStore.HasEncryptedValues(ctx)
+}
+
+// HasEncryptedBodyValues is HasEncryptedValues for a database that holds only the body domain.
+func HasEncryptedBodyValues(ctx context.Context, driver, dsn string) (bool, error) {
+	b, err := OpenBody(ctx, driver, dsn, WithoutMigrate())
+	if err != nil {
+		return false, err
+	}
+	defer b.Close()
+	return b.HasEncryptedValues(ctx)
 }
 
 func isMissingTable(err error) bool {
@@ -425,42 +427,41 @@ func isMissingTable(err error) bool {
 // verifyKey makes sure the configured key belongs to this database. The check value in
 // app_settings is written on first use, and only when no encrypted value exists that could belong
 // to another key. A database that predates the check is verified by opening one of its values.
-func (s *Store) verifyKey(ctx context.Context) error {
+//
+// It only decides: a check that has to be written is returned as write, and the caller runs it once
+// every domain has accepted the key, so a wrong key leaves no check behind in any of them.
+func (s *Store) verifyKey(ctx context.Context) (write func() error, err error) {
 	var row settingRow
-	err := s.db.NewSelect().Model(&row).Where("name = ?", checkSetting).Scan(ctx)
+	err = s.db.NewSelect().Model(&row).Where("name = ?", checkSetting).Scan(ctx)
 	switch {
 	case err == nil:
 		e := s.cipher.matchCheck(row.Value)
 		if e == nil {
-			return errors.New(errWrongKey)
+			return nil, errors.New(errWrongKey)
 		}
 		if e != s.cipher.current {
 			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
 		}
-		return nil
+		return nil, nil
 	case !errors.Is(err, sql.ErrNoRows):
-		return err
+		return nil, err
 	}
 
-	value, vctx, body, found, err := firstEncrypted(ctx, s.db)
+	value, vctx, found, err := firstEncrypted(ctx, s.db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if found {
-		c, current := s.cipher, s.cipher.current
-		if body {
-			c, current = s.bodyCipher, s.bodyCipher.current
-		}
-		_, e, err := c.open(value, vctx)
+		_, e, err := s.cipher.open(value, vctx)
 		if err != nil {
-			return fmt.Errorf("%s (%w)", errWrongKey, err)
+			return nil, fmt.Errorf("%s (%w)", errWrongKey, err)
 		}
-		if e != current {
+		if e != s.cipher.current {
 			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
-			return nil
+			return nil, nil
 		}
 	}
-	return s.writeCheck(ctx, s.db)
+	return func() error { return s.writeCheck(ctx, s.db) }, nil
 }
 
 type execer interface {
@@ -598,40 +599,6 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
-			}
-		}
-
-		// Readings and scans written while there was no key are readable JSON.
-		var scales []scaleRow
-		if err := tx.NewSelect().Model(&scales).Scan(ctx); err != nil {
-			return err
-		}
-		for _, r := range scales {
-			if !needs(r.Data) {
-				continue
-			}
-			enc, err := s.bodyCipher.seal(r.Data, scaleContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
-			if _, err := tx.NewUpdate().Model((*scaleRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
-				return err
-			}
-		}
-		var dexas []dexaRow
-		if err := tx.NewSelect().Model(&dexas).Scan(ctx); err != nil {
-			return err
-		}
-		for _, r := range dexas {
-			if !needs(r.Data) {
-				continue
-			}
-			enc, err := s.bodyCipher.seal(r.Data, dexaContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
-			if _, err := tx.NewUpdate().Model((*dexaRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
-				return err
 			}
 		}
 

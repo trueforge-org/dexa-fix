@@ -32,6 +32,14 @@ func TestMigrationParity(t *testing.T) {
 	}
 }
 
+// The body domain has its own migration set; the two backends must agree there too.
+func TestBodyMigrationParity(t *testing.T) {
+	a, b := names(t, "body/"+DriverSQLite), names(t, "body/"+DriverPostgres)
+	if len(a) == 0 || !reflect.DeepEqual(a, b) {
+		t.Fatalf("body migration files differ: sqlite=%v postgres=%v", a, b)
+	}
+}
+
 func TestMigrateRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

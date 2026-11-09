@@ -112,6 +112,8 @@ The full documentation starts at [docs/index.md](docs/index.md).
 | [13 · Development](docs/13-development.md) | Tests, project layout and schema changes. |
 | [14 · Limitations and security](docs/14-limitations-and-security.md) | Read before you expose the app. |
 | [15 · Split deployment](docs/15-split-deployment.md) | Running the frontend and the backend as two processes, with Compose and troubleshooting. |
+| [16 · Workers](docs/16-workers.md) | The processes that talk to Withings and Strength Level, and the Workers admin page. |
+| [17 · Body service](docs/17-body-service.md) | The readings, scans and estimates as a process of their own, with a database, key and secret of their own. |
 | [Key rotation](docs/key-rotation.md) | Design note on the key check and why rotation stays manual. |
 | [CI details](docs/ci.md) | The README badges, the secrets to configure and how to cut a release. |
 

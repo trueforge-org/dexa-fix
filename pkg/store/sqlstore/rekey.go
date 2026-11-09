@@ -43,23 +43,20 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		stats = RekeyStats{}
 
-		// resealWith returns the value sealed with the current key of c, or "" when it is already there.
-		resealWith := func(c *Cipher, kind, value, sealCtx string) (string, error) {
+		// reseal returns the value sealed with the current key, or "" when it is already there.
+		reseal := func(kind, value, sealCtx string) (string, error) {
 			if !strings.HasPrefix(value, encPrefix) {
 				return "", nil
 			}
-			plain, e, err := c.open(value, sealCtx)
+			plain, e, err := s.cipher.open(value, sealCtx)
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", kind, err)
 			}
-			if e == c.current && strings.HasPrefix(value, encV2) {
+			if e == s.cipher.current && strings.HasPrefix(value, encV2) {
 				stats.Current++
 				return "", nil
 			}
-			return c.seal(plain, sealCtx)
-		}
-		reseal := func(kind, value, sealCtx string) (string, error) {
-			return resealWith(s.cipher, kind, value, sealCtx)
+			return s.cipher.seal(plain, sealCtx)
 		}
 
 		var integrations []integrationRow
@@ -183,49 +180,6 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 			}
 		}
 
-		// The body domain's keys derive from the master keys, so a rotation reaches them too. The
-		// context (user and row_uid) stays the same, so only the data column changes.
-		var scales []scaleRow
-		if err := tx.NewSelect().Model(&scales).OrderExpr("id").Scan(ctx); err != nil {
-			return err
-		}
-		for _, r := range scales {
-			enc, err := resealWith(s.bodyCipher, fmt.Sprintf("scale reading %d", r.ID), r.Data, scaleContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
-			if enc == "" {
-				continue
-			}
-			stats.Body++
-			if dryRun {
-				continue
-			}
-			if _, err := tx.NewUpdate().Model((*scaleRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
-				return err
-			}
-		}
-		var dexas []dexaRow
-		if err := tx.NewSelect().Model(&dexas).OrderExpr("id").Scan(ctx); err != nil {
-			return err
-		}
-		for _, r := range dexas {
-			enc, err := resealWith(s.bodyCipher, fmt.Sprintf("dexa scan %d", r.ID), r.Data, dexaContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
-			if enc == "" {
-				continue
-			}
-			stats.Body++
-			if dryRun {
-				continue
-			}
-			if _, err := tx.NewUpdate().Model((*dexaRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
-				return err
-			}
-		}
-
 		var users []userRow
 		if err := tx.NewSelect().Model(&users).OrderExpr("id").Scan(ctx); err != nil {
 			return err
@@ -276,6 +230,16 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 	})
 	if err != nil {
 		return RekeyStats{}, err
+	}
+	// The body domain is a transaction of its own (it can live in another database). Each part
+	// completes or changes nothing and can be repeated, so a run that stops between them is resumed
+	// by running it again, with the previous key still configured.
+	if s.BodyStore != nil {
+		b, err := s.BodyStore.Rekey(ctx, dryRun)
+		if err != nil {
+			return RekeyStats{}, err
+		}
+		stats.Body, stats.Current = b.Changed, stats.Current+b.Current
 	}
 	return stats, nil
 }

@@ -4,7 +4,7 @@ This is a condensed summary. The full, canonical instructions are in [`AGENTS.md
 
 ## Repository
 
-dexa-fix is one Go binary that corrects smart-scale readings with DEXA scans. It runs as one process (`serve`) or as separate ones (`serve web`, `serve api`, and any number of `serve worker`):
+dexa-fix is one Go binary that corrects smart-scale readings with DEXA scans. It runs as one process (`serve`) or as separate ones (`serve web`, `serve api`, optionally `serve body`, and any number of `serve worker`):
 
 - `pkg/frontend`: the web process. Pages (Go templates and htmx), static files, HTTP/HTTPS/HTTP3 listeners. **No database access.**
 - `pkg/backend/main`: the main backend. Store, keys, every security decision, internal API (`/internal/v1`), public API (`/api/v1`).

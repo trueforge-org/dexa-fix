@@ -27,7 +27,8 @@ import (
 // Service is the body service. Use Handler to serve it.
 type Service struct {
 	store   store.BodyStore
-	secret  string
+	secret  string   // the secret a call carries
+	spare   []string // others a call may carry too, so a secret can be rotated
 	verify  *bodyapi.Verifier
 	version string
 	est     *estimateCache
@@ -45,6 +46,23 @@ type Option func(*Service)
 // WithVersion names the running program. It is part of the estimates' ETag, so a new version never
 // answers "not modified" for a result an older algorithm made.
 func WithVersion(v string) Option { return func(s *Service) { s.version = v } }
+
+// WithSpareSecrets makes the service accept these secrets too, next to the first one, so that the
+// secret can be rotated without downtime: the main backend sends the first line of its file, and the
+// service accepts every line of its own until the old one is removed.
+func WithSpareSecrets(secrets ...string) Option {
+	return func(s *Service) { s.spare = append(s.spare, secrets...) }
+}
+
+// secretOK compares the presented secret with every accepted one, in constant time, so the time
+// does not say which one matched.
+func (s *Service) secretOK(presented string) bool {
+	ok := subtle.ConstantTimeCompare([]byte(presented), []byte(s.secret))
+	for _, sec := range s.spare {
+		ok |= subtle.ConstantTimeCompare([]byte(presented), []byte(sec))
+	}
+	return ok == 1
+}
 
 // bulkConcurrency is how many imports and exports may run at once.
 const bulkConcurrency = 2
@@ -108,7 +126,7 @@ func (s *Service) Handler() http.Handler {
 // particular needs subject 0. Every failure of the secret or the token answers the same way.
 func (s *Service) guard(scope bodyapi.Scope, perUser bool, h func(http.ResponseWriter, *http.Request, bodyapi.Claims)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get(bodyapi.HeaderSecret)), []byte(s.secret)) != 1 {
+		if !s.secretOK(r.Header.Get(bodyapi.HeaderSecret)) {
 			fail(w, bodyapi.CodeUnauthorized, "unauthorized")
 			return
 		}

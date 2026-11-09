@@ -29,9 +29,11 @@ ENV DEXAFIX_LISTEN=:8080 \
 #
 # Separate processes instead of one: run the image with `serve api` (the database; public API on 8080
 # and the internal API on 8081), with `serve web` (the pages and the public listeners, no database)
-# and with `serve worker` (talks to Withings and Strength Level for the api, no database).
-# 8081 is the internal API: never publish it, keep it on a private network between them. It is
-# only used by `serve api`, see docs/15-split-deployment.md and docs/16-workers.md.
-EXPOSE 8080 8081 8443 8443/udp
+# and with `serve worker` (talks to Withings and Strength Level for the api, no database). The
+# readings, scans and estimates can run as `serve body` too (8082), with a database of its own.
+# 8081 is the internal API and 8082 the body service: never publish them, keep them on a private
+# network. 8081 is only used by `serve api`, 8082 only by `serve body`, see
+# docs/15-split-deployment.md, docs/16-workers.md and docs/17-body-service.md.
+EXPOSE 8080 8081 8082 8443 8443/udp
 ENTRYPOINT ["/dexa-fix"]
 CMD ["serve"]

@@ -73,6 +73,15 @@ type bodyStateRow struct {
 
 // scaleRow is one scale reading. The columns that identify and order it are plain; the measured
 // values and the notes are in Data (see scaleValues), encrypted when the store has a key.
+// bodyMetaRow is a row of body_meta: the key check of the body domain.
+type bodyMetaRow struct {
+	bun.BaseModel `bun:"table:body_meta"`
+
+	Name      string    `bun:"name,pk"`
+	Value     string    `bun:"value"`
+	UpdatedAt time.Time `bun:"updated_at"`
+}
+
 type scaleRow struct {
 	bun.BaseModel `bun:"table:scale_readings"`
 

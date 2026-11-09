@@ -46,7 +46,7 @@ func readBody(resp *http.Response) string {
 	}
 }
 
-func seedReadings(t *testing.T, st store.Store, n int) {
+func seedReadings(t *testing.T, st store.BodyStore, n int) {
 	t.Helper()
 	base := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	var rs []models.ScaleReading

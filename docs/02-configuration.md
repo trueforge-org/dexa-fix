@@ -2,7 +2,8 @@
 
 Each `serve` flag has an environment variable. A flag on the command line
 overrides the variable. The same holds for `serve web` and `serve api`, the two
-processes of a [split deployment](15-split-deployment.md).
+processes of a [split deployment](15-split-deployment.md). `serve body` is the
+[body service](17-body-service.md), a third kind of process.
 
 | Flag                       | Environment variable             | Default                                                               | Description                                            |
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -29,6 +30,23 @@ processes of a [split deployment](15-split-deployment.md).
 | `--backend-client-cert-file` | `DEXAFIX_BACKEND_CLIENT_CERT_FILE` | empty                                                           | `serve web` only. Client certificate that web presents to the api process. |
 | `--backend-client-key-file` | `DEXAFIX_BACKEND_CLIENT_KEY_FILE` | empty                                                            | `serve web` only. Private key of the client certificate above. |
 | `--backend-server-name`    | `DEXAFIX_BACKEND_SERVER_NAME`    | empty                                                                 | `serve web` only. Name the api process's certificate must carry, if it is not the host of `--backend-url`. |
+| `--body-url`               | `DEXAFIX_BODY_URL`               | empty                                                                 | `serve api` only. Address of a [body service](17-body-service.md) in its own process, such as `http://body:8082`. Empty runs the body service inside the api process. |
+| `--body-secret-file`       | `DEXAFIX_BODY_SECRET_FILE`       | empty                                                                 | `serve api` with `--body-url`, and `serve body`. Secret they share, one per line (the api process sends the first, the body service accepts every line). Must differ from the service and worker secrets. |
+| `--body-token-key-file`    | `DEXAFIX_BODY_TOKEN_KEY_FILE`    | empty                                                                 | `serve api` with `--body-url`. Private key that signs the tokens for the body service (`secrets body-token-key`). |
+| `--body-ca-file`           | `DEXAFIX_BODY_CA_FILE`           | empty                                                                 | `serve api` only. CA that must have issued the body service's certificate. Use with an `https://` `--body-url`, together with the two files below. |
+| `--body-client-cert-file`  | `DEXAFIX_BODY_CLIENT_CERT_FILE`  | empty                                                                 | `serve api` only. Client certificate that the api process presents to the body service. |
+| `--body-client-key-file`   | `DEXAFIX_BODY_CLIENT_KEY_FILE`   | empty                                                                 | `serve api` only. Private key of the client certificate above. |
+| `--body-server-name`       | `DEXAFIX_BODY_SERVER_NAME`       | empty                                                                 | `serve api` only. Name the body service's certificate must carry, if it is not the host of `--body-url`. |
+| `--listen` (`serve body`)  | `DEXAFIX_BODY_LISTEN`            | `:8082`                                                               | `serve body` only. Address of the body service; keep it on a private network. |
+| `--body-token-public-key-file` | `DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE` | empty                                                           | `serve body` only. Required. Public key(s) of the api process's token key, one per line (`secrets body-token-public`). |
+| `--body-tls-cert-file`     | `DEXAFIX_BODY_TLS_CERT_FILE`     | empty                                                                 | `serve body` only. Serve over mutual TLS: certificate of the service. Set it with `--body-tls-key-file` and `--body-tls-client-ca-file`, or none. |
+| `--body-tls-key-file`      | `DEXAFIX_BODY_TLS_KEY_FILE`      | empty                                                                 | `serve body` only. Private key of the certificate above. |
+| `--body-tls-client-ca-file` | `DEXAFIX_BODY_TLS_CLIENT_CA_FILE` | empty                                                                | `serve body` only. CA that issues the api process's client certificate. |
+| `--without-body`           | `DEXAFIX_WITHOUT_BODY`           | `false`                                                               | `serve api` (needs `--body-url`) and the `db`, `user` and `settings` commands. This database does not hold the scale readings and DEXA scans because a body service of its own does; keeps the commands from creating their tables here. |
+
+`serve body` takes the database and key flags too, for the database and key of the
+body service. It has no `--maintenance`, and its `--auto-migrate` migrates the
+body database only.
 
 `serve web` has no database and no encryption key, so it has no database or key
 flags. If `DEXAFIX_DSN_FILE` or `DEXAFIX_ENCRYPTION_KEY` is set for it, it

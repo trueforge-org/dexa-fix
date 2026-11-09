@@ -45,6 +45,9 @@ that faces visitors holds neither the database nor the keys.
 - Workers (`serve worker`) call the same internal listener with the worker
   secret and reach the outside services for the api process. See
   [Workers](16-workers.md).
+- The scale readings, DEXA scans and estimates are held by the
+  [body service](17-body-service.md), which runs inside the api process unless
+  you start `serve body` and give `serve api` a `--body-url`.
 - The HTTPS and HTTP/3 listeners belong to web. See
   [TLS and HTTP/3](#tls-and-http3).
 
@@ -122,6 +125,10 @@ secrets:
 volumes:
   dexa-data:
 ```
+
+This example runs the body service inside the api container. The files in
+`deploy/` run it as a container of its own, with a database role, an encryption
+key and a secret of its own: see [Body service](17-body-service.md).
 
 The image's default command is `serve`, which runs one process. The split
 needs the `command` line for each service.

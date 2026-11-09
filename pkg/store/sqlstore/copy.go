@@ -41,7 +41,13 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 	if sv != dv {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
-	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*bodyStateRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*totpRow)(nil), (*recoveryRow)(nil), (*passkeyRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
+	// The body domain goes along when both stores have it; a store opened WithoutBody has none.
+	withBody := src.BodyStore != nil && dst.BodyStore != nil
+	tables := []any{(*userRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*totpRow)(nil), (*recoveryRow)(nil), (*passkeyRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)}
+	if withBody {
+		tables = append(tables, (*dexaRow)(nil), (*scaleRow)(nil), (*bodyStateRow)(nil))
+	}
+	for _, m := range tables {
 		q := dst.db.NewSelect().Model(m)
 		if _, ok := m.(*settingRow); ok {
 			q = q.Where("name <> ?", checkSetting) // written by Open when the target has a key
@@ -60,14 +66,23 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		if stats.Users, err = copyTable[userRow](ctx, src, tx, "id"); err != nil {
 			return fmt.Errorf("users: %w", err)
 		}
-		if stats.DexaScans, err = copyTable[dexaRow](ctx, src, tx, "id"); err != nil {
-			return fmt.Errorf("dexa_scans: %w", err)
-		}
-		if stats.ScaleReads, err = copyTable[scaleRow](ctx, src, tx, "id"); err != nil {
-			return fmt.Errorf("scale_readings: %w", err)
-		}
-		if _, err = copyTable[bodyStateRow](ctx, src, tx, "user_id"); err != nil {
-			return fmt.Errorf("body_user_state: %w", err)
+		if withBody {
+			// Like the main key check: the source's check goes with its ciphertext.
+			if _, err := tx.NewDelete().Model((*bodyMetaRow)(nil)).Where("name = ?", checkBody).Exec(ctx); err != nil {
+				return fmt.Errorf("body_meta: %w", err)
+			}
+			if stats.DexaScans, err = copyTable[dexaRow](ctx, src, tx, "id"); err != nil {
+				return fmt.Errorf("dexa_scans: %w", err)
+			}
+			if stats.ScaleReads, err = copyTable[scaleRow](ctx, src, tx, "id"); err != nil {
+				return fmt.Errorf("scale_readings: %w", err)
+			}
+			if _, err = copyTable[bodyStateRow](ctx, src, tx, "user_id"); err != nil {
+				return fmt.Errorf("body_user_state: %w", err)
+			}
+			if _, err = copyTable[bodyMetaRow](ctx, src, tx, "name"); err != nil {
+				return fmt.Errorf("body_meta: %w", err)
+			}
 		}
 		if stats.Integrations, err = copyTable[integrationRow](ctx, src, tx, "user_id, provider"); err != nil {
 			return fmt.Errorf("user_integrations: %w", err)
@@ -103,7 +118,11 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		}
 		if dst.driver == DriverPostgres {
 			// Explicit ids do not advance the serial sequences; align them so new inserts do not collide.
-			for _, table := range []string{"users", "dexa_scans", "scale_readings", "access_tokens", "audit_log"} {
+			seqTables := []string{"users", "access_tokens", "audit_log"}
+			if withBody {
+				seqTables = append(seqTables, "dexa_scans", "scale_readings")
+			}
+			for _, table := range seqTables {
 				q := fmt.Sprintf(`SELECT setval(pg_get_serial_sequence('%[1]s', 'id'), COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM %[1]s`, table)
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return fmt.Errorf("reset sequence %s: %w", table, err)

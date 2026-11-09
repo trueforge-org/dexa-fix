@@ -26,7 +26,7 @@ When you change a rule, update `AGENTS.md` and the scoped files first, then keep
 
 ## Repository overview
 
-dexa-fix corrects smart-scale body-composition readings with DEXA scan results. It is one Go binary (`github.com/trueforge-org/dexa-fix`) that runs as one process (`dexa-fix serve`) or as two (`dexa-fix serve web` and `dexa-fix serve api`, plus any number of `dexa-fix serve worker`), so that a flood of requests on one cannot take down the other.
+dexa-fix corrects smart-scale body-composition readings with DEXA scan results. It is one Go binary (`github.com/trueforge-org/dexa-fix`) that runs as one process (`dexa-fix serve`) or as separate ones (`dexa-fix serve web` and `dexa-fix serve api`, plus `dexa-fix serve body` for the readings, scans and estimates, and any number of `dexa-fix serve worker`), so that a flood of requests on one cannot take down the other.
 
 ```text
 browser ──> web (pkg/frontend, no database) ──internal API, service secret (+ mutual TLS)──> api (pkg/backend/main)
@@ -42,7 +42,7 @@ worker (pkg/workers, no database) ──worker API /internal/v1/worker, worker s
 | --- | --- |
 | `pkg/frontend/` | The web process: HTML pages (Go templates and htmx), static files, the plain/HTTPS/HTTP3 listeners, request limits. **Has no database access**; it asks the backend through `pkg/shared/apiclient`. |
 | `pkg/backend/main/` | The main backend (package `mainbackend`): store, keys, every security decision, the internal API (`/internal/v1`) and the public API (`/api/v1`), the job queue and its scheduler, the backend side of each provider, maintenance. `pkg/backend/` itself has no Go files: it is the parent folder, with a service in each subfolder. |
-| `pkg/backend/body/` | The body service (package `bodybackend`): a user's scale readings and DEXA scans (encrypted with a key of their own), the estimates computed from them and their cache, and the rules for importing readings from a source. It knows nothing about people: the main backend calls it with a short-lived signed token for one user and one scope (`pkg/shared/bodyapi`). It runs inside the api process for now (`bodybackend.NewInProcess`). |
+| `pkg/backend/body/` | The body service (package `bodybackend`): a user's scale readings and DEXA scans (encrypted with a key of their own), the estimates computed from them and their cache, and the rules for importing readings from a source. It knows nothing about people: the main backend calls it with a short-lived signed token for one user and one scope (`pkg/shared/bodyapi`). It runs inside the api process unless `serve api` gets a `--body-url`; then `dexa-fix serve body` runs it with its own database, key and secret (`bodybackend.NewInProcess` is the in-process form). |
 | `pkg/shared/` | What both sides need, as small packages named by function: `apiclient` (the contract between the web and the api), `workerapi` (the contract between the api and the workers), `bodyapi` (the contract between the api and the body service, with its tokens), `inproc` (the in-process transport), `edge` (proxy headers, PROXY protocol, limiter, security headers), `mtls`, `jobs`, `timezones`, `tlsutil`. |
 | `pkg/app/` | The single-process mode: `app.New` wires a backend and a frontend together in memory. |
 | `pkg/store/` | The `Store` interface and `sqlstore` (bun; SQLite and PostgreSQL; migrations; encryption of sensitive columns). |
@@ -78,7 +78,7 @@ DEXAFIX_TEST_SPLIT=1 go test -race -count=1 ./pkg/backend/... ./pkg/frontend   #
 
 - PostgreSQL: `docker run -d --rm --name dexa-pg -e POSTGRES_PASSWORD=x -p 5432:5432 postgres:18`, then `DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode=disable' go test ./pkg/store/sqlstore/` (each test gets its own schema). If the Docker daemon is on another host than your shell, use the container's IP instead of `localhost`.
 - Test output is noisy JSON log lines. Filter with `| grep -v '^{'` and redirect long output to a file.
-- Run the real thing before you call a deployment change done: build the binary, start `serve api`, `serve web` and `serve worker` with generated secrets (see [`docs/15-split-deployment.md`](docs/15-split-deployment.md) and [`docs/16-workers.md`](docs/16-workers.md)), and use it.
+- Run the real thing before you call a deployment change done: build the binary, start `serve body`, `serve api` (with `--body-url`), `serve web` and `serve worker` with generated secrets (see [`docs/15-split-deployment.md`](docs/15-split-deployment.md) and [`docs/16-workers.md`](docs/16-workers.md)), and use it.
 - CI also runs `go mod tidy` (no diff allowed), `govulncheck` and a build matrix.
 
 ## Security

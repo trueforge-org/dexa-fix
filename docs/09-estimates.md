@@ -117,16 +117,21 @@ field is handled on its own.
 ### Estimate cache
 
 Computing the estimates walks a user's whole history, so the result is kept in
-memory per user (for the 32 most recently used users). It is reused until
+memory per user (for the 32 most recently used users), by the
+[body service](17-body-service.md) that computes it. It is reused until
 something it depends on changes, and there is no list of places that have to
-remember to clear it: every user row carries a `data_version` counter in the
-database, and each write that affects estimates increments it in the same
-transaction. That covers adding or deleting scans and readings (web, API,
-imports), the athlete default and method ranking, and the height. Because the
-counter lives in the database, a change made by another process or server
-sharing a Postgres database is seen at once as well. The cache is also tied to
-the date, since the series runs up to today, and starts empty after a restart or
-upgrade.
+remember to clear it. The cache is tied to three things:
+
+- the user's body version, a counter in the database that every change to the
+  user's scans and readings (web, API, imports) increments in the same
+  transaction;
+- the settings the estimates depend on: time zone, height, method ranking and
+  athlete default, which the api process sends with every call;
+- the date, since the series runs up to today.
+
+Because the counter lives in the database, a change made by another process or
+server sharing a Postgres database is seen at once as well. The cache starts
+empty after a restart or upgrade.
 
 `GET /api/v1/users/{id}/estimates` sends an `ETag`. A client that sends it back
 in `If-None-Match` gets `304 Not Modified` while nothing changed, without the

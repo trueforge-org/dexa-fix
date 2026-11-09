@@ -32,7 +32,7 @@ func newRowUID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (s *Store) sealScale(r *scaleRow) (err error) {
+func (s *BodyStore) sealScale(r *scaleRow) (err error) {
 	if r.RowUID, err = newRowUID(); err != nil {
 		return err
 	}
@@ -40,11 +40,11 @@ func (s *Store) sealScale(r *scaleRow) (err error) {
 	if err != nil {
 		return err
 	}
-	r.Data, err = sealWith(s.bodyCipher, string(raw), scaleContext(r.UserID, r.RowUID))
+	r.Data, err = sealWith(s.cipher, string(raw), scaleContext(r.UserID, r.RowUID))
 	return err
 }
 
-func (s *Store) sealDexa(r *dexaRow) (err error) {
+func (s *BodyStore) sealDexa(r *dexaRow) (err error) {
 	if r.RowUID, err = newRowUID(); err != nil {
 		return err
 	}
@@ -52,13 +52,13 @@ func (s *Store) sealDexa(r *dexaRow) (err error) {
 	if err != nil {
 		return err
 	}
-	r.Data, err = sealWith(s.bodyCipher, string(raw), dexaContext(r.UserID, r.RowUID))
+	r.Data, err = sealWith(s.cipher, string(raw), dexaContext(r.UserID, r.RowUID))
 	return err
 }
 
 // openScale reads the document of a row into Vals.
-func (s *Store) openScale(r *scaleRow) error {
-	plain, err := openWith(s.bodyCipher, r.Data, scaleContext(r.UserID, r.RowUID))
+func (s *BodyStore) openScale(r *scaleRow) error {
+	plain, err := openWith(s.cipher, r.Data, scaleContext(r.UserID, r.RowUID))
 	if err != nil {
 		return fmt.Errorf("scale reading %d: %w", r.ID, err)
 	}
@@ -69,8 +69,8 @@ func (s *Store) openScale(r *scaleRow) error {
 	return nil
 }
 
-func (s *Store) openDexa(r *dexaRow) error {
-	plain, err := openWith(s.bodyCipher, r.Data, dexaContext(r.UserID, r.RowUID))
+func (s *BodyStore) openDexa(r *dexaRow) error {
+	plain, err := openWith(s.cipher, r.Data, dexaContext(r.UserID, r.RowUID))
 	if err != nil {
 		return fmt.Errorf("dexa scan %d: %w", r.ID, err)
 	}
@@ -81,7 +81,7 @@ func (s *Store) openDexa(r *dexaRow) error {
 	return nil
 }
 
-func (s *Store) scaleModel(r *scaleRow) (models.ScaleReading, error) {
+func (s *BodyStore) scaleModel(r *scaleRow) (models.ScaleReading, error) {
 	if err := s.openScale(r); err != nil {
 		return models.ScaleReading{}, err
 	}
@@ -95,7 +95,7 @@ func (s *Store) scaleModel(r *scaleRow) (models.ScaleReading, error) {
 	}, nil
 }
 
-func (s *Store) dexaModel(r *dexaRow) (models.DexaScan, error) {
+func (s *BodyStore) dexaModel(r *dexaRow) (models.DexaScan, error) {
 	if err := s.openDexa(r); err != nil {
 		return models.DexaScan{}, err
 	}
@@ -109,7 +109,7 @@ func (s *Store) dexaModel(r *dexaRow) (models.DexaScan, error) {
 	}, nil
 }
 
-func (s *Store) scaleModels(rows []scaleRow) ([]models.ScaleReading, error) {
+func (s *BodyStore) scaleModels(rows []scaleRow) ([]models.ScaleReading, error) {
 	var out []models.ScaleReading
 	for i := range rows {
 		m, err := s.scaleModel(&rows[i])
@@ -121,7 +121,7 @@ func (s *Store) scaleModels(rows []scaleRow) ([]models.ScaleReading, error) {
 	return out, nil
 }
 
-func (s *Store) dexaModels(rows []dexaRow) ([]models.DexaScan, error) {
+func (s *BodyStore) dexaModels(rows []dexaRow) ([]models.DexaScan, error) {
 	var out []models.DexaScan
 	for i := range rows {
 		m, err := s.dexaModel(&rows[i])
@@ -133,7 +133,7 @@ func (s *Store) dexaModels(rows []dexaRow) ([]models.DexaScan, error) {
 	return out, nil
 }
 
-func (s *Store) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
+func (s *BodyStore) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
 	d.MeasuredAt = d.MeasuredAt.UTC().Truncate(24 * time.Hour)
 	d.CreatedAt = now()
 	row := dexaRow{
@@ -173,7 +173,7 @@ func bumpBodyVersion(ctx context.Context, db bun.IDB, userID int64) error {
 }
 
 // BodyVersion returns the number of changes to the user's scans and readings so far.
-func (s *Store) BodyVersion(ctx context.Context, userID int64) (int64, error) {
+func (s *BodyStore) BodyVersion(ctx context.Context, userID int64) (int64, error) {
 	var row bodyStateRow
 	err := s.db.NewSelect().Model(&row).Where("user_id = ?", userID).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -183,7 +183,7 @@ func (s *Store) BodyVersion(ctx context.Context, userID int64) (int64, error) {
 }
 
 // DeleteUserBodyData removes the user's scans, readings and counter.
-func (s *Store) DeleteUserBodyData(ctx context.Context, userID int64) error {
+func (s *BodyStore) DeleteUserBodyData(ctx context.Context, userID int64) error {
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		for _, m := range []any{(*dexaRow)(nil), (*scaleRow)(nil), (*bodyStateRow)(nil)} {
 			if _, err := tx.NewDelete().Model(m).Where("user_id = ?", userID).Exec(ctx); err != nil {
@@ -195,7 +195,7 @@ func (s *Store) DeleteUserBodyData(ctx context.Context, userID int64) error {
 }
 
 // BodyUserIDs lists the users that have a scan, a reading or a counter.
-func (s *Store) BodyUserIDs(ctx context.Context) ([]int64, error) {
+func (s *BodyStore) BodyUserIDs(ctx context.Context) ([]int64, error) {
 	var ids []int64
 	err := s.db.NewRaw(`SELECT user_id FROM dexa_scans UNION SELECT user_id FROM scale_readings
 		UNION SELECT user_id FROM body_user_state ORDER BY user_id`).Scan(ctx, &ids)
@@ -203,7 +203,7 @@ func (s *Store) BodyUserIDs(ctx context.Context) ([]int64, error) {
 }
 
 // BodyStats counts the scans and readings.
-func (s *Store) BodyStats(ctx context.Context) (store.BodyStats, error) {
+func (s *BodyStore) BodyStats(ctx context.Context) (store.BodyStats, error) {
 	var st store.BodyStats
 	n, err := s.db.NewSelect().Model((*dexaRow)(nil)).Count(ctx)
 	if err != nil {
@@ -217,7 +217,7 @@ func (s *Store) BodyStats(ctx context.Context) (store.BodyStats, error) {
 	return st, nil
 }
 
-func (s *Store) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error) {
+func (s *BodyStore) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error) {
 	var rows []dexaRow
 	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
 		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
@@ -226,7 +226,7 @@ func (s *Store) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaS
 	return s.dexaModels(rows)
 }
 
-func (s *Store) DeleteDexaScan(ctx context.Context, userID, id int64) error {
+func (s *BodyStore) DeleteDexaScan(ctx context.Context, userID, id int64) error {
 	return s.deleteOwned(ctx, (*dexaRow)(nil), userID, id)
 }
 
@@ -236,7 +236,7 @@ func (s *Store) DeleteDexaScan(ctx context.Context, userID, id int64) error {
 // parameter limits of both SQLite and Postgres.
 const upsertChunk = 500
 
-func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error) {
+func (s *BodyStore) UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error) {
 	// Check everything first, so a bad reading late in a large batch fails before any work is done.
 	rows := make([]scaleRow, 0, len(rs))
 	for i := range rs {
@@ -302,7 +302,7 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 // user added in the app, which would otherwise be wiped. The notes are inside the encrypted
 // document, so this reads the existing rows instead of leaving a column out of the update. A
 // delivery that does carry notes replaces them.
-func (s *Store) keepNotes(ctx context.Context, tx bun.Tx, userID int64, rows []scaleRow) error {
+func (s *BodyStore) keepNotes(ctx context.Context, tx bun.Tx, userID int64, rows []scaleRow) error {
 	bySource := map[string][]string{}
 	for _, r := range rows {
 		if r.ExternalID != nil && r.Vals.Notes == "" {
@@ -362,7 +362,7 @@ func lastPerExternalID(rows []scaleRow) []scaleRow {
 	return out
 }
 
-func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error) {
+func (s *BodyStore) ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error) {
 	var rows []scaleRow
 	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
 		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
@@ -371,11 +371,11 @@ func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.S
 	return s.scaleModels(rows)
 }
 
-func (s *Store) DeleteScaleReading(ctx context.Context, userID, id int64) error {
+func (s *BodyStore) DeleteScaleReading(ctx context.Context, userID, id int64) error {
 	return s.deleteOwned(ctx, (*scaleRow)(nil), userID, id)
 }
 
-func (s *Store) deleteOwned(ctx context.Context, model any, userID, id int64) error {
+func (s *BodyStore) deleteOwned(ctx context.Context, model any, userID, id int64) error {
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewDelete().Model(model).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx)
 		if err != nil {

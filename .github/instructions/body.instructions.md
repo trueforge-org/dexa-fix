@@ -19,6 +19,10 @@ description: "Rules for the body service: scale readings, DEXA scans, estimates 
 - **The store is a `store.BodyStore`.** Nothing here reads the users table; a user id is an opaque reference. Deleting a user is an explicit call (`DELETE /users/{id}`), and the main backend sweeps for what it missed.
 - **The cache** (`estcache.go`) is keyed by the body version from the store, a hash of the settings and the day. It is the only process memory that is allowed, and it must never be the only place that knows something.
 
+## As a process of its own
+
+`serve body` (`cmd/body.go`) opens `sqlstore.OpenBody`: a database that holds only the body tables (`migrations/body/`, version table `goose_body_version`) and a key of its own, checked by `body_meta`. Inside the api process the same code runs on the main database (`Store.BodyStore`, key derived from the main key). Keep both working: a change to a body table goes in `migrations/body/{sqlite,postgres}/00001_init.sql` (no new migration files before 1.0), is tested in `bodystore_test.go` and in `bodysplit_test.go` (the whole stack over two databases and real TCP), and does not read or write anything outside the body tables. Key checks decide first and write after, for every domain (`verifyKey` returns the write), so a wrong key leaves nothing behind.
+
 ## Changing the API
 
 Add the DTO and the client method in `pkg/shared/bodyapi`, the handler in `handlers.go` behind `guard`, and the wrapper in `pkg/backend/main/body.go`. Test the guard (wrong secret, expired token, another user's id, too small a scope) as well as the behaviour: `service_test.go` shows how, over a real HTTP server and the real client.

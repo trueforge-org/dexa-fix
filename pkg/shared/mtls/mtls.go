@@ -42,6 +42,13 @@ const (
 // Generate makes a bundle. serverNames are the names and addresses the frontend uses to reach the
 // backend (host names and IP addresses, such as "api" or "10.0.0.5"); "localhost" is always added.
 func Generate(serverNames []string) (Bundle, error) {
+	return GenerateFor(serverNames, "dexa-fix api", "dexa-fix web")
+}
+
+// GenerateFor is Generate for any link between two processes: serverCN and clientCN only label the
+// two certificates (nothing checks them; the CA and the server names are what is verified). Every
+// link should have a CA of its own, so that a certificate of one link opens nothing of another.
+func GenerateFor(serverNames []string, serverCN, clientCN string) (Bundle, error) {
 	now := time.Now().Add(-5 * time.Minute) // tolerate small clock differences between hosts
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -71,7 +78,7 @@ func Generate(serverNames []string) (Bundle, error) {
 
 	srvTmpl := &x509.Certificate{
 		SerialNumber: serial(),
-		Subject:      pkix.Name{CommonName: "dexa-fix api"},
+		Subject:      pkix.Name{CommonName: serverCN},
 		NotBefore:    now,
 		NotAfter:     now.Add(leafValidity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -96,7 +103,7 @@ func Generate(serverNames []string) (Bundle, error) {
 
 	cliTmpl := &x509.Certificate{
 		SerialNumber: serial(),
-		Subject:      pkix.Name{CommonName: "dexa-fix web"},
+		Subject:      pkix.Name{CommonName: clientCN},
 		NotBefore:    now,
 		NotAfter:     now.Add(leafValidity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

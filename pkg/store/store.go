@@ -122,9 +122,10 @@ type BodyStore interface {
 
 // Store persists users, per-user integration data and everything else the main backend holds,
 // and, through BodyStore, DEXA scans and scale readings.
+//
+// It does not have the scans and readings: they belong to the body domain (BodyStore), which can be
+// served from another process, so the main backend reaches them only through the body service.
 type Store interface {
-	BodyStore
-
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
 	CreateUser(ctx context.Context, name string) (models.User, error)
 	// CreateUserWithIdentity creates a user and its identity atomically. An empty Subject means

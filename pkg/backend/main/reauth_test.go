@@ -20,6 +20,9 @@ type agedSessions struct {
 	age time.Duration
 }
 
+// Unwrap is the store underneath, for testBody to find the body domain in.
+func (a agedSessions) Unwrap() store.Store { return a.Store }
+
 func (a agedSessions) GetSession(ctx context.Context, tokenHash string) (models.Session, error) {
 	sess, err := a.Store.GetSession(ctx, tokenHash)
 	if err == nil {

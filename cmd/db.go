@@ -18,6 +18,15 @@ func addDBFlags(c *cobra.Command) {
 	c.Flags().String("db-driver", envOr("DEXAFIX_DB_DRIVER", sqlstore.DriverSQLite), "database driver: sqlite or postgres")
 	c.Flags().String("dsn", envOr("DEXAFIX_DSN", defaultSQLiteDSN), "database connection string (without a password: use DEXAFIX_DSN or --dsn-file for those)")
 	c.Flags().String("dsn-file", envOr("DEXAFIX_DSN_FILE", ""), "file holding the database connection string, for strings with a password")
+	c.Flags().Bool("without-body", envOr("DEXAFIX_WITHOUT_BODY", "false") == "true", "this database does not hold the scale readings and DEXA scans because a body service of its own does (dexa-fix serve body); keeps the commands from creating their tables here")
+}
+
+// dbOptions adds the options the shared database flags ask for to opts.
+func dbOptions(c *cobra.Command, opts ...sqlstore.Option) []sqlstore.Option {
+	if without, _ := c.Flags().GetBool("without-body"); without {
+		opts = append(opts, sqlstore.WithoutBody())
+	}
+	return opts
 }
 
 func dbFlags(c *cobra.Command) (driver, dsn string, err error) {
@@ -53,7 +62,7 @@ dexa-fix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithoutMigrate())
+		st, err := sqlstore.Open(ctx, driver, dsn, dbOptions(cmd, sqlstore.WithoutMigrate())...)
 		if err != nil {
 			return err
 		}
@@ -214,6 +223,33 @@ dexa-fix db copy --from-dsn file:dexa-fix.db --to-driver postgres --to-dsn-file 
 	},
 }
 
+// rekeyBody re-encrypts the body data of a database that holds only that (the body service's own).
+// --dsn and the key flags are the body service's.
+func rekeyBody(ctx context.Context, cmd *cobra.Command, driver, dsn string, dryRun bool) error {
+	c, err := loadCipherFor(ctx, cmd, driver, dsn, func() (bool, error) { return sqlstore.HasEncryptedBodyValues(ctx, driver, dsn) })
+	if err != nil {
+		return err
+	}
+	st, err := sqlstore.OpenBody(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	stats, err := st.Rekey(ctx, dryRun)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	verb := "re-encrypted"
+	if dryRun {
+		verb = "to re-encrypt"
+		fmt.Fprintln(out, "dry run: nothing was changed")
+	}
+	fmt.Fprintf(out, "scale readings and DEXA scans %s: %d\n", verb, stats.Changed)
+	fmt.Fprintf(out, "already under the current key: %d\n", stats.Current)
+	return nil
+}
+
 var dbRekeyCmd = &cobra.Command{
 	Use:   "rekey",
 	Short: "Re-encrypt every encrypted value with the current encryption key",
@@ -223,7 +259,11 @@ already under the current key are skipped.
 
 The old keys must be given as previous keys (DEXAFIX_ENCRYPTION_KEY_PREVIOUS or
 --encryption-key-previous-file). Stop the server first and back up the database and the key.
---dry-run only reports how many values would change, and fails if any value cannot be opened.`,
+--dry-run only reports how many values would change, and fails if any value cannot be opened.
+
+With a body service of its own, the scale readings and DEXA scans are in another database with a key
+of its own. Rotate that one with --body, pointing --dsn and the key flags at the body service's
+database and key; give the main database --without-body.`,
 	Example: `DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey --dry-run
 DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey`,
 	Args: cobra.NoArgs,
@@ -237,11 +277,14 @@ DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db r
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		if body, _ := cmd.Flags().GetBool("body"); body {
+			return rekeyBody(ctx, cmd, driver, dsn, dryRun)
+		}
 		c, err := loadCipher(ctx, cmd, driver, dsn)
 		if err != nil {
 			return err
 		}
-		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+		st, err := sqlstore.Open(ctx, driver, dsn, dbOptions(cmd, sqlstore.WithCipher(c), sqlstore.RequireMigrated())...)
 		if err != nil {
 			return err
 		}
@@ -274,6 +317,7 @@ func init() {
 	addDBFlags(dbRekeyCmd)
 	addKeyFlags(dbRekeyCmd)
 	dbRekeyCmd.Flags().Bool("dry-run", false, "only report what would change")
+	dbRekeyCmd.Flags().Bool("body", false, "rotate the key of the body service's own database (scale readings and DEXA scans); --dsn and the key flags are then that service's")
 	dbCopyCmd.Flags().String("from-driver", sqlstore.DriverSQLite, "source database driver: sqlite or postgres")
 	dbMigrateCmd.Flags().Bool("yes", false, "confirm rolling the schema back, which drops tables and their data")
 	dbCopyCmd.Flags().String("from-dsn", envOr("DEXAFIX_FROM_DSN", envOr("DEXAFIX_DSN", "")), "source connection string (without a password: use DEXAFIX_FROM_DSN or --from-dsn-file for those)")

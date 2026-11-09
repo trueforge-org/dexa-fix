@@ -156,9 +156,14 @@ func addKeyFlags(c *cobra.Command) {
 // loadCipher resolves the current and previous keys. It refuses to create a key file for a database
 // that already holds encrypted values.
 func loadCipher(ctx context.Context, cmd *cobra.Command, driver, dsn string) (*sqlstore.Cipher, error) {
+	return loadCipherFor(ctx, cmd, driver, dsn, func() (bool, error) { return sqlstore.HasEncryptedValues(ctx, driver, dsn) })
+}
+
+// loadCipherFor is loadCipher for a database that holds something else than the main data: hasData
+// says whether it already holds encrypted values (the body service's database, for one).
+func loadCipherFor(ctx context.Context, cmd *cobra.Command, driver, dsn string, hasData func() (bool, error)) (*sqlstore.Cipher, error) {
 	keyFile, _ := cmd.Flags().GetString("encryption-key-file")
 	prevFile, _ := cmd.Flags().GetString("encryption-key-previous-file")
-	hasData := func() (bool, error) { return sqlstore.HasEncryptedValues(ctx, driver, dsn) }
 	key, created, err := resolveEncryptionKey(os.Getenv(encryptionKeyEnv), keyFile, hasData)
 	if err != nil {
 		return nil, err
@@ -208,6 +213,9 @@ The Withings import is set up on the Admin page (client id, secret and redirect 
 DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix serve --db-driver postgres
 dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if without, _ := cmd.Flags().GetBool("without-body"); without {
+			return errors.New("--without-body does not apply to the combined `serve`: it runs the body service too (use `serve api --body-url ...` with `serve body`)")
+		}
 		listen, _ := cmd.Flags().GetString("listen")
 		driver, dsn, err := dbFlags(cmd)
 		if err != nil {

@@ -3,10 +3,12 @@ package bodyapi
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -235,4 +237,19 @@ func (c *Client) UserIDs(ctx context.Context) ([]int64, error) {
 	var ids []int64
 	_, err := c.call(ctx, http.MethodGet, "/users", nil, 0, ScopeAdmin, nil, nil, nil, &ids)
 	return ids, err
+}
+
+// HTTPClient is the client for a body service in another process, with a TLS configuration such as
+// the mutual TLS configuration of package mtls (nil means plain HTTP). An import of a long history
+// takes a while to answer, so the wait for a response is generous; connecting is not.
+func HTTPClient(tlsConfig *tls.Config) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSClientConfig:       tlsConfig,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Minute,
+		MaxConnsPerHost:       64,
+		MaxIdleConnsPerHost:   32,
+		IdleConnTimeout:       90 * time.Second,
+	}}
 }

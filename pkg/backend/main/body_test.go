@@ -1,6 +1,7 @@
 package mainbackend
 
 import (
+	"fmt"
 	"sync"
 
 	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
@@ -14,8 +15,21 @@ import (
 var testBodies sync.Map // *Backend -> *bodybackend.Service
 
 // testBody returns the option that gives a backend its own in-process body service over st.
-func testBody(st store.Store) Option {
-	c, svc, err := bodybackend.NewInProcess(st)
+//
+// st is the store that has the body domain (*sqlstore.Store), or any store.BodyStore, or a wrapper
+// of one that has an Unwrap method.
+func testBody(st any) Option {
+	for {
+		if _, ok := st.(store.BodyStore); ok {
+			break
+		}
+		w, ok := st.(interface{ Unwrap() store.Store })
+		if !ok {
+			panic(fmt.Sprintf("%T has no body domain: give it an Unwrap method", st))
+		}
+		st = w.Unwrap()
+	}
+	c, svc, err := bodybackend.NewInProcess(st.(store.BodyStore))
 	if err != nil {
 		panic(err)
 	}

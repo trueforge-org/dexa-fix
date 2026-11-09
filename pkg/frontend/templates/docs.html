@@ -26,6 +26,7 @@
         <li><a href="#athlete-mode">Athlete mode</a></li>
         <li><a href="#calibration">Calibration</a></li>
         <li><a href="#estimate-range">Range and columns</a></li>
+        <li><a href="#estimate-cache">Estimate cache</a></li>
       </ul></li>
     <li><a href="#settings-page">Settings</a></li>
     <li><a href="#integrations">Integrations</a>
@@ -49,6 +50,21 @@
         <li><a href="#proxy-protocol">PROXY protocol</a></li>
         <li><a href="#https">HTTPS, HTTP/2 and HTTP/3</a></li>
         <li><a href="#two-processes">Two processes</a></li>
+      </ul></li>
+    <li><a href="#body-service">Body service</a>
+      <ul>
+        <li><a href="#body-separation">What it separates</a></li>
+        <li><a href="#body-protection">How a call is protected</a></li>
+        <li><a href="#body-start">Start it</a></li>
+        <li><a href="#body-keys">Keys</a></li>
+        <li><a href="#body-rotation">Rotating the secret and the token key</a></li>
+        <li><a href="#body-mutual-tls">Mutual TLS</a></li>
+        <li><a href="#body-deleting">Deleting users</a></li>
+        <li><a href="#body-down">When the body service is down</a></li>
+        <li><a href="#body-management">Management commands</a></li>
+        <li><a href="#body-moving">Moving to this layout</a></li>
+        <li><a href="#body-limits">Limits</a></li>
+        <li><a href="#body-troubleshooting">Troubleshooting</a></li>
       </ul></li>
     <li><a href="#database">Database</a></li>
     <li><a href="#encryption">Encryption</a></li>
@@ -241,7 +257,7 @@
 
 <section id="estimates-page">
 <h2>Estimates</h2>
-<p>Page: <code>/u/{id}/estimates</code> (the page you land on after sign-in). It shows an overview of the latest values with a trend chart, the daily table, and the calibrations in use. The estimates are cached in memory per user and invalidated automatically when your data or settings change, so the page is fast but never stale.</p>
+<p>Page: <code>/u/{id}/estimates</code> (the page you land on after sign-in). It shows an overview of the latest values with a trend chart, the daily table, and the calibrations in use. The estimates are computed by the <a href="#body-service">body service</a> and kept in a memory cache (see <a href="#estimate-cache">Estimate cache</a>).</p>
 
 <h3 id="how-estimates-work">How the daily estimates are computed</h3>
 <p>Each field is handled on its own. The estimated fields are weight, body fat, fat mass, fat-free mass, bone mass, lean mass, hydration, visceral fat index, BMI, FMI, LMI and the A/G ratio.</p>
@@ -294,6 +310,15 @@
 
 <h3 id="resync-day">Per-day Withings re-import and Strength Level</h3>
 <p>With Withings connected, an <strong>&#8635;</strong> button on each row re-imports that one day. It replaces that day's Withings data: adds its Withings readings (even when manual readings exist), updates changed ones, and removes stored Withings readings that Withings no longer returns. It never touches manual readings. With Strength Level enabled for you, a <strong>&#8682;</strong> button sends that day's weight and body fat to Strength Level (see <a href="#strengthlevel">Strength Level</a>).</p>
+
+<h3 id="estimate-cache">Estimate cache</h3>
+<p>Computing the estimates walks a user's whole history, so the result is kept in memory per user (for the 32 most recently used users), by the <a href="#body-service">body service</a> that computes it. It is reused until something it depends on changes, and there is no list of places that have to remember to clear it. The cache is tied to three things:</p>
+<ul>
+  <li>the user's body version, a counter in the database that every change to the user's scans and readings (web, API, imports) increments in the same transaction;</li>
+  <li>the settings the estimates depend on: time zone, height, method ranking and athlete default, which the api process sends with every call;</li>
+  <li>the date, since the series runs up to today.</li>
+</ul>
+<p>Because the counter lives in the database, a change made by another process or server sharing a Postgres database is seen at once as well. The cache starts empty after a restart or upgrade.</p>
 </section>
 
 <section id="settings-page">
@@ -439,6 +464,16 @@
 <section id="server-config">
 <h2>Server configuration</h2>
 <p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix user</code> recovers accounts, <code>dexa-fix settings</code> recovers from server settings that locked you out, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>serve body</code></td><td>Run the <a href="#body-service">body service</a>: scale readings, DEXA scans and estimates, in a database of its own.</td></tr>
+    <tr><td><code>secrets body-secret</code></td><td>Print a new body secret of 64 hexadecimal characters for <code>serve api</code> and <code>serve body</code>. It must differ from the service and worker secrets.</td></tr>
+    <tr><td><code>secrets body-token-key</code></td><td>Print a new private key for the api process to sign body service tokens with. Keep it to that process.</td></tr>
+    <tr><td><code>secrets body-token-public --key-file FILE</code></td><td>Print the public key of that private key, for <code>serve body</code>.</td></tr>
+    <tr><td><code>secrets mtls --link body</code></td><td>Create certificates for the link between the api process and the body service (see <a href="#body-mutual-tls">Mutual TLS</a>).</td></tr>
+  </tbody>
+</table></div>
 
 <h3 id="admin-settings">Settings on the Admin page</h3>
 <p>Some settings are not flags. The base URL, trusted proxies, PROXY protocol, audit log retention, the encryption key reminder, e-mail (SMTP) and HTTPS are stored in the database, encrypted, and take effect at once on the <a href="#admin-page">Admin page</a>. There are no flags or environment variables for them. If <code>DEXAFIX_TRUSTED_PROXIES</code>, <code>DEXAFIX_BASE_URL</code> or <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> is still set, the server logs a warning that it is ignored. If a wrong setting locks you out, see <a href="#settings-reset-network"><code>settings reset-network</code></a>.</p>
@@ -456,8 +491,22 @@
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
     <tr><td><code>--encryption-key-previous-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE</code></td><td>empty</td><td>File with earlier keys, one per line (blank lines and <code>#</code> comments are ignored), for a key rotation.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS</code></td><td>unset</td><td>Earlier keys, comma separated, for a key rotation.</td></tr>
+    <tr><td><code>--without-body</code></td><td><code>DEXAFIX_WITHOUT_BODY</code></td><td><code>false</code></td><td><code>serve api</code> (needs <code>--body-url</code>) and the <code>db</code>, <code>user</code> and <code>settings</code> commands. This database does not hold the scale readings and DEXA scans because a body service of its own does; keeps the commands from creating their tables here.</td></tr>
+    <tr><td><code>--body-url</code></td><td><code>DEXAFIX_BODY_URL</code></td><td>empty</td><td><code>serve api</code> only. Address of a <a href="#body-service">body service</a> in its own process, such as <code>http://body:8082</code>. Empty runs the body service inside the api process.</td></tr>
+    <tr><td><code>--body-secret-file</code></td><td><code>DEXAFIX_BODY_SECRET_FILE</code></td><td>empty</td><td><code>serve api</code> with <code>--body-url</code>, and <code>serve body</code>. Secret they share, one per line (the api process sends the first, the body service accepts every line). Must differ from the service and worker secrets.</td></tr>
+    <tr><td><code>--body-token-key-file</code></td><td><code>DEXAFIX_BODY_TOKEN_KEY_FILE</code></td><td>empty</td><td><code>serve api</code> with <code>--body-url</code>. Private key that signs the tokens for the body service (<code>secrets body-token-key</code>).</td></tr>
+    <tr><td><code>--body-ca-file</code></td><td><code>DEXAFIX_BODY_CA_FILE</code></td><td>empty</td><td><code>serve api</code> only. CA that must have issued the body service's certificate. Use with an <code>https://</code> <code>--body-url</code>, together with the two files below.</td></tr>
+    <tr><td><code>--body-client-cert-file</code></td><td><code>DEXAFIX_BODY_CLIENT_CERT_FILE</code></td><td>empty</td><td><code>serve api</code> only. Client certificate that the api process presents to the body service.</td></tr>
+    <tr><td><code>--body-client-key-file</code></td><td><code>DEXAFIX_BODY_CLIENT_KEY_FILE</code></td><td>empty</td><td><code>serve api</code> only. Private key of the client certificate above.</td></tr>
+    <tr><td><code>--body-server-name</code></td><td><code>DEXAFIX_BODY_SERVER_NAME</code></td><td>empty</td><td><code>serve api</code> only. Name the body service's certificate must carry, if it is not the host of <code>--body-url</code>.</td></tr>
+    <tr><td><code>--listen</code> (<code>serve body</code>)</td><td><code>DEXAFIX_BODY_LISTEN</code></td><td><code>:8082</code></td><td><code>serve body</code> only. Address of the body service; keep it on a private network.</td></tr>
+    <tr><td><code>--body-token-public-key-file</code></td><td><code>DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Required. Public key(s) of the api process's token key, one per line (<code>secrets body-token-public</code>).</td></tr>
+    <tr><td><code>--body-tls-cert-file</code></td><td><code>DEXAFIX_BODY_TLS_CERT_FILE</code></td><td>empty</td><td><code>serve body</code> only. Serve over mutual TLS: certificate of the service. Set it with <code>--body-tls-key-file</code> and <code>--body-tls-client-ca-file</code>, or none.</td></tr>
+    <tr><td><code>--body-tls-key-file</code></td><td><code>DEXAFIX_BODY_TLS_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Private key of the certificate above.</td></tr>
+    <tr><td><code>--body-tls-client-ca-file</code></td><td><code>DEXAFIX_BODY_TLS_CLIENT_CA_FILE</code></td><td>empty</td><td><code>serve body</code> only. CA that issues the api process's client certificate.</td></tr>
   </tbody>
 </table></div>
+<p><code>serve body</code> takes the database and key flags too, for the database and key of the body service. It has no <code>--maintenance</code>, and its <code>--auto-migrate</code> migrates the body database only.</p>
 <p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
 <pre><code>dexa-fix serve --listen 127.0.0.1:8080
 export DEXAFIX_DSN='postgres://user:secret@localhost/dexafix'
@@ -565,7 +614,114 @@ stream {
   <li><code>dexa-fix serve web</code> renders the pages and serves the public HTTP, HTTPS and HTTP/3 listeners. It has no database. Flags: <code>--listen</code>, <code>--backend-url</code> (the internal address of the api process, such as <code>http://api:8081</code>), <code>--service-secret-file</code>, and optionally <code>--api-upstream</code> to pass <code>/api/</code> on to the api process.</li>
   <li><code>dexa-fix serve api</code> owns the database and every security decision. <code>--listen</code> serves the JSON API (<code>/api/v1</code>) behind your reverse proxy; <code>--internal-listen</code> serves the internal API for the web process and must stay on a private network.</li>
 </ul>
+<p>The scale readings, DEXA scans and estimates are held by the <a href="#body-service">body service</a>, which runs inside the api process unless you start <code>serve body</code> and give <code>serve api</code> a <code>--body-url</code>.</p>
 <p>The two share a secret file: create it with <code>dexa-fix secrets service-secret &gt; service.secret</code> and give its path to both. The settings on the Admin page apply to both, and the web process picks changes up within seconds. In your reverse proxy send <code>/api/</code> to the api process and everything else to the web process. Plain <code>dexa-fix serve</code> still runs everything in one process. The page <em>Running as two processes</em> in the documentation folder has a Compose example and the details.</p>
+</section>
+
+<section id="body-service">
+<h2>Body service</h2>
+<p>The body service holds the scale readings and the DEXA scans, computes the <a href="#estimates-page">estimates</a> from them and decides what an import from Withings stores. It knows nothing about people: no sign-in, no sessions, no e-mail. The api process authenticates people and calls the body service for the data of one user at a time.</p>
+<p>You can ignore this page if you run <code>dexa-fix serve</code>, or <code>serve api</code> without <code>--body-url</code>. Then the body service runs inside that process, on the same database, and nothing needs to be set up. Run it as a process of its own when you want a leak of one database or one host to give away only half of the data.</p>
+
+<h3 id="body-separation">What it separates</h3>
+<div class="scroll"><table>
+  <thead><tr><th></th><th>api process (main backend)</th><th>body service</th></tr></thead>
+  <tbody>
+    <tr><td>Holds</td><td>users, sessions, settings, audit log, provider tokens, the job queue</td><td>scale readings, DEXA scans, the estimate cache</td></tr>
+    <tr><td>Database</td><td>the main database</td><td>its own PostgreSQL schema and role, or its own SQLite file</td></tr>
+    <tr><td>Encryption key</td><td>its own</td><td>its own</td></tr>
+    <tr><td>Can reach</td><td>both</td><td>only its own database</td></tr>
+  </tbody>
+</table></div>
+<ul>
+  <li>The readings and scans are encrypted with a key that the api process does not hold (see <a href="#body-keys">Keys</a>).</li>
+  <li>With PostgreSQL, the body service connects as a role that sees the schema <code>body</code> and nothing else, and the api role has no rights in that schema. The deployment example sets this up.</li>
+  <li>Heavy work (estimates over years of readings, imports) runs in the body service with its own limits, so it cannot slow down sign-in and the pages.</li>
+</ul>
+<p>A compromised api process still reaches all data, because it is the one that asks the body service for it. The separation protects against the leak of one database, one backup or one host, not against a break-in to the api process.</p>
+
+<h3 id="body-protection">How a call is protected</h3>
+<p>Every call from the api process to the body service carries two things:</p>
+<ul>
+  <li>the <strong>body secret</strong>, a file both processes share, like the service secret;</li>
+  <li>a <strong>token</strong> that the api process signs for that one call. It names one user and one scope (<code>read</code>, <code>write</code> or <code>admin</code>), lives for 60 seconds at most and carries the user's time zone, height, method ranking and athlete default, which the estimates need.</li>
+</ul>
+<p>The api process signs with a private key. The body service holds only the public key, so it can check tokens but never make one. A token for user 1 opens nothing of user 2, a <code>read</code> token cannot write, and only an <code>admin</code> token can remove a user's data. The two processes need clocks within a few seconds of each other.</p>
+
+<h3 id="body-start">Start it</h3>
+<p>The recommended way is the Compose example: <code>deploy/init-secrets.sh</code> creates everything below and <code>deploy/initdb/</code> creates the PostgreSQL role and schema. To run it by hand, make the secrets first. All of them are files:</p>
+<pre><code>dexa-fix secrets body-secret &gt; body.secret &amp;&amp; chmod 600 body.secret
+dexa-fix secrets body-token-key &gt; body-token.key &amp;&amp; chmod 600 body-token.key
+dexa-fix secrets body-token-public --key-file body-token.key &gt; body-token.pub</code></pre>
+<p><code>body-token.key</code> goes to the api process only. <code>body-token.pub</code> and <code>body.secret</code> go to the body service, and <code>body.secret</code> to the api process too. The body secret must differ from the service secret and from the worker secret: <code>serve api</code> refuses to start otherwise. The key files carry a label (<code>ed25519-private:</code> or <code>ed25519-public:</code>), and <code>serve body</code> refuses a private key where the public one belongs.</p>
+<p>Start the body service, with a database and an encryption key of its own:</p>
+<pre><code>dexa-fix serve body --listen :8082 \
+  --db-driver postgres --dsn-file body.dsn \
+  --encryption-key-file body.key \
+  --body-secret-file body.secret \
+  --body-token-public-key-file body-token.pub</code></pre>
+<p>Then point the api process at it:</p>
+<pre><code>dexa-fix serve api --internal-listen :8081 \
+  --service-secret-file service.secret --worker-secret-file worker.secret \
+  --db-driver postgres --dsn-file main.dsn --encryption-key-file main.key \
+  --body-url http://body:8082 \
+  --body-secret-file body.secret --body-token-key-file body-token.key</code></pre>
+<p>With <code>--body-url</code> the api process does not create or use the tables of the body service in its own database. Keep the body service's port on a network that only the api process can reach. All flags are in <a href="#serve-flags">Configuration</a>.</p>
+
+<h4 id="body-postgres">PostgreSQL role and schema</h4>
+<p>The Compose example creates them when the database is first created (<code>deploy/initdb/01-body-database.sh</code>, which needs <code>body_db_password</code>). For a database that already exists, run this once as the database owner, with your own password:</p>
+<pre><code>CREATE ROLE dexafix_body LOGIN PASSWORD '&lt;password&gt;';
+CREATE SCHEMA body AUTHORIZATION dexafix_body;
+ALTER ROLE dexafix_body SET search_path = body;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;</code></pre>
+<p>The body service's connection string then selects the schema, for example <code>postgres://dexafix_body:&lt;password&gt;@db:5432/dexafix?search_path=body&amp;sslmode=disable</code>. The service migrates its own tables into that schema on start, and keeps its migration count in its own table (<code>goose_body_version</code>).</p>
+<p>With SQLite, give the body service a file of its own, for example <code>--dsn file:/data/body.db</code>.</p>
+
+<h3 id="body-keys">Keys</h3>
+<p>In the combined process the key of the readings and scans is derived from the encryption key with HKDF, under a label of its own, so one key file covers both and <code>db rekey</code> rotates both. A value sealed for the readings does not open with the key of the rest.</p>
+<p>A body service in its own process has its own <code>--encryption-key-file</code> (or <code>DEXAFIX_ENCRYPTION_KEY</code>), checked against its database like the main key (see <a href="#encryption">Encryption</a>). Use the same file as the api process to get the same key, or a different one to keep a leak of one key from opening the other. A wrong key is refused at start with a message that says so. The body key is a second key to back up: <strong>without it the readings and scans cannot be read.</strong></p>
+<p>Rotate it with the body service stopped, pointing <code>--dsn</code> and the key flags at the body service's database and key:</p>
+<pre><code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt; DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt; \
+  dexa-fix db rekey --body --dsn-file body.dsn --dry-run</code></pre>
+<p>Run it again without <code>--dry-run</code> to re-encrypt. It completes or changes nothing, and can be repeated.</p>
+
+<h3 id="body-rotation">Rotating the secret and the token key</h3>
+<ul>
+  <li><strong>Body secret.</strong> Both files hold one secret per line. Add a new first line to the api process's file and keep the old line in the body service's file until all api processes use the new one: the api process sends the first line, the body service accepts every line. Then remove the old line.</li>
+  <li><strong>Token key.</strong> Make a new key pair. Add the new public key as another line in the body service's <code>body-token.pub</code>, restart it, switch the api process to the new private key, then remove the old public key line.</li>
+</ul>
+
+<h3 id="body-mutual-tls">Mutual TLS</h3>
+<p>The link can be wrapped in mutual TLS, on top of the secret and the tokens. Make a set for this link, with a CA of its own, so that a certificate of the link between web and api opens nothing here:</p>
+<pre><code>dexa-fix secrets mtls --link body --dir ./mtls-body --name body</code></pre>
+<p>It writes <code>ca.pem</code>, <code>body.pem</code>, <code>body.key</code>, <code>api-client.pem</code> and <code>api-client.key</code>. Give the body service <code>--body-tls-cert-file</code>, <code>--body-tls-key-file</code> and <code>--body-tls-client-ca-file</code>, and the api process an <code>https://</code> <code>--body-url</code> with <code>--body-ca-file</code>, <code>--body-client-cert-file</code> and <code>--body-client-key-file</code>. Either all three files are given or none, and an <code>https://</code> address needs all of them.</p>
+
+<h3 id="body-deleting">Deleting users</h3>
+<p>When an administrator deletes a user, the api process also removes the user's readings and scans from the body service. If the body service cannot be reached then, the data stays until the maintenance loop finds it: every six hours it compares the users that have data with the users that exist and removes the data of those that are gone. User ids are never reused, so this is safe.</p>
+
+<h3 id="body-down">When the body service is down</h3>
+<p>Everything that needs readings, scans or estimates answers with a 503 page or status: the Scale, DEXA and Estimates pages, the export, the readings and scans endpoints of the <a href="#json-api">JSON API</a>. A Withings import waits: the worker reports its result again until the body service answers, and the job is not lost. Signing in, settings, the admin pages and the rest keep working, and the Admin page shows the two counts as "Unavailable".</p>
+
+<h3 id="body-management">Management commands</h3>
+<p>The <code>db</code>, <code>user</code> and <code>settings</code> commands open the main database. When the body service has its own database, give them <code>--without-body</code> (or <code>DEXAFIX_WITHOUT_BODY=true</code>), or <code>db migrate up</code> creates empty body tables in the main database. <code>db copy</code> is for databases that hold both. The body service migrates its own database on start (<code>--auto-migrate</code>, on by default).</p>
+
+<h3 id="body-moving">Moving to this layout</h3>
+<p>A database from an earlier build is not migrated: the readings and scans are now stored in a different form, and a body database of its own starts empty. Export each user's data first and import it afterwards (see <a href="#data-export">Data export and GDPR</a>).</p>
+
+<h3 id="body-limits">Limits</h3>
+<ul>
+  <li>A call is not atomic across the two services. An import is applied in steps that can be repeated, so a run that stops half way is finished by running it again.</li>
+  <li>An export is built in memory in the body service and the api process.</li>
+  <li>Backups of the two databases are separate: restore them from the same moment, or readings of users who were deleted in between wait for the next sweep.</li>
+</ul>
+
+<h3 id="body-troubleshooting">Troubleshooting</h3>
+<ul>
+  <li><strong>401 from the body service, in the api log as "refused a call".</strong> The secrets differ, the public key does not belong to the private key, or the clocks differ by more than a few seconds. Check the files and the time.</li>
+  <li><strong>"the body encryption key does not match this database".</strong> Another key file than the one that made the readings. Restore the right one, or keep the old key as a previous key and run <code>db rekey --body</code>.</li>
+  <li><strong>"the readings and scans are unavailable".</strong> The api process cannot reach the body service: check <code>--body-url</code>, the network and that the service runs.</li>
+  <li><strong><code>serve api</code> says the secrets must differ.</strong> The service, worker and body secrets each open a different door. Create a new one with <code>dexa-fix secrets body-secret</code>.</li>
+</ul>
 </section>
 
 <section id="database">
@@ -585,9 +741,10 @@ stream {
     <tr><td><code>db migrate status</code></td><td>List every migration and whether it is applied.</td></tr>
     <tr><td><code>db migrate version</code></td><td>Print the current schema version.</td></tr>
     <tr><td><code>db copy</code></td><td>Copy all data to another database.</td></tr>
-    <tr><td><code>db rekey [--dry-run]</code></td><td>Re-encrypt all encrypted values with the current key. See <a href="#encryption">Encryption</a>.</td></tr>
+    <tr><td><code>db rekey [--dry-run] [--body]</code></td><td>Re-encrypt all encrypted values with the current key. With <code>--body</code>, the readings and scans of a body service's own database. See <a href="#encryption">Encryption</a>.</td></tr>
   </tbody>
 </table></div>
+<p><code>db rekey</code> takes the database and encryption key flags of <code>serve</code>. When a <a href="#body-service">body service</a> has its own database, give the <code>db</code>, <code>user</code> and <code>settings</code> commands <code>--without-body</code> for the main database.</p>
 <p class="docs-warn">Rolling back drops tables and the data in them. Take a backup first.</p>
 <h3 id="db-copy">Moving from SQLite to Postgres</h3>
 <pre><code>export DEXAFIX_TO_DSN='postgres://user:secret@localhost/dexafix'
@@ -600,6 +757,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 <h2>Encryption</h2>
 <p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, each user's two-step verification secret, and the values and notes of each user's scale readings and DEXA scans (the time, source and method of a measurement stay readable, because the database needs them to find and order rows). Each value is tied to its row, so copying it to another row makes it unreadable. The readings and scans have a key of their own, derived from the encryption key, so one key file covers both. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
 <p class="docs-warn">Names and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those. Without an encryption key nothing is encrypted; readings and scans written then are encrypted at the next start with a key.</p>
+<p>With a <a href="#body-service">body service</a> in its own process, the readings and scans have an encryption key of their own: <code>serve body</code> takes <code>--encryption-key-file</code> for it, checks it against its database and refuses a wrong one. Rotate it with <code>db rekey --body</code>. Back it up like the main key.</p>
 <p>The key comes from, in this order:</p>
 <ol>
   <li>The environment variable <code>DEXAFIX_ENCRYPTION_KEY</code>: 32 bytes as 64 hexadecimal characters or as base64. There is no command-line flag, because command lines are visible to other processes.</li>
@@ -714,6 +872,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   <li><strong>Tokens</strong> are shown once and stored hashed; revoke any you no longer use. Prefer expiring tokens.</li>
   <li><strong>HTTPS certificates.</strong> A self-signed certificate is trusted by nobody until you add it, and browsers use HTTP/3 only with a trusted certificate. The private key is stored encrypted. There is no HTTP to HTTPS redirect yet.</li>
   <li><strong>Password reset links</strong> are bearer credentials: whoever reads the mailbox, or the link, can set a new password. Use STARTTLS or TLS for the SMTP server.</li>
+  <li><strong>Estimates are cached in memory</strong> by the body service, per user, for the 32 most recently used users, and recomputed when the data, the settings that matter or the date change. See <a href="#estimate-cache">Estimate cache</a>.</li>
   <li>This is a measurement tool, not a medical device. Estimates correct a scale by a DEXA offset and say nothing about health.</li>
 </ul>
 </section>

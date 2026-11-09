@@ -206,6 +206,25 @@ API and another the internal one on the same database.`,
 				return err
 			}
 		}
+		var workerSecrets []string
+		if path, _ := cmd.Flags().GetString("worker-secret-file"); path != "" {
+			var err error
+			if workerSecrets, err = loadWorkerSecrets(path); err != nil {
+				return err
+			}
+		}
+		// The body service is called over the network when --body-url is set; otherwise it runs
+		// inside this process, on the same database.
+		bodyClt, bodySecrets, remoteBody, err := bodyClient(cmd)
+		if err != nil {
+			return err
+		}
+		if without, _ := cmd.Flags().GetBool("without-body"); without && !remoteBody {
+			return errors.New("--without-body needs --body-url: without a body service of its own this process runs one, on this database")
+		}
+		if err := distinctSecrets(map[string][]string{"service": secrets, "worker": workerSecrets, "body": bodySecrets}); err != nil {
+			return err
+		}
 		driver, dsn, err := dbFlags(cmd)
 		if err != nil {
 			return err
@@ -223,6 +242,9 @@ API and another the internal one on the same database.`,
 		if !autoMigrate {
 			opts = append(opts, sqlstore.RequireMigrated())
 		}
+		if remoteBody {
+			opts = append(opts, sqlstore.WithoutBody()) // the scans and readings are in the body service's database
+		}
 		st, err := sqlstore.Open(ctx, driver, dsn, opts...)
 		if err != nil {
 			return err
@@ -235,13 +257,16 @@ API and another the internal one on the same database.`,
 				log.Warn().Str("variable", name).Msg("ignored: this is a setting on the Admin page now")
 			}
 		}
-		// Until the body service runs as a process of its own, this process runs it too.
-		bodyClient, bodySvc, err := bodybackend.NewInProcess(st)
-		if err != nil {
-			return err
+		backendOpts := []mainbackend.Option{mainbackend.WithBody(bodyClt)}
+		if !remoteBody {
+			// No --body-url: this process runs the body service too, on the same database.
+			inProcess, bodySvc, err := bodybackend.NewInProcess(st)
+			if err != nil {
+				return err
+			}
+			bodySvc.SetVersion(Version)
+			backendOpts = []mainbackend.Option{mainbackend.WithBody(inProcess)}
 		}
-		bodySvc.SetVersion(Version)
-		backendOpts := []mainbackend.Option{mainbackend.WithBody(bodyClient)}
 		if !maintenance {
 			// Only the process that runs the maintenance loop creates and renews the self-signed
 			// certificate; the others load what it stored.
@@ -266,6 +291,9 @@ API and another the internal one on the same database.`,
 				return err
 			}
 			servers = append(servers, pub)
+		}
+		if len(workerSecrets) > 0 {
+			srv.SetWorkerSecrets(workerSecrets...)
 		}
 		if internal != "" {
 			srv.SetServiceSecrets(secrets...)
@@ -305,6 +333,7 @@ func init() {
 	addServiceSecretFlag(serveAPICmd)
 	addWorkerSecretFlag(serveAPICmd, "file with the secret the api process and its workers share, one per line (the first is the one workers send); create one with `dexa-fix secrets worker-secret`; it must differ from the service secret")
 	addInternalTLSFlags(serveAPICmd)
+	addBodyClientFlags(serveAPICmd)
 	addDBFlags(serveAPICmd)
 	serveAPICmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	serveAPICmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")

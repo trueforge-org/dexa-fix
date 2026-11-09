@@ -21,13 +21,20 @@ type slowStore struct {
 	once    sync.Once
 }
 
-func (s *slowStore) ListDexaScansPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.DexaScan, *store.Cursor, error) {
-	s.once.Do(func() { close(s.started) })
+// slowBody is the body half of a slowStore: it holds the list of scans until released, so a test can
+// keep requests in flight in the body service.
+type slowBody struct {
+	store.BodyStore
+	slow *slowStore
+}
+
+func (b slowBody) ListDexaScansPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.DexaScan, *store.Cursor, error) {
+	b.slow.once.Do(func() { close(b.slow.started) })
 	select {
-	case <-s.release:
+	case <-b.slow.release:
 	case <-ctx.Done():
 	}
-	return s.Store.ListDexaScansPage(ctx, userID, f)
+	return b.BodyStore.ListDexaScansPage(ctx, userID, f)
 }
 
 // newBackendPair is a backend with a public and an internal listener on one database, a user and a
@@ -42,7 +49,7 @@ func newBackendPair(t *testing.T) (pub, internal *httptest.Server, slow *slowSto
 		t.Fatal(err)
 	}
 	slow = &slowStore{Store: st, release: make(chan struct{}), started: make(chan struct{})}
-	b, err := NewBackend(slow, testBody(slow))
+	b, err := NewBackend(slow, testBody(slowBody{BodyStore: st, slow: slow}))
 	if err != nil {
 		t.Fatal(err)
 	}

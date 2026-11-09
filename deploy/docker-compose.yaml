@@ -7,24 +7,32 @@
 #                  |  internal network "link", authenticated with the service secret
 #                  v
 #                api ("main backend": database, keys, every security decision, the job queue)
-#                  |  internal network "data"            ^  internal network "link",
-#                  v                                     |  authenticated with the worker secret
-#                db (PostgreSQL)           worker-withings, worker-strengthlevel (no database)
-#                                                        |  network "egress" (outbound only)
-#                                                        v
-#                                          Withings, Strength Level
+#                  |  internal network "data"    |  internal network "bodylink"   ^  internal network "link",
+#                  |                             |  body secret + signed tokens   |  authenticated with the worker secret
+#                  |                             v                                |
+#                  |                          body (scale readings, DEXA scans,   worker-withings, worker-strengthlevel
+#                  |                          estimates; own role, schema, key)   (no database)
+#                  v                             |                                |  network "egress" (outbound only)
+#                db (PostgreSQL) <---------------+  internal network "data"        v
+#                                                                       Withings, Strength Level
 #
 # Start:
-#   ./init-secrets.sh        # once: creates ./secrets (database password, encryption key, service and worker secrets)
+#   ./init-secrets.sh        # once: creates ./secrets (database passwords, encryption keys, the service, worker and body secrets, the token key pair)
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
-# Back up ./secrets/encryption_key together with the database: encrypted values (stored passwords,
-# keys, tokens) cannot be read without it.
+# Back up ./secrets/encryption_key and ./secrets/body_encryption_key together with the database:
+# encrypted values (stored passwords, keys, tokens, the readings and scans) cannot be read without them.
+#
+# The scale readings and DEXA scans are held by the body container, in the PostgreSQL schema "body"
+# with a role and an encryption key of their own: the api cannot read them except by asking the body
+# container, and the body container cannot read the users or the sessions. ./initdb/ creates the role
+# and the schema when the database is first created; see docs/17-body-service.md for a database that
+# already exists.
 #
 # Pin the version for production, for example DEXAFIX_VERSION=1.2.3 in a .env file next to this file.
 # All containers must run the same version.
-# Documentation: docs/15-split-deployment.md and docs/16-workers.md
+# Documentation: docs/15-split-deployment.md, docs/16-workers.md and docs/17-body-service.md
 
 name: dexa-fix
 
@@ -42,9 +50,10 @@ services:
       POSTGRES_USER: dexafix
       POSTGRES_DB: dexafix
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-    secrets: [db_password]
+    secrets: [db_password, body_db_password]
     volumes:
       - db-data:/var/lib/postgresql # PostgreSQL 18 keeps its data below this directory
+      - ./initdb:/docker-entrypoint-initdb.d:ro # the role and schema of the body service, on first start
     networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dexafix -d dexafix"]
@@ -66,14 +75,42 @@ services:
       DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
       DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
       DEXAFIX_INTERNAL_LISTEN: ":8081"
+      # The scans, readings and estimates are the body container's. The api signs a short-lived
+      # token for every call with the private key; the body secret is the second proof.
+      DEXAFIX_BODY_URL: http://body:8082
+      DEXAFIX_BODY_SECRET_FILE: /run/secrets/body_secret
+      DEXAFIX_BODY_TOKEN_KEY_FILE: /run/secrets/body_token_key
       # With several api containers on the same database run the maintenance loop (audit log
       # purge, certificate renewal, the job sweeps and the scheduler) in one of them only:
       # DEXAFIX_MAINTENANCE: "false" on the rest.
-    secrets: [dsn, encryption_key, service_secret, worker_secret]
+    secrets: [dsn, encryption_key, service_secret, worker_secret, body_secret, body_token_key]
     depends_on:
       db:
         condition: service_healthy
-    networks: [data, link]
+      body:
+        condition: service_started
+    networks: [data, link, bodylink]
+
+  # The body service: scale readings, DEXA scans (encrypted with a key of its own) and the
+  # estimates computed from them. It knows nothing about people: it trusts the signed tokens of the
+  # api and holds only the public key, so it can check them but never make one. Its database role
+  # sees the schema "body" and nothing else. Only the api can reach it (network "bodylink").
+  body:
+    <<: *hardened
+    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    command: ["serve", "body"]
+    environment:
+      DEXAFIX_DB_DRIVER: postgres
+      DEXAFIX_DSN_FILE: /run/secrets/body_dsn
+      DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/body_encryption_key
+      DEXAFIX_BODY_SECRET_FILE: /run/secrets/body_secret
+      DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE: /run/secrets/body_token_pub
+      DEXAFIX_BODY_LISTEN: ":8082"
+    secrets: [body_dsn, body_encryption_key, body_secret, body_token_pub]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [data, bodylink]
 
   web:
     <<: *hardened
@@ -127,6 +164,8 @@ networks:
     internal: true # the database has no way out and no way in except through api
   link:
     internal: true # web, workers and api talk here; nothing else can reach api's internal port
+  bodylink:
+    internal: true # the api and the body service only: web and the workers cannot reach the readings
   public: {}
   egress: {} # outbound only: the workers reach Withings and Strength Level through it; nothing is published
 
@@ -145,6 +184,18 @@ secrets:
     file: ./secrets/service_secret
   worker_secret:
     file: ./secrets/worker_secret
+  body_db_password:
+    file: ./secrets/body_db_password
+  body_dsn:
+    file: ./secrets/body_dsn
+  body_encryption_key:
+    file: ./secrets/body_encryption_key
+  body_secret:
+    file: ./secrets/body_secret
+  body_token_key:
+    file: ./secrets/body_token_key
+  body_token_pub:
+    file: ./secrets/body_token_pub
 
 # OPTIONAL: mutual TLS between web and api (docs/15-split-deployment.md#mutual-tls-between-web-and-api).
 # Without it the internal link is protected by the service secret alone. Leave this block commented

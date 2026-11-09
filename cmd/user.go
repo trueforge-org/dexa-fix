@@ -42,7 +42,7 @@ sign-in. The change is not written to the audit log of a running server.`,
 		if err != nil {
 			return err
 		}
-		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+		st, err := sqlstore.Open(ctx, driver, dsn, dbOptions(cmd, sqlstore.WithCipher(c), sqlstore.RequireMigrated())...)
 		if err != nil {
 			return err
 		}

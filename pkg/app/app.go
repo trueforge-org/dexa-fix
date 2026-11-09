@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -50,7 +51,11 @@ func New(st store.Store) (*Server, error) {
 func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 	// The body service runs in this process too, and the backend calls it through the same handler,
 	// headers and tokens as it would a separate one.
-	bodyClient, bodySvc, err := bodybackend.NewInProcess(st)
+	bodyStore, ok := st.(store.BodyStore)
+	if !ok {
+		return nil, errors.New("the combined server needs a store that holds the scans and readings too")
+	}
+	bodyClient, bodySvc, err := bodybackend.NewInProcess(bodyStore)
 	if err != nil {
 		return nil, err
 	}

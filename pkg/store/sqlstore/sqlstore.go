@@ -36,12 +36,16 @@ type Store struct {
 	driver   string
 	maxConns int     // size of the connection pool
 	cipher   *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
-	// bodyCipher does the same for the body domain (scans and readings). Its keys derive from
-	// cipher's, so one key file covers both. nil when cipher is nil.
-	bodyCipher *Cipher
+
+	// BodyStore is the body domain (scans and readings) on the same connection pool, or nil when
+	// the store was opened WithoutBody: then another process holds that data. Its methods are
+	// promoted, so a combined process and the tests use one value for both domains; the main
+	// backend only sees the store.Store interface, which does not have them.
+	*BodyStore
 }
 
 var _ store.Store = (*Store)(nil)
+var _ store.BodyStore = (*Store)(nil)
 
 // MaxConns is the size of the connection pool. A server uses it to keep one class of requests from
 // taking every connection.
@@ -56,8 +60,9 @@ const (
 )
 
 type openConfig struct {
-	migrate migrateMode
-	cipher  *Cipher
+	migrate     migrateMode
+	cipher      *Cipher
+	withoutBody bool
 }
 
 // Option customises Open.
@@ -66,20 +71,20 @@ type Option func(*openConfig)
 // WithoutMigrate opens the database without touching the schema (used by the db management commands).
 func WithoutMigrate() Option { return func(c *openConfig) { c.migrate = migrateSkip } }
 
+// WithoutBody opens the main database without the body domain (scans and readings): its tables are
+// not created or migrated, and the BodyStore methods are not available. For a backend that calls a
+// body service of its own.
+func WithoutBody() Option { return func(c *openConfig) { c.withoutBody = true } }
+
 // RequireMigrated fails Open when there are pending migrations instead of applying them.
 func RequireMigrated() Option { return func(c *openConfig) { c.migrate = migrateRequire } }
 
-// Open connects to the database and, unless told otherwise, applies pending migrations.
-func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, error) {
-	cfg := openConfig{}
-	for _, o := range opts {
-		o(&cfg)
-	}
-
+// connect opens a pool for the driver and checks that the database answers. It returns the pool's
+// size, which a server uses to keep one class of requests from taking every connection.
+func connect(ctx context.Context, driver, dsn string) (db *bun.DB, maxConns int, err error) {
 	var (
 		sqlDB   *sql.DB
 		dialect schema.Dialect
-		err     error
 	)
 	switch driver {
 	case DriverSQLite:
@@ -90,12 +95,11 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		sqlDB, err = sql.Open("pgx", dsn)
 		dialect = pgdialect.New()
 	default:
-		return nil, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
+		return nil, 0, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	maxConns := 0
 	switch {
 	case driver == DriverSQLite && sqliteInMemory(dsn):
 		maxConns = 1
@@ -114,11 +118,28 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 	}
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
+		return nil, 0, err
+	}
+	return bun.NewDB(sqlDB, dialect), maxConns, nil
+}
+
+// Open connects to the database and, unless told otherwise, applies pending migrations.
+func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, error) {
+	cfg := openConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	db, maxConns, err := connect(ctx, driver, dsn)
+	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, maxConns: maxConns, cipher: cfg.cipher}
-	if cfg.cipher != nil {
-		s.bodyCipher = cfg.cipher.bodyCipher()
+	s := &Store{db: db, driver: driver, maxConns: maxConns, cipher: cfg.cipher}
+	if !cfg.withoutBody {
+		s.BodyStore = &BodyStore{db: db, driver: driver, maxConns: maxConns}
+		if cfg.cipher != nil {
+			s.BodyStore.cipher = cfg.cipher.bodyCipher() // derived: one key file covers both domains
+		}
 	}
 
 	switch cfg.migrate {
@@ -134,7 +155,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		}
 		if err == nil {
 			var pending bool
-			if pending, err = p.HasPending(ctx); err == nil && pending {
+			if pending, err = s.HasPending(ctx); err == nil && pending {
 				err = errors.New("database has pending migrations: run `dexa-fix db migrate up` or enable --auto-migrate")
 			}
 		}
@@ -144,13 +165,40 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		}
 	}
 	if cfg.cipher != nil && cfg.migrate != migrateSkip {
-		if err := s.verifyKey(ctx); err != nil {
+		// Every domain decides whether the key is the right one before any of them writes a check, so
+		// a wrong key leaves none behind (the right key would be refused at the next start).
+		writes := make([]func() error, 0, 2)
+		write, err := s.verifyKey(ctx)
+		if err != nil {
 			s.Close()
 			return nil, err
+		}
+		writes = append(writes, write)
+		if s.BodyStore != nil {
+			if write, err = s.BodyStore.verifyKey(ctx); err != nil {
+				s.Close()
+				return nil, err
+			}
+			writes = append(writes, write)
+		}
+		for _, w := range writes {
+			if w == nil {
+				continue
+			}
+			if err := w(); err != nil {
+				s.Close()
+				return nil, err
+			}
 		}
 		if err := s.encryptExisting(ctx); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("encrypt existing data: %w", err)
+		}
+		if s.BodyStore != nil {
+			if err := s.BodyStore.encryptExisting(ctx); err != nil {
+				s.Close()
+				return nil, fmt.Errorf("encrypt existing readings and scans: %w", err)
+			}
 		}
 	}
 	return s, nil

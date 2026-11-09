@@ -25,6 +25,11 @@ encrypted by the application either. For that, and for names, use disk or
 database encryption. Without an encryption key nothing is encrypted; readings
 and scans written then are encrypted at the next start with a key.
 
+With a [body service](17-body-service.md) in its own process, the readings and
+scans have an encryption key of their own: `serve body` takes
+`--encryption-key-file` for it, checks it against its database and refuses a
+wrong one. Rotate it with `db rekey --body`. Back it up like the main key.
+
 The key comes from one of these, in this order:
 
 1. The environment variable `DEXAFIX_ENCRYPTION_KEY`: 32 bytes as 64

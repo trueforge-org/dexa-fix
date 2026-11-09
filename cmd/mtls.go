@@ -96,28 +96,67 @@ Files written:
   api.pem, api.key       the api process's certificate and key
   web.pem, web.key       the web process's certificate and key
 
-Use --name for each host name or address the web process reaches the api process by.`,
+Use --name for each host name or address the web process reaches the api process by.
+
+With --link body it makes the set for the link between the api process and the body service instead,
+with a CA of its own (a certificate of one link opens nothing of the other). There the body service
+is the server and the api process the client:
+  ca.pem                          the CA, for both processes
+  body.pem, body.key              the body service's certificate and key
+  api-client.pem, api-client.key  the api process's client certificate and key`,
 	Example: `dexa-fix secrets mtls --dir ./mtls --name api
 # api:  --internal-tls-cert-file mtls/api.pem --internal-tls-key-file mtls/api.key --internal-tls-client-ca-file mtls/ca.pem
-# web:  --backend-url https://api:8081 --backend-ca-file mtls/ca.pem --backend-client-cert-file mtls/web.pem --backend-client-key-file mtls/web.key`,
+# web:  --backend-url https://api:8081 --backend-ca-file mtls/ca.pem --backend-client-cert-file mtls/web.pem --backend-client-key-file mtls/web.key
+dexa-fix secrets mtls --link body --dir ./mtls-body --name body
+# body: --body-tls-cert-file mtls-body/body.pem --body-tls-key-file mtls-body/body.key --body-tls-client-ca-file mtls-body/ca.pem
+# api:  --body-url https://body:8082 --body-ca-file mtls-body/ca.pem --body-client-cert-file mtls-body/api-client.pem --body-client-key-file mtls-body/api-client.key`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, _ := cmd.Flags().GetString("dir")
 		names, _ := cmd.Flags().GetStringSlice("name")
+		link, _ := cmd.Flags().GetString("link")
+		if link == "" {
+			link = "web"
+		}
+		if link != "web" && link != "body" {
+			return fmt.Errorf("--link %q: use web (between the web and api processes) or body (between the api process and the body service)", link)
+		}
 		if len(names) == 0 {
+			if link == "body" {
+				return errors.New("give at least one --name: the host name or address the api process uses for the body service, such as body")
+			}
 			return errors.New("give at least one --name: the host name or address the web process uses for the api process, such as api")
 		}
-		b, err := mtls.Generate(names)
-		if err != nil {
-			return err
-		}
-		files := []struct {
+		var b mtls.Bundle
+		var err error
+		type outFile struct {
 			name, content string
 			mode          os.FileMode
-		}{
-			{"ca.pem", b.CA, 0o644},
-			{"api.pem", b.ServerCert, 0o644}, {"api.key", b.ServerKey, 0o600},
-			{"web.pem", b.ClientCert, 0o644}, {"web.key", b.ClientKey, 0o600},
+		}
+		var files []outFile
+		var summary string
+		if link == "body" {
+			if b, err = mtls.GenerateFor(names, "dexa-fix body", "dexa-fix api"); err != nil {
+				return err
+			}
+			files = []outFile{
+				{"ca.pem", b.CA, 0o644},
+				{"body.pem", b.ServerCert, 0o644}, {"body.key", b.ServerKey, 0o600},
+				{"api-client.pem", b.ClientCert, 0o644}, {"api-client.key", b.ClientKey, 0o600},
+			}
+			summary = `body service: --body-tls-cert-file body.pem --body-tls-key-file body.key --body-tls-client-ca-file ca.pem
+api process:  --body-url https://` + names[0] + `:8082 --body-ca-file ca.pem --body-client-cert-file api-client.pem --body-client-key-file api-client.key`
+		} else {
+			if b, err = mtls.Generate(names); err != nil {
+				return err
+			}
+			files = []outFile{
+				{"ca.pem", b.CA, 0o644},
+				{"api.pem", b.ServerCert, 0o644}, {"api.key", b.ServerKey, 0o600},
+				{"web.pem", b.ClientCert, 0o644}, {"web.key", b.ClientKey, 0o600},
+			}
+			summary = `api process:  --internal-tls-cert-file api.pem --internal-tls-key-file api.key --internal-tls-client-ca-file ca.pem
+web process:  --backend-url https://` + names[0] + `:8081 --backend-ca-file ca.pem --backend-client-cert-file web.pem --backend-client-key-file web.key`
 		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -133,15 +172,14 @@ Use --name for each host name or address the web process reaches the api process
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), "created", filepath.Join(dir, f.name))
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(`
-api process:  --internal-tls-cert-file api.pem --internal-tls-key-file api.key --internal-tls-client-ca-file ca.pem
-web process:  --backend-url https://`+names[0]+`:8081 --backend-ca-file ca.pem --backend-client-cert-file web.pem --backend-client-key-file web.key`))
+		fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(summary))
 		return nil
 	},
 }
 
 func init() {
 	secretsMTLSCmd.Flags().String("dir", "mtls", "directory to write the files to")
-	secretsMTLSCmd.Flags().StringSlice("name", nil, "host name or address the web process reaches the api process by (repeatable)")
+	secretsMTLSCmd.Flags().StringSlice("name", nil, "host name or address the web process reaches the api process by, or with --link body the api process reaches the body service by (repeatable)")
+	secretsMTLSCmd.Flags().String("link", "web", "which link the set is for: web (web and api processes) or body (api process and body service)")
 	secretsCmd.AddCommand(secretsMTLSCmd)
 }
