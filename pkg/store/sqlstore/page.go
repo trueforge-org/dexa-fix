@@ -40,9 +40,12 @@ func (s *Store) ListDexaScansPage(ctx context.Context, userID int64, f store.Lis
 		last := rows[len(rows)-1]
 		next = &store.Cursor{MeasuredAt: last.MeasuredAt.UTC(), ID: last.ID}
 	}
-	out := make([]models.DexaScan, 0, len(rows))
-	for i := range rows {
-		out = append(out, rows[i].toModel())
+	out, err := s.dexaModels(rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out == nil {
+		out = []models.DexaScan{}
 	}
 	return out, next, nil
 }
@@ -58,9 +61,12 @@ func (s *Store) ListScaleReadingsPage(ctx context.Context, userID int64, f store
 		last := rows[len(rows)-1]
 		next = &store.Cursor{MeasuredAt: last.MeasuredAt.UTC(), ID: last.ID}
 	}
-	out := make([]models.ScaleReading, 0, len(rows))
-	for i := range rows {
-		out = append(out, rows[i].toModel())
+	out, err := s.scaleModels(rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out == nil {
+		out = []models.ScaleReading{}
 	}
 	return out, next, nil
 }

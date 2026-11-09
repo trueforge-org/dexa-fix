@@ -149,7 +149,7 @@ func TestRekeyCommandEndToEnd(t *testing.T) {
 		t.Fatalf("dry run output: %q", out)
 	}
 	run("--dry-run=false")
-	if out := run("--dry-run=false"); !strings.Contains(out, "e-mail addresses re-encrypted: 0") {
+	if out := run("--dry-run=false"); !strings.Contains(out, "e-mail addresses re-encrypted: 0") || !strings.Contains(out, "scale readings and DEXA scans re-encrypted: 0") {
 		t.Fatalf("second run: %q", out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "none.key")); !os.IsNotExist(err) {

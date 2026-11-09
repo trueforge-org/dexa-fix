@@ -2,7 +2,10 @@ package sqlstore
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,15 +18,135 @@ import (
 
 // ---- body: dexa scans and scale readings ----
 
+// The measured values and notes of a row are one JSON document, sealed with the body cipher. The
+// context names the user and the row's row_uid, so a value copied into another row does not open.
+// Without an encryption key the document stays readable, like the other sensitive columns.
+
+// newRowUID returns the random token that goes into the encryption context of a body row. It is
+// new on every write, so a sealed value is only ever valid for the write that made it.
+func newRowUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func (s *Store) sealScale(r *scaleRow) (err error) {
+	if r.RowUID, err = newRowUID(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(r.Vals)
+	if err != nil {
+		return err
+	}
+	r.Data, err = sealWith(s.bodyCipher, string(raw), scaleContext(r.UserID, r.RowUID))
+	return err
+}
+
+func (s *Store) sealDexa(r *dexaRow) (err error) {
+	if r.RowUID, err = newRowUID(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(r.Vals)
+	if err != nil {
+		return err
+	}
+	r.Data, err = sealWith(s.bodyCipher, string(raw), dexaContext(r.UserID, r.RowUID))
+	return err
+}
+
+// openScale reads the document of a row into Vals.
+func (s *Store) openScale(r *scaleRow) error {
+	plain, err := openWith(s.bodyCipher, r.Data, scaleContext(r.UserID, r.RowUID))
+	if err != nil {
+		return fmt.Errorf("scale reading %d: %w", r.ID, err)
+	}
+	r.Vals = scaleValues{}
+	if err := json.Unmarshal([]byte(plain), &r.Vals); err != nil {
+		return fmt.Errorf("scale reading %d: %w", r.ID, err)
+	}
+	return nil
+}
+
+func (s *Store) openDexa(r *dexaRow) error {
+	plain, err := openWith(s.bodyCipher, r.Data, dexaContext(r.UserID, r.RowUID))
+	if err != nil {
+		return fmt.Errorf("dexa scan %d: %w", r.ID, err)
+	}
+	r.Vals = dexaValues{}
+	if err := json.Unmarshal([]byte(plain), &r.Vals); err != nil {
+		return fmt.Errorf("dexa scan %d: %w", r.ID, err)
+	}
+	return nil
+}
+
+func (s *Store) scaleModel(r *scaleRow) (models.ScaleReading, error) {
+	if err := s.openScale(r); err != nil {
+		return models.ScaleReading{}, err
+	}
+	v := r.Vals
+	return models.ScaleReading{
+		ID: r.ID, UserID: r.UserID, MeasuredAt: r.MeasuredAt.UTC(),
+		WeightKg: v.WeightKg, FatRatioPct: v.FatRatioPct, FatMassKg: v.FatMassKg, FatFreeMassKg: v.FatFreeMassKg,
+		MuscleMassKg: v.MuscleMassKg, HydrationKg: v.HydrationKg, BoneMassKg: v.BoneMassKg, VisceralFatIndex: v.VisceralFatIndex,
+		Source: r.Source, Method: r.Method, AthleteMode: r.AthleteMode, ExternalID: r.ExternalID,
+		Notes: v.Notes, CreatedAt: r.CreatedAt,
+	}, nil
+}
+
+func (s *Store) dexaModel(r *dexaRow) (models.DexaScan, error) {
+	if err := s.openDexa(r); err != nil {
+		return models.DexaScan{}, err
+	}
+	v := r.Vals
+	return models.DexaScan{
+		ID: r.ID, UserID: r.UserID, MeasuredAt: r.MeasuredAt.UTC(),
+		WeightKg: v.WeightKg, FatRatioPct: v.FatRatioPct, FatMassKg: v.FatMassKg, FatFreeMassKg: v.FatFreeMassKg,
+		LeanMassKg: v.LeanMassKg, BoneMassKg: v.BoneMassKg, VisceralFatMassKg: v.VisceralFatMassKg,
+		BMDGCm2: v.BMDGCm2, TScore: v.TScore, ZScore: v.ZScore, AndroidFatPct: v.AndroidFatPct, GynoidFatPct: v.GynoidFatPct,
+		Notes: v.Notes, CreatedAt: r.CreatedAt,
+	}, nil
+}
+
+func (s *Store) scaleModels(rows []scaleRow) ([]models.ScaleReading, error) {
+	var out []models.ScaleReading
+	for i := range rows {
+		m, err := s.scaleModel(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func (s *Store) dexaModels(rows []dexaRow) ([]models.DexaScan, error) {
+	var out []models.DexaScan
+	for i := range rows {
+		m, err := s.dexaModel(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
 func (s *Store) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
 	d.MeasuredAt = d.MeasuredAt.UTC().Truncate(24 * time.Hour)
 	d.CreatedAt = now()
 	row := dexaRow{
-		UserID: d.UserID, MeasuredAt: d.MeasuredAt,
-		WeightKg: d.WeightKg, FatRatioPct: d.FatRatioPct, FatMassKg: d.FatMassKg, FatFreeMassKg: d.FatFreeMassKg,
-		LeanMassKg: d.LeanMassKg, BoneMassKg: d.BoneMassKg, VisceralFatMassKg: d.VisceralFatMassKg,
-		BMDGCm2: d.BMDGCm2, TScore: d.TScore, ZScore: d.ZScore, AndroidFatPct: d.AndroidFatPct, GynoidFatPct: d.GynoidFatPct,
-		Notes: d.Notes, CreatedAt: d.CreatedAt,
+		UserID: d.UserID, MeasuredAt: d.MeasuredAt, CreatedAt: d.CreatedAt,
+		Vals: dexaValues{
+			WeightKg: d.WeightKg, FatRatioPct: d.FatRatioPct, FatMassKg: d.FatMassKg, FatFreeMassKg: d.FatFreeMassKg,
+			LeanMassKg: d.LeanMassKg, BoneMassKg: d.BoneMassKg, VisceralFatMassKg: d.VisceralFatMassKg,
+			BMDGCm2: d.BMDGCm2, TScore: d.TScore, ZScore: d.ZScore, AndroidFatPct: d.AndroidFatPct, GynoidFatPct: d.GynoidFatPct,
+			Notes: d.Notes,
+		},
+	}
+	if err := s.sealDexa(&row); err != nil {
+		return err
 	}
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
@@ -103,11 +226,7 @@ func (s *Store) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaS
 		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
-	var out []models.DexaScan
-	for i := range rows {
-		out = append(out, rows[i].toModel())
-	}
-	return out, nil
+	return s.dexaModels(rows)
 }
 
 func (s *Store) DeleteDexaScan(ctx context.Context, userID, id int64) error {
@@ -139,38 +258,36 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 		}
 		rows = append(rows, scaleRow{
 			UserID: userID, MeasuredAt: r.MeasuredAt.UTC(),
-			WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
-			MuscleMassKg: r.MuscleMassKg, HydrationKg: r.HydrationKg, BoneMassKg: r.BoneMassKg, VisceralFatIndex: r.VisceralFatIndex,
 			Source: r.Source, Method: r.Method, AthleteMode: r.AthleteMode, ExternalID: r.ExternalID,
-			Notes: r.Notes, CreatedAt: now(),
+			CreatedAt: now(),
+			Vals: scaleValues{
+				WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
+				MuscleMassKg: r.MuscleMassKg, HydrationKg: r.HydrationKg, BoneMassKg: r.BoneMassKg, VisceralFatIndex: r.VisceralFatIndex,
+				Notes: r.Notes,
+			},
 		})
 	}
 	rows = lastPerExternalID(rows)
 
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// A re-delivered reading without notes (every Withings import) must not wipe the note
-		// the user added in the app, so those rows are upserted without refreshing notes.
-		var withNotes, withoutNotes []scaleRow
-		for _, r := range rows {
-			if r.Notes == "" {
-				withoutNotes = append(withoutNotes, r)
-			} else {
-				withNotes = append(withNotes, r)
+		if err := s.keepNotes(ctx, tx, userID, rows); err != nil {
+			return err
+		}
+		for i := range rows {
+			if err := s.sealScale(&rows[i]); err != nil {
+				return err
 			}
 		}
-		for _, part := range []struct {
-			rows []scaleRow
-			cols []string
-		}{{withNotes, scaleValueCols}, {withoutNotes, scaleValueColsKeepNotes}} {
-			for start := 0; start < len(part.rows); start += upsertChunk {
-				chunk := part.rows[start:min(start+upsertChunk, len(part.rows))]
-				q := tx.NewInsert().Model(&chunk).Returning("NULL").On("CONFLICT (user_id, source, external_id) DO UPDATE")
-				for _, c := range part.cols {
-					q = q.Set(c + " = EXCLUDED." + c)
-				}
-				if _, err := q.Exec(ctx); err != nil {
-					return err
-				}
+		// An update refreshes the time and the document; method and athlete mode are user choices
+		// that must survive a re-import, so they are not in the list.
+		for start := 0; start < len(rows); start += upsertChunk {
+			chunk := rows[start:min(start+upsertChunk, len(rows))]
+			if _, err := tx.NewInsert().Model(&chunk).Returning("NULL").
+				On("CONFLICT (user_id, source, external_id) DO UPDATE").
+				Set("measured_at = EXCLUDED.measured_at").
+				Set("row_uid = EXCLUDED.row_uid").
+				Set("data = EXCLUDED.data").Exec(ctx); err != nil {
+				return err
 			}
 		}
 		if len(rows) == 0 {
@@ -185,6 +302,47 @@ func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []mode
 		return 0, err
 	}
 	return len(rs), nil
+}
+
+// keepNotes gives a re-delivered reading that carries no notes (every Withings import) the note the
+// user added in the app, which would otherwise be wiped. The notes are inside the encrypted
+// document, so this reads the existing rows instead of leaving a column out of the update. A
+// delivery that does carry notes replaces them.
+func (s *Store) keepNotes(ctx context.Context, tx bun.Tx, userID int64, rows []scaleRow) error {
+	bySource := map[string][]string{}
+	for _, r := range rows {
+		if r.ExternalID != nil && r.Vals.Notes == "" {
+			bySource[r.Source] = append(bySource[r.Source], *r.ExternalID)
+		}
+	}
+	if len(bySource) == 0 {
+		return nil
+	}
+	type key struct{ source, id string }
+	notes := map[key]string{}
+	for source, ids := range bySource {
+		for start := 0; start < len(ids); start += upsertChunk {
+			var existing []scaleRow
+			if err := tx.NewSelect().Model(&existing).Where("user_id = ?", userID).Where("source = ?", source).
+				Where("external_id IN (?)", bun.In(ids[start:min(start+upsertChunk, len(ids))])).Scan(ctx); err != nil {
+				return err
+			}
+			for i := range existing {
+				if err := s.openScale(&existing[i]); err != nil {
+					return err
+				}
+				if n := existing[i].Vals.Notes; n != "" && existing[i].ExternalID != nil {
+					notes[key{source, *existing[i].ExternalID}] = n
+				}
+			}
+		}
+	}
+	for i := range rows {
+		if r := &rows[i]; r.ExternalID != nil && r.Vals.Notes == "" {
+			r.Vals.Notes = notes[key{r.Source, *r.ExternalID}]
+		}
+	}
+	return nil
 }
 
 // lastPerExternalID drops earlier readings that share (source, external id) with a later one in
@@ -216,11 +374,7 @@ func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.S
 		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
-	var out []models.ScaleReading
-	for i := range rows {
-		out = append(out, rows[i].toModel())
-	}
-	return out, nil
+	return s.scaleModels(rows)
 }
 
 func (s *Store) DeleteScaleReading(ctx context.Context, userID, id int64) error {

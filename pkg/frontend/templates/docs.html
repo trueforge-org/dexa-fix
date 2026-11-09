@@ -598,8 +598,8 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 
 <section id="encryption">
 <h2>Encryption</h2>
-<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, and each user's two-step verification secret. Each value is tied to its row, so copying it to another row makes it unreadable. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
-<p class="docs-warn">Names, measurements and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those.</p>
+<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, each user's two-step verification secret, and the values and notes of each user's scale readings and DEXA scans (the time, source and method of a measurement stay readable, because the database needs them to find and order rows). Each value is tied to its row, so copying it to another row makes it unreadable. The readings and scans have a key of their own, derived from the encryption key, so one key file covers both. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
+<p class="docs-warn">Names and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those. Without an encryption key nothing is encrypted; readings and scans written then are encrypted at the next start with a key.</p>
 <p>The key comes from, in this order:</p>
 <ol>
   <li>The environment variable <code>DEXAFIX_ENCRYPTION_KEY</code>: 32 bytes as 64 hexadecimal characters or as base64. There is no command-line flag, because command lines are visible to other processes.</li>
@@ -619,7 +619,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
   <li>Generate a new key, for example <code>openssl rand -hex 32</code>.</li>
   <li>Make it the current key and give the old one as a previous key: <code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt;</code> and <code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt;</code>, or a new key file plus <code>--encryption-key-previous-file</code>.</li>
   <li>Run <code>dexa-fix db rekey --dry-run</code>. It reports how many values would change and fails if any value cannot be opened.</li>
-  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key), provider secrets and two-step verification secrets, recomputes the e-mail lookup hashes and stores the new check value. It prints a count for each kind, such as <code>two-step secrets re-encrypted: 2</code>. It either completes or changes nothing, and can be repeated.</li>
+  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key), provider secrets, two-step verification secrets and the scale readings and DEXA scans, recomputes the e-mail lookup hashes and stores the new check value. It prints a count for each kind, such as <code>two-step secrets re-encrypted: 2</code>. It either completes or changes nothing, and can be repeated.</li>
   <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
 </ol>
 <p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
@@ -705,7 +705,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
 <section id="security">
 <h2>Security notes and limitations</h2>
 <ul>
-  <li><strong>Encryption is partial.</strong> Measurements, height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
+  <li><strong>Encryption is partial.</strong> Height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
   <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
   <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
   <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>

@@ -5,7 +5,7 @@
   restart and are shared by all backend processes on it. On a public
   deployment, limit sign-in attempts at the reverse proxy too. See
   [Storage and rate limiting](07-accounts-and-sign-in.md#storage-and-rate-limiting).
-- **Measurements, height and names are not encrypted.** Protect the database
+- **Height and names are not encrypted.** Protect the database
   file or Postgres database and its backups with disk or database encryption.
   Losing the encryption key makes the encrypted values unreadable. See
   [Encryption](08-encryption.md).

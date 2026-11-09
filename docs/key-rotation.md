@@ -11,7 +11,10 @@ in the working directory) that `serve` creates with mode 0600 when it is missing
 
 Encrypted: user e-mail addresses, integration data (provider tokens, the Strength Level login),
 server settings (the cookie key and other secrets), the client secrets of sign-in providers and the
-two-step verification secrets (context `totp:<user id>`). Recovery codes are hashed, not encrypted.
+two-step verification secrets (context `totp:<user id>`) and, since the body data was split off, the
+values and notes of scale readings and DEXA scans (context `scale:<user id>:<row_uid>` or
+`dexa:<user id>:<row_uid>`, under a body key derived from the master key with HKDF info
+`dexa-fix body master`). Recovery codes are hashed, not encrypted.
 The associated data ties a value to its row, so ciphertext copied to another row fails to open. A key
 derived from the master key (HKDF) produces the HMAC used to look users up by e-mail
 (`email_lookup`).

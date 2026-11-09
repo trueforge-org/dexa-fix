@@ -49,9 +49,36 @@ type keyEntry struct {
 	v2    cipher.AEAD // AES under an HKDF derived key, for enc:v2 values
 	index []byte      // separate key for the e-mail lookup values
 	check string      // check value, see checkSetting
+	body  *keyEntry   // the body domain's key, derived from this master key (see Cipher.bodyCipher)
 }
 
+// The HKDF labels. Each domain derives its own key from a master key, so a value sealed for one
+// domain never opens in another, even when a context string happens to repeat.
+const (
+	mainInfo       = "dexa-fix aes-256-gcm v2"
+	bodyMasterInfo = "dexa-fix body master"
+	bodyInfo       = "dexa-fix body aes-256-gcm v2"
+)
+
+// newKeyEntry derives everything a master key is used for: the main domain's keys, and the key of
+// the body domain (scans and readings).
 func newKeyEntry(key []byte) (*keyEntry, error) {
+	e, err := newKeyEntryInfo(key, mainInfo)
+	if err != nil {
+		return nil, err
+	}
+	bodyKey, err := hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)
+	if err != nil {
+		return nil, err
+	}
+	if e.body, err = newKeyEntryInfo(bodyKey, bodyInfo); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string.
+func newKeyEntryInfo(key []byte, dekInfo string) (*keyEntry, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("encryption key must be %d bytes, got %d", KeySize, len(key))
 	}
@@ -69,7 +96,7 @@ func newKeyEntry(key []byte) (*keyEntry, error) {
 	if e.v1, err = gcm(key); err != nil {
 		return nil, err
 	}
-	dek, err := derive("dexa-fix aes-256-gcm v2")
+	dek, err := derive(dekInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +143,16 @@ func NewCipher(key []byte, previous ...[]byte) (*Cipher, error) {
 		}
 	}
 	return c, nil
+}
+
+// bodyCipher is the cipher of the body domain: scans and readings. Its keys derive from the master
+// keys (current and previous), so one key file covers both domains and a rotation reaches both.
+func (c *Cipher) bodyCipher() *Cipher {
+	b := &Cipher{current: c.current.body}
+	for _, e := range c.previous {
+		b.previous = append(b.previous, e.body)
+	}
+	return b
 }
 
 // entry returns the configured key with the given id, or nil.
@@ -255,10 +292,36 @@ func (s *Store) decrypt(value, context string) (string, error) {
 	return plain, err
 }
 
+// sealWith and openWith handle the values of a domain that has its own cipher (see bodyCipher). A
+// nil cipher leaves the value as it is, like encrypt and decrypt do for the main domain.
+func sealWith(c *Cipher, value, context string) (string, error) {
+	if c == nil || value == "" {
+		return value, nil
+	}
+	return c.seal(value, context)
+}
+
+func openWith(c *Cipher, value, context string) (string, error) {
+	if !strings.HasPrefix(value, encPrefix) {
+		return value, nil
+	}
+	if c == nil {
+		return "", errors.New("the database holds encrypted values but no encryption key is configured")
+	}
+	plain, _, err := c.open(value, context)
+	return plain, err
+}
+
 func integrationContext(userID int64, provider string) string {
 	return fmt.Sprintf("integration:%d:%s", userID, provider)
 }
-func settingContext(name string) string  { return "setting:" + name }
+func settingContext(name string) string { return "setting:" + name }
+func scaleContext(userID int64, rowUID string) string {
+	return fmt.Sprintf("scale:%d:%s", userID, rowUID)
+}
+func dexaContext(userID int64, rowUID string) string {
+	return fmt.Sprintf("dexa:%d:%s", userID, rowUID)
+}
 func providerContext(slug string) string { return "provider:" + slug }
 func emailContext(userID int64) string   { return fmt.Sprintf("email:%d", userID) }
 
@@ -281,46 +344,61 @@ type queryer interface {
 }
 
 // firstEncrypted finds one encrypted value and the context that seals it. found is false when the
-// database holds none. The key check row is not a ciphertext and is skipped.
-func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, found bool, err error) {
+// database holds none. body is true when the value belongs to the body domain, which has its own
+// cipher. The key check row is not a ciphertext and is skipped.
+func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, body, found bool, err error) {
 	var (
 		integ []integrationRow
 		sets  []settingRow
 		provs []providerRow
 		users []userRow
 		totps []totpRow
+		scale []scaleRow
+		dexa  []dexaRow
 	)
 	if err = db.NewSelect().Model(&sets).Where("value LIKE ?", encPrefix+"%").Where("name <> ?", checkSetting).Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(sets) > 0 {
-		return sets[0].Value, settingContext(sets[0].Name), true, nil
+		return sets[0].Value, settingContext(sets[0].Name), false, true, nil
 	}
 	if err = db.NewSelect().Model(&integ).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(integ) > 0 {
-		return integ[0].Data, integrationContext(integ[0].UserID, integ[0].Provider), true, nil
+		return integ[0].Data, integrationContext(integ[0].UserID, integ[0].Provider), false, true, nil
 	}
 	if err = db.NewSelect().Model(&users).Where("email LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(users) > 0 {
-		return users[0].Email, emailContext(users[0].ID), true, nil
+		return users[0].Email, emailContext(users[0].ID), false, true, nil
 	}
 	if err = db.NewSelect().Model(&totps).Where("secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(totps) > 0 {
-		return totps[0].Secret, totpContext(totps[0].UserID), true, nil
+		return totps[0].Secret, totpContext(totps[0].UserID), false, true, nil
 	}
 	if err = db.NewSelect().Model(&provs).Where("client_secret LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
 		return
 	}
 	if len(provs) > 0 {
-		return provs[0].ClientSecret, providerContext(provs[0].Slug), true, nil
+		return provs[0].ClientSecret, providerContext(provs[0].Slug), false, true, nil
 	}
-	return "", "", false, nil
+	if err = db.NewSelect().Model(&scale).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
+		return
+	}
+	if len(scale) > 0 {
+		return scale[0].Data, scaleContext(scale[0].UserID, scale[0].RowUID), true, true, nil
+	}
+	if err = db.NewSelect().Model(&dexa).Where("data LIKE ?", encPrefix+"%").Limit(1).Scan(ctx); err != nil {
+		return
+	}
+	if len(dexa) > 0 {
+		return dexa[0].Data, dexaContext(dexa[0].UserID, dexa[0].RowUID), true, true, nil
+	}
+	return "", "", false, false, nil
 }
 
 // HasEncryptedValues reports whether the database already holds encrypted values, without
@@ -332,7 +410,7 @@ func HasEncryptedValues(ctx context.Context, driver, dsn string) (bool, error) {
 		return false, err
 	}
 	defer s.Close()
-	_, _, found, err := firstEncrypted(ctx, s.db)
+	_, _, _, found, err := firstEncrypted(ctx, s.db)
 	if err != nil && isMissingTable(err) {
 		return false, nil
 	}
@@ -364,16 +442,20 @@ func (s *Store) verifyKey(ctx context.Context) error {
 		return err
 	}
 
-	value, vctx, found, err := firstEncrypted(ctx, s.db)
+	value, vctx, body, found, err := firstEncrypted(ctx, s.db)
 	if err != nil {
 		return err
 	}
 	if found {
-		_, e, err := s.cipher.open(value, vctx)
+		c, current := s.cipher, s.cipher.current
+		if body {
+			c, current = s.bodyCipher, s.bodyCipher.current
+		}
+		_, e, err := c.open(value, vctx)
 		if err != nil {
 			return fmt.Errorf("%s (%w)", errWrongKey, err)
 		}
-		if e != s.cipher.current {
+		if e != current {
 			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
 			return nil
 		}
@@ -516,6 +598,40 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
+			}
+		}
+
+		// Readings and scans written while there was no key are readable JSON.
+		var scales []scaleRow
+		if err := tx.NewSelect().Model(&scales).Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range scales {
+			if !needs(r.Data) {
+				continue
+			}
+			enc, err := s.bodyCipher.seal(r.Data, scaleContext(r.UserID, r.RowUID))
+			if err != nil {
+				return err
+			}
+			if _, err := tx.NewUpdate().Model((*scaleRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		var dexas []dexaRow
+		if err := tx.NewSelect().Model(&dexas).Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range dexas {
+			if !needs(r.Data) {
+				continue
+			}
+			enc, err := s.bodyCipher.seal(r.Data, dexaContext(r.UserID, r.RowUID))
+			if err != nil {
+				return err
+			}
+			if _, err := tx.NewUpdate().Model((*dexaRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+				return err
 			}
 		}
 

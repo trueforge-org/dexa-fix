@@ -36,6 +36,9 @@ type Store struct {
 	driver   string
 	maxConns int     // size of the connection pool
 	cipher   *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
+	// bodyCipher does the same for the body domain (scans and readings). Its keys derive from
+	// cipher's, so one key file covers both. nil when cipher is nil.
+	bodyCipher *Cipher
 }
 
 var _ store.Store = (*Store)(nil)
@@ -114,6 +117,9 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		return nil, err
 	}
 	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, maxConns: maxConns, cipher: cfg.cipher}
+	if cfg.cipher != nil {
+		s.bodyCipher = cfg.cipher.bodyCipher()
+	}
 
 	switch cfg.migrate {
 	case migrateUp:

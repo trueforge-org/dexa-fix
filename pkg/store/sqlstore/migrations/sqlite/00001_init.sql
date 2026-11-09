@@ -30,18 +30,22 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE UNIQUE INDEX idx_users_passkey_handle ON users(passkey_handle);
+-- The body domain: a user's scale readings and DEXA scans. What identifies and orders a row stays in
+-- plain columns (indexes, paging and the upsert need them). The measured values and the notes are
+-- one JSON document in data, encrypted with the body key when an encryption key is configured. The
+-- context of the encryption names the user and row_uid, so a value cannot be moved to another row.
+-- row_uid is random and set whenever data is written.
 CREATE TABLE scale_readings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   measured_at TIMESTAMP NOT NULL,
-  weight_kg REAL, fat_ratio_pct REAL, fat_mass_kg REAL, fat_free_mass_kg REAL,
-  muscle_mass_kg REAL, hydration_kg REAL, bone_mass_kg REAL, visceral_fat_index REAL,
   source TEXT NOT NULL DEFAULT 'manual',
   method TEXT NOT NULL DEFAULT 'scale',
   athlete_mode INTEGER NOT NULL DEFAULT 0,
   external_id TEXT,
-  notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL,
+  row_uid TEXT NOT NULL UNIQUE,
+  data TEXT NOT NULL,
   UNIQUE (user_id, source, external_id)
 );
 CREATE INDEX idx_scale_user_time ON scale_readings(user_id, measured_at);
@@ -49,11 +53,9 @@ CREATE TABLE dexa_scans (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   measured_at DATE NOT NULL,
-  weight_kg REAL, fat_ratio_pct REAL, fat_mass_kg REAL, fat_free_mass_kg REAL,
-  lean_mass_kg REAL, bone_mass_kg REAL, visceral_fat_mass_kg REAL,
-  bmd_g_cm2 REAL, t_score REAL, z_score REAL, android_fat_pct REAL, gynoid_fat_pct REAL,
-  notes TEXT NOT NULL DEFAULT '',
-  created_at TIMESTAMP NOT NULL
+  created_at TIMESTAMP NOT NULL,
+  row_uid TEXT NOT NULL UNIQUE,
+  data TEXT NOT NULL
 );
 CREATE INDEX idx_dexa_user_time ON dexa_scans(user_id, measured_at);
 -- Counts changes to a user's scans and readings, so cached estimates can tell when they are out of

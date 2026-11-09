@@ -9,14 +9,21 @@ These values are encrypted with AES-256-GCM before they are stored:
   certificate
 - e-mail addresses
 - each user's two-step verification secret, the key of their authenticator app
+- each user's scale readings and DEXA scans: the measured values and the notes.
+  The time of a measurement, its source, its method and the user it belongs to
+  stay readable, because the database needs them to find and order rows.
 
 Each value is tied to its row, so copying it to another row makes it unreadable.
+The readings and scans have a key of their own, derived from the encryption key,
+so a value from one group does not open with the key of the other. One key file
+covers both.
 Each e-mail address also gets a keyed hash, derived from the encryption key. The
 hash makes addresses searchable and unique without decrypting them. Passwords,
 access tokens, password reset links and two-step verification recovery codes are
-stored only as hashes. Names are not encrypted, but addresses are. Measurements and height are
-not encrypted by the application either. For those, and for names, use disk or
-database encryption.
+stored only as hashes. Names are not encrypted, but addresses are. Height is not
+encrypted by the application either. For that, and for names, use disk or
+database encryption. Without an encryption key nothing is encrypted; readings
+and scans written then are encrypted at the next start with a key.
 
 The key comes from one of these, in this order:
 
@@ -70,8 +77,8 @@ the key:
    fails if any value cannot be opened by one of the keys.
 5. Run `dexa-fix db rekey`. In a single transaction it re-encrypts the e-mail
    addresses, integrations, server settings (including the cookie key),
-   sign-in provider secrets and two-step verification secrets with the current
-   key, recomputes the e-mail lookup hashes (they derive from the key) and
+   sign-in provider secrets, two-step verification secrets, and the scale
+   readings and DEXA scans with the current key, recomputes the e-mail lookup hashes (they derive from the key) and
    stores the new check value. It prints a count for each kind, such as
    `two-step secrets re-encrypted: 2`. It either completes or changes nothing,
    and can be repeated: values already under the current key are skipped.
