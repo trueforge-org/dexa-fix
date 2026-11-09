@@ -47,6 +47,7 @@ own data. Users sign in with a password or with an external provider.
 | | Each reading records its measurement method (smart scale, caliper, BodPod, hydrostatic, tape, visual AI) and whether athlete mode was on. |
 | | One estimate per day for weight, body fat, fat mass, fat-free mass, lean mass, hydration, bone mass, visceral fat index, BMI, fat mass index (FMI), lean mass index (LMI) and the android/gynoid (A/G) fat ratio. |
 | 🔐 **Accounts and security** | Password sign-in, plus OpenID Connect, Sign in with Apple and OAuth 2.0 providers. See [Accounts and sign-in](docs/07-accounts-and-sign-in.md). |
+| | Passkeys (WebAuthn) for signing in without a password, with a device's fingerprint, face or PIN. See [Passkeys](docs/07-accounts-and-sign-in.md#passkeys). |
 | | Password reset by one-time link, made by an administrator or requested by e-mail. See [Password reset](docs/07-accounts-and-sign-in.md#password-reset). |
 | | Optional two-step verification for password sign-in, with an authenticator app and recovery codes, and an administrator policy for who must use it. Administrators confirm a code again before each Admin page. |
 | | New accounts are closed by default, and security-relevant events go to an audit log. |
@@ -96,7 +97,7 @@ The full documentation starts at [docs/index.md](docs/index.md).
 | [04 · Database](docs/04-database.md) | SQLite and Postgres, migrations and moving between them. |
 | [05 · Commands](docs/05-commands.md) | The `db` commands for migrations, copies and rekeying, and recovery commands. |
 | [06 · Using the app](docs/06-using-the-app.md) | The pages of the web interface. |
-| [07 · Accounts and sign-in](docs/07-accounts-and-sign-in.md) | Providers, password reset, two-step verification, audit log and your data. |
+| [07 · Accounts and sign-in](docs/07-accounts-and-sign-in.md) | Providers, passkeys, password reset, two-step verification, audit log and your data. |
 | [08 · Encryption](docs/08-encryption.md) | What is encrypted, the key and rotating it. |
 | [09 · Estimates](docs/09-estimates.md) | How the daily estimates are calculated. |
 | [10 · Withings import](docs/10-withings-import.md) | Linking Withings and importing readings. |

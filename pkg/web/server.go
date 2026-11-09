@@ -173,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	s.adminRoutes(mux)
 	s.twoFactorRoutes(mux)
 	s.resetRoutes(mux)
+	s.passkeyRoutes(mux)
 	mux.HandleFunc("GET /u/{id}", s.user(s.home))
 
 	mux.HandleFunc("GET /u/{id}/dexa", s.user(func(w http.ResponseWriter, r *http.Request, u models.User) { s.dexaPage(w, r, u, "", http.StatusOK) }))

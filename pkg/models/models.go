@@ -118,6 +118,17 @@ type TOTP struct {
 	CreatedAt   time.Time
 }
 
+// Passkey is a WebAuthn credential of a user, used to sign in without a password.
+type Passkey struct {
+	CredentialID string // base64url
+	UserID       int64
+	Name         string
+	Credential   string // JSON of the WebAuthn credential: public key, transports, flags
+	SignCount    uint32
+	CreatedAt    time.Time
+	LastUsedAt   *time.Time
+}
+
 // Session is a signed-in browser session. The token itself is never stored, only its hash.
 type Session struct {
 	UserID    int64

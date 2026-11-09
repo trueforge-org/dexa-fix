@@ -21,9 +21,12 @@ CREATE TABLE users (
   strengthlevel_bulk BOOLEAN NOT NULL DEFAULT FALSE,
   -- The user's IANA time zone: it decides which calendar day a reading belongs to, and how manual
   -- date-times are read and shown.
-  timezone TEXT NOT NULL DEFAULT 'UTC'
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  -- Random handle that identifies the user to passkeys (WebAuthn user.id). It is not personal data.
+  passkey_handle TEXT
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
+CREATE UNIQUE INDEX idx_users_passkey_handle ON users(passkey_handle);
 CREATE TABLE scale_readings (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -86,6 +89,20 @@ CREATE TABLE user_totp (
   confirmed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL
 );
+-- Passkeys (WebAuthn) for passwordless sign-in. credential is the JSON of the credential (public key,
+-- transports, flags): public keys are not secret, so it is not encrypted. credential_id is base64url.
+CREATE TABLE passkeys (
+  credential_id TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  credential TEXT NOT NULL,
+  sign_count BIGINT NOT NULL DEFAULT 0,
+  backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+  backup_state BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ
+);
+CREATE INDEX idx_passkeys_user ON passkeys(user_id);
 -- Single-use password reset links. Only a hash of the token is stored, like sessions. A link is
 -- deleted when it is used, replaced or expires, and with the user. Not copied by `db copy`.
 CREATE TABLE password_resets (
@@ -155,6 +172,7 @@ CREATE INDEX idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX idx_audit_target ON audit_log(target_id);
 
 -- +goose Down
+DROP TABLE passkeys;
 DROP TABLE password_resets;
 DROP TABLE user_recovery_codes;
 DROP TABLE user_totp;

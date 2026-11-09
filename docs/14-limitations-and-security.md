@@ -18,6 +18,11 @@
   Use an uploaded certificate for public access. The private key of an uploaded
   or generated certificate is stored encrypted. There is no redirect from HTTP
   to HTTPS yet. See [HTTPS, HTTP/2 and HTTP/3](03-reverse-proxy.md#https-http2-and-http3).
+- **Passkeys need HTTPS** (or `localhost`) in the browser, and belong to the host
+  name the browser used, with the port in the origin. Changing the host name, for
+  example moving to a new domain, makes existing passkeys unusable: each user
+  adds them again. Passkeys cannot recover an account. A lost device needs another
+  sign-in method or an administrator. See [Passkeys](07-accounts-and-sign-in.md#passkeys).
 - **Password reset links are bearer credentials.** Anyone who reads the mailbox,
   or a reset link shown on the Admin page, can set a new password. Use STARTTLS
   or TLS for the SMTP server; the `none` option is only for a server on

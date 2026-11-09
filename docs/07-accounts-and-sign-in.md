@@ -23,11 +23,11 @@ Under **Settings → Your data** every user can download two JSON files, which
 serve a person's right of access and data portability (GDPR articles 15 and 20):
 
 - **Settings and personal details**: name, e-mail address, role, height,
-  settings, permissions, sign-in methods (provider and account id), access
-  token names and prefixes, whether two-step verification is on
-  (`two_factor.enabled`; never the secret or recovery codes), whether Withings
-  and Strength Level are connected (and the Strength Level e-mail address), and
-  the audit events about the account.
+  settings, permissions, sign-in methods (provider and account id), passkey
+  names and dates (never the keys), access token names and prefixes, whether
+  two-step verification is on (`two_factor.enabled`; never the secret or
+  recovery codes), whether Withings and Strength Level are connected (and the
+  Strength Level e-mail address), and the audit events about the account.
 - **DEXA scans and scale readings**: everything the user measured, including
   notes.
 
@@ -93,8 +93,8 @@ Removing a provider also removes its links.
 ## Password sign-in
 
 Password sign-in can be turned off on the Admin page. Providers and access
-tokens keep working. The administrator who turns it off must have a linked
-provider first.
+tokens keep working. The administrator who turns it off must have another way
+to sign in first: a linked provider or a passkey.
 
 To recover from a lockout, start the server with password sign-in forced on:
 
@@ -148,7 +148,7 @@ Two-step verification adds a one-time code from an authenticator app to signing
 in with a password. It protects password sign-in only. Providers (OpenID
 Connect, Sign in with Apple and OAuth 2.0) do not ask for a second step, because
 the provider is trusted to apply its own. Enforce a second factor at the
-provider. Passkey sign-in, once it is offered, does not ask for one either.
+provider. Passkey sign-in does not ask for one either; see [Passkeys](#passkeys).
 
 ### Turning it on
 
@@ -199,6 +199,80 @@ The audit log records `admin_verified` for each step-up, and `totp_enabled`,
 `totp_disabled`, `totp_removed_by_admin`, `recovery_codes_regenerated`,
 `recovery_code_used`, `second_factor_failed` and
 `second_factor_throttled`. The last two are rate-limited, like failed sign-ins.
+
+## Passkeys
+
+A passkey (WebAuthn) signs you in without a password. It is a credential kept on
+a device or a security key, and it is unlocked with a fingerprint, a face or a
+PIN. A passkey replaces the password for that sign-in. It is not a second step
+after a password: the device and its unlock already make two factors, so a
+passkey sign-in is never asked for a two-step code, and the
+[two-step policy](#administrators) does not apply to it.
+
+### Adding and managing
+
+Under **Settings → Passkeys**:
+
+- **Add a passkey**: give it a name. With a password on the account, confirm
+  the current password. Without one, the account needs a sign-in from the last
+  10 minutes.
+- **Rename** a passkey at any time.
+- **Remove** a passkey: confirm your password. The last passkey cannot be
+  removed while it is the only way to sign in. Add another sign-in method first.
+
+### Signing in with a passkey
+
+On the sign-in page, press **Sign in with a passkey**. Browsers that support
+conditional UI also offer your passkey in the suggestions of the e-mail field.
+Passkeys are discoverable, so no e-mail address has to be typed: the passkey
+itself identifies the account.
+
+### Requirements
+
+- Browsers offer passkeys only on HTTPS, or on `localhost`. The Settings section
+  says so when neither applies.
+- A passkey belongs to the host name the browser used. When a base URL is set,
+  that is its host name. The origin includes the port. If the host name changes,
+  for example when you move to a new domain, existing passkeys stop working. Add
+  them again.
+- With the HTTPS listener (see [HTTPS, HTTP/2 and HTTP/3](03-reverse-proxy.md#https-http2-and-http3)),
+  use its HTTPS address. Behind a proxy that terminates TLS, set an `https` base
+  URL on the Admin page.
+
+### Other places passkeys count
+
+- A passkey sign-in is recorded with the method `passkey`, which the Users list
+  on the Admin page shows in the **Sign-in** column.
+- A passkey counts as a sign-in method. It satisfies the rule that you must link
+  another sign-in method before you turn off password sign-in on the Admin page,
+  and before you unlink your last provider.
+- A passkey sign-in counts as the second step for the Admin pages, so no code is
+  asked after it.
+- Your data export lists passkey names and dates, never the keys. `db copy`
+  copies passkeys too.
+
+### Storage and security
+
+- The server stores only the public key and metadata: name, dates and the sign
+  counter, as JSON in the `passkeys` table. Public keys are not secret, so they
+  are not encrypted. Each user has a random handle that identifies them to their
+  passkeys. It says nothing about the person.
+- The sign counter must not go backwards. If it does, the credential may have
+  been copied: the sign-in is refused and recorded as `passkey_clone_warning`.
+  Remove that passkey in Settings if you think it was copied.
+- The state of a registration or a sign-in is kept in a signed cookie that works
+  once and is valid for 5 minutes. Nothing is stored for visitors who are not
+  signed in.
+- Failed passkey sign-ins count against the per-address limit (see
+  [Storage and rate limiting](#storage-and-rate-limiting)). They are recorded as
+  `passkey_login_failed`, rate-limited like other failed sign-ins.
+
+The audit log records `passkey_added`, `passkey_removed`, `passkey_login_failed`
+and `passkey_clone_warning`.
+
+Passkeys cannot recover an account. If you lose the device, sign in another way,
+with a password or a provider, or ask an administrator. See
+[Limitations and security](14-limitations-and-security.md).
 
 ## Storage and rate limiting
 

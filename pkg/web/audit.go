@@ -60,6 +60,10 @@ const (
 	auditSecondFactorThrottled = "second_factor_throttled"
 	auditAdminVerified         = "admin_verified"
 	auditResetLinkCreated      = "password_reset_link_created"
+	auditPasskeyAdded          = "passkey_added"
+	auditPasskeyRemoved        = "passkey_removed"
+	auditPasskeyFailed         = "passkey_login_failed"
+	auditPasskeyClone          = "passkey_clone_warning"
 	auditResetRequested        = "password_reset_requested"
 	auditResetEmailFailed      = "password_reset_email_failed"
 	auditResetCompleted        = "password_reset_completed"
@@ -85,7 +89,9 @@ var auditLabels = map[string]string{
 	auditTOTPRemovedByAdmin: "Two-step verification removed by an administrator", auditRecoveryRegenerated: "Recovery codes replaced",
 	auditRecoveryUsed: "Recovery code used", auditSecondFactorFailed: "Wrong two-step code",
 	auditSecondFactorThrottled: "Two-step codes blocked (too many failures)", auditAdminVerified: "Confirmed the second step for the Admin pages",
-	auditResetLinkCreated: "Password reset link made by an administrator", auditResetRequested: "Password reset e-mail requested",
+	auditResetLinkCreated: "Password reset link made by an administrator",
+	auditPasskeyAdded:     "Passkey added", auditPasskeyRemoved: "Passkey removed", auditPasskeyFailed: "Failed passkey sign-in",
+	auditPasskeyClone: "Passkey sign-in refused (the counter went backwards: the passkey may have been copied)", auditResetRequested: "Password reset e-mail requested",
 	auditResetEmailFailed: "Password reset e-mail could not be sent", auditResetCompleted: "Password reset",
 	auditResetInvalid: "Password reset link refused (unknown or expired)",
 }
@@ -251,7 +257,7 @@ func (s *Server) StartMaintenance() {
 // noisyAudit lists events that anyone, signed in or not, can trigger at will. They are recorded at
 // most once per client address and minute, with a count of the ones left out, so a flood of failed
 // sign-ins cannot fill the database.
-var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true, auditSecondFactorFailed: true, auditSecondFactorThrottled: true, auditResetRequested: true, auditResetInvalid: true}
+var noisyAudit = map[string]bool{auditLoginFailed: true, auditLoginThrottled: true, auditPasswordWrong: true, auditAPIAuthFailed: true, auditSecondFactorFailed: true, auditSecondFactorThrottled: true, auditResetRequested: true, auditResetInvalid: true, auditPasskeyFailed: true}
 
 const (
 	auditNoiseWindow = time.Minute

@@ -29,6 +29,7 @@ type userRow struct {
 	StrengthLevelAuto bool      `bun:"strengthlevel_auto"`
 	StrengthLevelBulk bool      `bun:"strengthlevel_bulk"`
 	DataVersion       int64     `bun:"data_version"`
+	PasskeyHandle     *string   `bun:"passkey_handle"`
 }
 
 func (r *userRow) toModel() models.User {

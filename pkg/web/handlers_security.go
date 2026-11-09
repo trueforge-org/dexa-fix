@@ -33,6 +33,7 @@ type securityView struct {
 	NewToken        string // shown once, right after it was created
 	Linked          []linkedProvider
 	TwoFactor       twoFactorSettings
+	Passkeys        passkeysView
 }
 
 type tokenView struct {
@@ -65,6 +66,9 @@ func (s *Server) securityView(r *http.Request, u models.User, newToken string) (
 	pwOn := s.passwordEnabled(ctx)
 	hasPw := slices.Contains(mine, models.ProviderLocal)
 	view := &securityView{PasswordEnabled: pwOn, HasPassword: hasPw, ConfirmPassword: pwOn && hasPw, NewToken: newToken}
+	if view.Passkeys, err = s.passkeysFor(r, u); err != nil {
+		return nil, err
+	}
 	view.TwoFactor.Available = pwOn && hasPw
 	view.TwoFactor.Required = s.twoFactorRequired(ctx, u)
 	if view.TwoFactor.Enabled, err = s.hasTwoFactor(ctx, u.ID); err != nil {
@@ -312,6 +316,10 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, u models.Us
 func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u models.User) {
 	ctx := r.Context()
 	provider := r.PathValue("provider")
+	if provider == models.ProviderPasskey {
+		settingsRedirect(w, r, u.ID, "Remove passkeys in the Passkeys section.")
+		return
+	}
 	mine, err := s.store.UserProviders(ctx, u.ID)
 	if err != nil {
 		s.fail(w, err)

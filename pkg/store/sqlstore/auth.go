@@ -239,8 +239,17 @@ func (s *Store) DeleteIdentity(ctx context.Context, userID int64, provider strin
 
 func (s *Store) UserProviders(ctx context.Context, userID int64) ([]string, error) {
 	var out []string
-	err := s.db.NewSelect().Model((*identityRow)(nil)).Column("provider").Where("user_id = ?", userID).OrderExpr("provider").Scan(ctx, &out)
-	return out, err
+	if err := s.db.NewSelect().Model((*identityRow)(nil)).Column("provider").Where("user_id = ?", userID).OrderExpr("provider").Scan(ctx, &out); err != nil {
+		return nil, err
+	}
+	n, err := s.db.NewSelect().Model((*passkeyRow)(nil)).Where("user_id = ?", userID).Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if n > 0 { // passkeys are a way to sign in like a provider, listed after the real providers
+		out = append(out, models.ProviderPasskey)
+	}
+	return out, nil
 }
 
 func (s *Store) IdentityProviders(ctx context.Context) (map[int64][]string, error) {
@@ -252,6 +261,13 @@ func (s *Store) IdentityProviders(ctx context.Context) (map[int64][]string, erro
 	out := map[int64][]string{}
 	for _, r := range rows {
 		out[r.UserID] = append(out[r.UserID], r.Provider)
+	}
+	var withPasskey []int64
+	if err := s.db.NewSelect().Model((*passkeyRow)(nil)).ColumnExpr("DISTINCT user_id").OrderExpr("user_id").Scan(ctx, &withPasskey); err != nil {
+		return nil, err
+	}
+	for _, id := range withPasskey {
+		out[id] = append(out[id], models.ProviderPasskey)
 	}
 	return out, nil
 }

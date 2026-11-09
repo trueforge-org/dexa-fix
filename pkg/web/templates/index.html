@@ -7,9 +7,11 @@
       <small>{{if .FirstUser}}Create the first account below. It becomes the administrator.{{else}}Welcome back to dexa-fix.{{end}}</small>
     </div>
     {{if .Providers}}<div class="provider-buttons">{{range .Providers}}<a class="button secondary" href="/auth/{{.Slug}}/login">Continue with {{.Label}}</a>{{end}}{{help "providers"}}</div>{{end}}
+    {{if .Passkeys}}<div class="provider-buttons"><button type="button" id="passkey-login" class="secondary" hidden>Sign in with a passkey</button></div>
+    <p id="passkey-msg" class="notice error" role="alert" aria-live="polite"></p>{{end}}
     {{if .PasswordEnabled}}{{if not .FirstUser}}
     <form method="post" action="/login" class="fields">
-      <label>E-mail <input type="text" inputmode="email" name="email" maxlength="254" required autocomplete="username"></label>
+      <label>E-mail <input type="text" inputmode="email" name="email" maxlength="254" required autocomplete="username webauthn"></label>
       <label>Password {{help "password-login"}} <input type="password" name="password" required autocomplete="current-password"></label>
       <button type="submit">Sign in</button>
       {{if .CanReset}}<p class="help"><a href="/password/forgot">Forgot your password?</a></p>{{end}}
@@ -28,4 +30,5 @@
   {{end}}
 </div>
 {{end}}
+{{if and .Login .Login.Passkeys}}<script src="{{asset "passkey.js"}}" defer></script>{{end}}
 {{end}}

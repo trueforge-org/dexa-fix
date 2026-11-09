@@ -50,6 +50,8 @@ type profileExport struct {
 	TwoFactor struct {
 		Enabled bool `json:"enabled"`
 	} `json:"two_factor"`
+	// Passkeys lists the names and dates of the passkeys; the public keys are not exported.
+	Passkeys      []exportPasskey     `json:"passkeys"`
 	SignInMethods []exportIdentity    `json:"sign_in_methods"`
 	AccessTokens  []exportAccessToken `json:"access_tokens"`
 	// AuditLog lists the security events that were about this account or done by it.
@@ -74,6 +76,12 @@ type exportIdentity struct {
 
 // exportAccessToken describes a personal access token. The token itself is not stored, only its
 // hash, so it cannot be exported.
+type exportPasskey struct {
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+}
+
 type exportAccessToken struct {
 	Name       string     `json:"name"`
 	Prefix     string     `json:"prefix"`
@@ -110,6 +118,14 @@ func (s *Server) buildProfileExport(r *http.Request, u models.User) (profileExpo
 	}
 	if e.TwoFactor.Enabled, err = s.hasTwoFactor(ctx, u.ID); err != nil {
 		return e, err
+	}
+	keys, err := s.store.ListPasskeys(ctx, u.ID)
+	if err != nil {
+		return e, err
+	}
+	e.Passkeys = make([]exportPasskey, 0, len(keys))
+	for _, k := range keys {
+		e.Passkeys = append(e.Passkeys, exportPasskey{Name: k.Name, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt})
 	}
 	tokens, err := s.store.ListAccessTokens(ctx, u.ID)
 	if err != nil {

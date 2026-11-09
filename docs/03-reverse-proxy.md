@@ -36,6 +36,9 @@ What changes when the proxy is trusted:
 - **Form posts pass the same-origin check.** The browser's `Origin` has to match
   the host it visited, which is why the proxy must pass the original host, either
   as `Host` or as `X-Forwarded-Host`, or you set the base URL.
+- **Passkeys** need HTTPS in the browser, and belong to the host name the browser
+  uses. Behind a proxy that terminates TLS, set an `https` base URL. See
+  [Passkeys](07-accounts-and-sign-in.md#passkeys).
 
 For the address, the app reads `X-Forwarded-For` from the right: it skips every
 address that belongs to a trusted proxy, and the first address after that is
@@ -175,3 +178,6 @@ docker run -p 8080:8080 -p 8443:8443 -p 8443:8443/udp -v dexa-fix-data:/data ghc
 Browsers and apps trust a self-signed certificate only once you add it to their
 trust store, and browsers use HTTP/3 only with a trusted certificate. There is
 no redirect from HTTP to HTTPS yet.
+
+Passkeys belong to the address you open, port included. Use the HTTPS address
+for them, such as `https://dexa.example.com:8443`, and not the plain HTTP one.

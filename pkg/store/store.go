@@ -160,6 +160,16 @@ type Store interface {
 	UseRecoveryCode(ctx context.Context, userID int64, hash string) (bool, error)
 	CountRecoveryCodes(ctx context.Context, userID int64) (int, error)
 	TwoFactorUsers(ctx context.Context) (map[int64]bool, error)
+	// Passkeys. EnsurePasskeyHandle returns the user's random WebAuthn user handle, creating it on
+	// first use. UserProviders and IdentityProviders list the pseudo-provider "passkey" for users
+	// who have at least one.
+	EnsurePasskeyHandle(ctx context.Context, userID int64) (string, error)
+	UserByPasskeyHandle(ctx context.Context, handle string) (models.User, error)
+	ListPasskeys(ctx context.Context, userID int64) ([]models.Passkey, error)
+	AddPasskey(ctx context.Context, p models.Passkey) error
+	UpdatePasskeyUse(ctx context.Context, credentialID, credential string, signCount uint32) error
+	RenamePasskey(ctx context.Context, userID int64, credentialID, name string) error
+	DeletePasskey(ctx context.Context, userID int64, credentialID string) error
 	// Password reset links. CompletePasswordReset sets the password and signs the user out
 	// everywhere in one transaction; a link works once.
 	CreatePasswordReset(ctx context.Context, tokenHash string, userID int64, createdBy *int64, expires time.Time) error

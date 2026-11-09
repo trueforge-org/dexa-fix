@@ -9,7 +9,7 @@ in reading order:
 4. [Database](04-database.md): SQLite and Postgres, schema migrations and moving between them.
 5. [Commands](05-commands.md): the `db` commands for migrations, copying and rekeying, and recovery commands for accounts and settings.
 6. [Using the app](06-using-the-app.md): the pages of the web interface.
-7. [Accounts and sign-in](07-accounts-and-sign-in.md): sign-in, password reset, two-step verification, providers, the audit log and your data.
+7. [Accounts and sign-in](07-accounts-and-sign-in.md): sign-in, password reset, two-step verification, passkeys, providers, the audit log and your data.
 8. [Encryption](08-encryption.md): what is encrypted, how the key is kept and how to rotate it.
 9. [Estimates](09-estimates.md): how the daily estimates are calculated and cached.
 10. [Withings import](10-withings-import.md): linking a Withings account and importing readings.

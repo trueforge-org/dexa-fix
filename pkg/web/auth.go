@@ -388,6 +388,7 @@ type loginView struct {
 	FirstUser       bool
 	Providers       []loginProvider
 	CanReset        bool // people can ask for a reset e-mail
+	Passkeys        bool // the browser can use passkeys here
 }
 
 func (s *Server) authRoutes(mux *http.ServeMux) {
@@ -425,7 +426,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 		s.fail(w, err)
 		return
 	}
-	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers, CanReset: s.selfServiceReset(ctx)}
+	view := &loginView{PasswordEnabled: s.passwordEnabled(ctx), FirstUser: !hasUsers, CanReset: s.selfServiceReset(ctx), Passkeys: passkeysReady(r)}
 	for _, p := range providers {
 		view.Providers = append(view.Providers, loginProvider{p.Slug, p.Label})
 	}

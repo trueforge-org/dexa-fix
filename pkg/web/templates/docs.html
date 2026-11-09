@@ -10,6 +10,7 @@
         <li><a href="#password-login">Password sign-in</a></li>
         <li><a href="#two-step">Two-step verification</a></li>
         <li><a href="#password-reset">Password reset</a></li>
+        <li><a href="#passkeys-doc">Passkeys</a></li>
         <li><a href="#registration">Signing up</a></li>
         <li><a href="#providers">Sign-in providers</a></li>
         <li><a href="#access-tokens">Access tokens</a></li>
@@ -82,7 +83,7 @@
   <li><strong>What:</strong> sign in with e-mail address and password on the home page.</li>
   <li><strong>Format:</strong> passwords have 8 characters or more and at most 72 bytes. They are stored as bcrypt hashes.</li>
   <li><strong>Default:</strong> on.</li>
-  <li><strong>Effect of turning it off</strong> (Admin page): the sign-in form, the sign-up form and HTTP Basic authentication on the API all stop working. Providers and access tokens keep working. The administrator who turns it off must have a linked provider first, so they cannot lock themselves out.</li>
+  <li><strong>Effect of turning it off</strong> (Admin page): the sign-in form, the sign-up form and HTTP Basic authentication on the API all stop working. Providers, passkeys and access tokens keep working. The administrator who turns it off must have another way to sign in first (a linked provider or a passkey), so they cannot lock themselves out.</li>
   <li><strong>Recovery:</strong> start the server with <code>--force-password-login</code> (or <code>DEXAFIX_FORCE_PASSWORD_LOGIN=true</code>) to keep password sign-in on whatever the Admin page says, then fix the setting and restart without it.</li>
   <li><strong>Sessions</strong> last 30 days. The cookie is <code>HttpOnly</code>, <code>SameSite=Lax</code>, and <code>Secure</code> when the visitor used HTTPS.</li>
 </ul>
@@ -108,6 +109,21 @@
   <li><strong>Audit:</strong> <code>password_reset_link_created</code>, <code>password_reset_requested</code>, <code>password_reset_email_failed</code>, <code>password_reset_completed</code> and <code>password_reset_invalid</code>.</li>
 </ul>
 <p class="docs-note">There are no flags or environment variables for e-mail. Set it on the Admin page.</p>
+
+<h3 id="passkeys-doc">Passkeys</h3>
+<ul>
+  <li><strong>What:</strong> a passkey (WebAuthn) signs you in without a password. It is kept on a device or a security key and unlocked with a fingerprint, a face or a PIN. It replaces the password for that sign-in. It is not a second step after a password: the device and its unlock already make two factors, so a passkey sign-in is never asked for a two-step code.</li>
+  <li><strong>Add:</strong> Settings, <em>Passkeys</em>, <em>Add a passkey</em>. Give it a name. With a password on the account, confirm your current password. Without one, you need a sign-in from the last 10 minutes.</li>
+  <li><strong>Rename and remove:</strong> rename at any time. Removing asks for your password. The last passkey cannot be removed while it is the only way to sign in; add another sign-in method first.</li>
+  <li><strong>Sign in:</strong> press <em>Sign in with a passkey</em> on the home page. Browsers that support conditional UI also offer your passkey in the suggestions of the e-mail field. Passkeys are discoverable, so no e-mail address has to be typed.</li>
+  <li><strong>Requirements:</strong> browsers offer passkeys only on HTTPS, or on <code>localhost</code>. A passkey belongs to the host name the browser used (the base URL's host, when one is set), and the origin includes the port. If the host name changes, for example to a new domain, existing passkeys stop working and must be added again. With the HTTPS listener, use its HTTPS address. Behind a proxy that terminates TLS, set an <code>https</code> base URL.</li>
+  <li><strong>Other places:</strong> a passkey sign-in is recorded with the method <code>passkey</code>, shown in the Users list on the Admin page. A passkey counts as a sign-in method for turning off password sign-in and for unlinking your last provider. A passkey sign-in also counts as the second step for the Admin pages.</li>
+  <li><strong>Your data:</strong> the export lists passkey names and dates, never the keys. <code>db copy</code> copies passkeys too.</li>
+  <li><strong>Security:</strong> the server stores only the public key and metadata, and a random user handle that says nothing about you. The sign counter must not go backwards; if it does, the sign-in is refused and recorded as <code>passkey_clone_warning</code>. The state of a registration or sign-in is a signed cookie that works once and is valid for 5 minutes. Failed attempts count against the client address limit.</li>
+  <li><strong>Audit:</strong> <code>passkey_added</code>, <code>passkey_removed</code>, <code>passkey_login_failed</code> and <code>passkey_clone_warning</code>.</li>
+  <li><strong>Not covered:</strong> passkeys are not used as a second factor, and the two-step requirement does not apply to them. They cannot recover an account: a lost device needs another sign-in method or an administrator.</li>
+</ul>
+
 <h3 id="registration">Signing up</h3>
 <p>The very first account on an empty server can always be created. After that <strong>sign-up is closed by default</strong>. While it is closed nobody can create their own account, neither with a password nor on first sign-in through a provider. An administrator adds people from the Users list on the Admin page, or opens <strong>New accounts</strong> on the Admin page (the <em>Open new accounts</em> button). Existing accounts keep working either way.</p>
 <p class="docs-note">The sign-up form on the home page only appears when sign-up is open and password sign-in is on.</p>
@@ -289,6 +305,7 @@
   <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
   <dt>Linked accounts</dt><dd>See <a href="#linked-accounts">Linked accounts</a>.</dd>
   <dt id="two-factor-settings">Two-step verification</dt><dd>Turn it on or off, and replace your recovery codes. See <a href="#two-step">Two-step verification</a>.</dd>
+  <dt>Passkeys</dt><dd>Add a passkey, rename it or remove it. See <a href="#passkeys-doc">Passkeys</a>.</dd>
   <dt id="password">Password</dt><dd>Set or change your password (current password required when you have one). Shown only while password sign-in is on. Minimum 8 characters, at most 72 bytes.</dd>
   <dt>Withings, Strength Level</dt><dd>See <a href="#integrations">Integrations</a>.</dd>
   <dt>Your data</dt><dd>Download your data as JSON. See <a href="#data-export">Data export</a>.</dd>
@@ -599,7 +616,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 <h2>Data export and GDPR</h2>
 <p>Under <strong>Settings &rarr; Your data</strong> every user can download two JSON files. They serve a person's right of access and data portability (GDPR articles 15 and 20).</p>
 <ul>
-  <li><strong>Settings and personal details:</strong> name, e-mail, role, height, settings, permissions, sign-in methods (provider and account id), access token names and prefixes, whether two-step verification is on (<code>two_factor.enabled</code>; never the secret or recovery codes), whether Withings and Strength Level are connected (and the Strength Level e-mail address), and the audit events about the account.</li>
+  <li><strong>Settings and personal details:</strong> name, e-mail, role, height, settings, permissions, sign-in methods (provider and account id), passkey names and dates (never the keys), access token names and prefixes, whether two-step verification is on (<code>two_factor.enabled</code>; never the secret or recovery codes), whether Withings and Strength Level are connected (and the Strength Level e-mail address), and the audit events about the account.</li>
   <li><strong>DEXA scans and scale readings:</strong> everything the user measured, including notes.</li>
 </ul>
 <p>Credentials are never included: the files say whether a password, token or integration exists, not what it is. The same files are available to scripts at <code>GET /api/v1/users/{id}/export/profile</code> and <code>/export/data</code>. Every export is recorded in the audit log. <strong>Erasure:</strong> an administrator deleting a user (Admin page) removes all their measurements and settings, clears the IP addresses in the events about them, and the events no longer refer to them.</p>

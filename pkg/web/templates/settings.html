@@ -38,6 +38,29 @@
     {{else}}<form method="post" action="/auth/{{.Slug}}/login">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
 </section>
 {{end}}
+{{with .Passkeys}}
+<section class="card" id="passkeys">
+  <h2>Passkeys</h2>
+  <p class="help">A passkey signs you in without a password, with the fingerprint, face or PIN of a device (or a security key). It replaces the password for that sign-in and counts as two factors, so no code is asked. A passkey belongs to this web address: if the address changes, add the passkey again.</p>
+  {{if .Items}}<div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Added</th><th>Last used</th><th></th></tr></thead>
+    <tbody>{{range .Items}}<tr><td>
+        <form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/rename" class="form-row"><input type="text" name="name" value="{{.Name}}" maxlength="64" aria-label="Passkey name" required><button class="secondary" type="submit">Rename</button></form></td>
+      <td>{{.Created}}</td><td>{{.LastUsed}}</td>
+      <td><form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/delete" data-confirm="Remove this passkey?">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="link" type="submit">Remove</button></form></td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+  {{if .Ready}}
+  <form id="passkey-add" class="form-row" hidden data-begin="/u/{{$.User.ID}}/passkeys/begin" data-finish="/u/{{$.User.ID}}/passkeys/finish">
+    <label>Name <input type="text" name="name" maxlength="64" placeholder="Laptop, phone, security key" autocomplete="off"></label>
+    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <div><button type="submit">Add a passkey</button></div>
+  </form>
+  <p id="passkey-msg" class="notice error" role="alert" aria-live="polite"></p>
+  <script src="{{asset "passkey.js"}}" defer></script>
+  <noscript><p class="help">Adding a passkey needs JavaScript.</p></noscript>
+  {{else}}<p class="help">Passkeys need a secure connection and a host name: open this site over HTTPS at its name (not an IP address), or on localhost, to add one.</p>{{end}}
+</section>
+{{end}}
 {{with .TwoFactor}}{{if or .Available .Enabled}}
 <section class="card" id="two-factor">
   <div class="card-head">

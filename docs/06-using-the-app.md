@@ -3,9 +3,10 @@
 Settings and Admin are in a menu under your name in the header, which also has
 **Sign out**.
 
-- `/`: the sign-in page. Sign in with an e-mail address and password, create an
-  account, or use a provider button. Names are display names. They need not be
-  unique and have 1 to 64 characters.
+- `/`: the sign-in page. Sign in with an e-mail address and password, with a
+  passkey (**Sign in with a passkey**), create an account, or use a provider
+  button. Names are display names. They need not be unique and have 1 to 64
+  characters.
 - `/u/{id}`: redirects to the estimates page.
 - `/u/{id}/estimates`: one row per day with the estimated values, an overview
   with the latest values and a trend chart, the calibrations in use, and the
@@ -30,6 +31,8 @@ Settings and Admin are in a menu under your name in the header, which also has
   - **Linked accounts**: link or unlink sign-in providers.
   - **Two-step verification**: turn it on or off, and replace your recovery codes.
     See [Two-step verification](07-accounts-and-sign-in.md#two-step-verification).
+  - **Passkeys**: add a passkey, rename it or remove it. See
+    [Passkeys](07-accounts-and-sign-in.md#passkeys).
   - **Password**: set or change the account's password. Changing it signs out
     the other sessions and revokes all access tokens.
 - `/admin`: administrators only. Administrators can add users and open or
