@@ -30,3 +30,23 @@
 - **Estimates are cached in memory** per user, for the 32 most recently used
   users, and recomputed when the data, the settings that matter or the date
   change. See [Estimate cache](09-estimates.md#estimate-cache).
+- **The internal link carries sessions, passwords and the TLS private key.** In
+  a [split deployment](15-split-deployment.md) the web process calls the api
+  process over it. The service secret says which web process may call, but it
+  does not encrypt the link. Keep the link on a private network: a Docker or
+  Compose internal network, or the Kubernetes cluster network. Across hosts, use
+  TLS through a service mesh or a tunnel. dexa-fix warns at start when the
+  backend URL is plain HTTP to an address that is not private. The api process
+  never trusts `X-Dexafix-*` headers on the public listener. Personal access
+  tokens and Basic authentication work only on the public API. Sealed cookies,
+  keys and single-use nonces stay in the api process.
+- **Memory is per api process.** Failed-login throttling, single-use nonces and
+  Strength Level sync progress are held in memory by each api process, so
+  several api processes do not share them. Limit sign-in attempts at the reverse
+  proxy as well.
+- **Load budgets are per listener.** The public API admits 32 requests at once,
+  queues 64 and allows 20 requests per second per client. The internal listener
+  admits 128 at once, queues 256 and allows 50 per second per client. Excess
+  requests get 503 or 429 with `Retry-After`. The budgets keep a flood on the
+  public API from starving the internal one. See
+  [Split deployment](15-split-deployment.md#running-more-api-processes).

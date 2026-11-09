@@ -85,6 +85,12 @@ docker run -p 8080:8080 -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:la
 
 Continue with [Getting started](docs/01-getting-started.md).
 
+## 🧩 Running as two processes
+
+`dexa-fix serve web` runs the pages and the public listeners, and
+`dexa-fix serve api` runs the database and the security decisions. Each can be
+deployed separately. See [Split deployment](docs/15-split-deployment.md).
+
 ## 📚 Documentation
 
 The full documentation starts at [docs/index.md](docs/index.md).
@@ -105,6 +111,7 @@ The full documentation starts at [docs/index.md](docs/index.md).
 | [12 · CI and releases](docs/12-ci-and-releases.md) | What CI checks and how releases are made. |
 | [13 · Development](docs/13-development.md) | Tests, project layout and schema changes. |
 | [14 · Limitations and security](docs/14-limitations-and-security.md) | Read before you expose the app. |
+| [15 · Split deployment](docs/15-split-deployment.md) | Running the frontend and the backend as two processes, with Compose and troubleshooting. |
 | [Key rotation](docs/key-rotation.md) | Design note on the key check and why rotation stays manual. |
 | [CI details](docs/ci.md) | The README badges, the secrets to configure and how to cut a release. |
 

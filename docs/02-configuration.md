@@ -1,11 +1,12 @@
 # Configuration
 
 Each `serve` flag has an environment variable. A flag on the command line
-overrides the variable.
+overrides the variable. The same holds for `serve web` and `serve api`, the two
+processes of a [split deployment](15-split-deployment.md).
 
 | Flag                       | Environment variable             | Default                                                               | Description                                            |
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
-| `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on for plain HTTP.                   |
+| `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on for plain HTTP. For `serve api`, the public API instead. |
 | `--db-driver`              | `DEXAFIX_DB_DRIVER`              | `sqlite`                                                              | `sqlite` or `postgres`.                                |
 | `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
 | `--dsn-file`               | `DEXAFIX_DSN_FILE`               | empty                                                                 | File holding the connection string. |
@@ -15,6 +16,16 @@ overrides the variable.
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
 | `--encryption-key-previous-file` | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE` | empty                                                     | File with earlier keys, one per line, for a key rotation. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS` | unset                                                                | Earlier keys, comma separated, for a key rotation. No flag. |
+| `--backend-url`            | `DEXAFIX_BACKEND_URL`            | empty                                                                 | `serve web` only. Required: the internal address of the api process, such as `http://api:8081`. |
+| `--service-secret-file`    | `DEXAFIX_SERVICE_SECRET_FILE`    | empty                                                                 | `serve web`, and `serve api` when the internal listener is on. Required there. The shared secret, see [Split deployment](15-split-deployment.md#service-secret). |
+| `--internal-listen`        | `DEXAFIX_INTERNAL_LISTEN`        | `:8081`                                                               | `serve api` only. Internal API for the web process; keep it on a private network. Empty turns it off. |
+| `--maintenance`            | `DEXAFIX_MAINTENANCE`            | `true`                                                                | `serve api` only. Runs the audit log purge and certificate renewal. Turn it off on all but one api process. |
+| `--api-upstream`           | `DEXAFIX_API_UPSTREAM`           | empty                                                                 | `serve web` only. Passes `/api/` on to the api process's public listener, for setups without a proxy that routes by path. Off by default. |
+
+`serve web` has no database and no encryption key, so it has no database or key
+flags. If `DEXAFIX_DSN_FILE` or `DEXAFIX_ENCRYPTION_KEY` is set for it, it
+logs a warning and ignores the variable. The database and key flags belong to
+`serve api`.
 
 `DEXAFIX_FORCE_PASSWORD_LOGIN` counts as set only when it is exactly `true`.
 `1` or `TRUE` leaves it off.

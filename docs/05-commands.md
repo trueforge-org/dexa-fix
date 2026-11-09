@@ -1,5 +1,23 @@
 # Commands
 
+## Server commands
+
+| Command                   | Description                                                                 |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `serve`                   | Run everything in one process: pages, API, database and keys.               |
+| `serve web`               | Run the frontend of a [split deployment](15-split-deployment.md): pages, static files and the public HTTP, HTTPS and HTTP/3 listeners. No database. |
+| `serve api`               | Run the backend of a split deployment: database, keys, public API, internal API and maintenance. |
+| `secrets service-secret`  | Print a new service secret of 64 hexadecimal characters for `serve web` and `serve api`. |
+
+Create the service secret file and keep it private:
+
+```bash
+go run . secrets service-secret > service.secret && chmod 600 service.secret
+```
+
+A group- or world-readable file only logs a warning. See
+[Service secret](15-split-deployment.md#service-secret) for rotating it.
+
 ## Database commands
 
 | Command                  | Description                                                   |

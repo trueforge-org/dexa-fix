@@ -3,6 +3,12 @@
 All routes are under `/api/v1`. Bodies are JSON, and unknown request fields are
 rejected. Errors have the form `{"error": "..."}`.
 
+The public API is served by the api process's public listener (`--listen`, port
+8080 by default). In `serve` it is the same listener as the web app. In a
+[split deployment](15-split-deployment.md), the reverse proxy sends `/api/` to
+that listener. `/internal/v1` is the private link between the web process and
+the api process. It is not a supported API and can change between releases.
+
 Every request must be authenticated, except `GET /healthz` and static files.
 Responses are 401 when the request is not authenticated, and 403 when the
 user's role is not enough. See [Authentication](#authentication).

@@ -17,6 +17,7 @@ in reading order:
 12. [CI and releases](12-ci-and-releases.md): what CI checks and how releases are published.
 13. [Development](13-development.md): tests, project layout, schema changes and adding an importer.
 14. [Limitations and security](14-limitations-and-security.md): read before you expose the app.
+15. [Split deployment](15-split-deployment.md): running the frontend (`serve web`) and the backend (`serve api`) as two processes, with the service secret and troubleshooting.
 
 Other pages:
 

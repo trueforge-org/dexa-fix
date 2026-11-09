@@ -181,3 +181,72 @@ no redirect from HTTP to HTTPS yet.
 
 Passkeys belong to the address you open, port included. Use the HTTPS address
 for them, such as `https://dexa.example.com:8443`, and not the plain HTTP one.
+
+## Two processes: path split
+
+With the [split deployment](15-split-deployment.md), the proxy sends `/api/` to
+the api process's public listener and everything else to the web process. Both
+must see the proxy as trusted. Set **Trusted proxies** once on the Admin page:
+it is stored in the database, so it applies to both processes.
+
+The examples assume the web process listens on `web:8080` and the api process
+on `api:8080`, for example on one Docker network:
+
+```text
+# nginx
+location /api/ {
+    proxy_pass http://api:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location / {
+    proxy_pass http://web:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Caddy
+dexa.example.com {
+    handle /api/* {
+        reverse_proxy api:8080
+    }
+    handle {
+        reverse_proxy web:8080
+    }
+}
+
+# Traefik (docker labels on the api service)
+traefik.http.routers.dexa-api.rule=Host(`dexa.example.com`) && PathPrefix(`/api/`)
+traefik.http.routers.dexa-api.tls=true
+traefik.http.services.dexa-api.loadbalancer.server.port=8080
+
+# Traefik (docker labels on the web service)
+traefik.http.routers.dexa-web.rule=Host(`dexa.example.com`)
+traefik.http.routers.dexa-web.tls=true
+traefik.http.services.dexa-web.loadbalancer.server.port=8080
+
+# haproxy.cfg
+frontend dexa
+    mode http
+    bind :443 ssl crt /etc/haproxy/dexa.pem
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-For %[src]
+    use_backend dexa_api if { path_beg /api/ }
+    default_backend dexa_web
+
+backend dexa_api
+    mode http
+    server api api:8080
+
+backend dexa_web
+    mode http
+    server web web:8080
+```
+
+The path split needs a proxy that reads the path, so it must terminate TLS. If
+the web process serves HTTPS itself, a proxy that only passes TCP cannot split
+the paths. Then set `DEXAFIX_API_UPSTREAM` on the web process instead, and see
+[Split deployment](15-split-deployment.md#tls-and-http3).

@@ -17,8 +17,16 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
 ## Layout
 
 - `main.go`: entry point. Sets up logging and prints the version.
-- `cmd/`: `serve` runs the web app, `db` migrates and copies the database,
+- `cmd/`: `serve` runs the web app in one process. `serve web` and `serve api`
+  (`serve_split.go`) run the frontend and the backend as two processes. `db`
+  migrates and copies the database, `secrets` creates the service secret, and
   `info` prints binary information.
+- `pkg/edge/`: HTTP edge code that both processes share: the visitor's address
+  behind a proxy, the PROXY protocol and request limits. It must not import the
+  store.
+- `pkg/apiclient/`: the frontend's client for the backend's internal API under
+  `/internal/v1`, and the in-process transport that `serve` uses to run both
+  halves in one process. It must not import the store or `pkg/web`.
 - `pkg/estimate/`: estimation logic.
 - `pkg/strengthlevel/`: the Strength Level entries built from the estimates
   (`strengthlevel.go`) and the sync client (`client/`).
@@ -30,7 +38,9 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
   SQLite and Postgres. Its goose migrations live under `migrations/`.
 - `pkg/web/`: HTML handlers and templates, the JSON API (`api.go`), the
   integration routes (`handlers_import.go`), routes in `server.go`, and the
-  in-memory estimate cache (`estcache.go`).
+  in-memory estimate cache (`estcache.go`). The split lives here too: `frontend.go`
+  is the frontend process, `backend.go` the public handlers of the backend, and
+  `internal.go` the internal API under `/internal/v1`.
 
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.
