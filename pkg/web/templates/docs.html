@@ -47,6 +47,7 @@
       <ul>
         <li><a href="#proxy-protocol">PROXY protocol</a></li>
         <li><a href="#https">HTTPS, HTTP/2 and HTTP/3</a></li>
+        <li><a href="#two-processes">Two processes</a></li>
       </ul></li>
     <li><a href="#database">Database</a></li>
     <li><a href="#encryption">Encryption</a></li>
@@ -552,6 +553,13 @@ stream {
 </ul>
 <p>The Admin page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. With Docker, publish both ports: <code>-p 8443:8443 -p 8443:8443/udp</code>.</p>
 <p class="docs-note">Browsers and apps trust a self-signed certificate only once you add it, and browsers use HTTP/3 only with a trusted certificate. There is no HTTP to HTTPS redirect yet.</p>
+<h3 id="two-processes">Two processes: web and api</h3>
+<p>So that a flood of requests on one part cannot take down the other, dexa-fix can run as two processes from the same binary:</p>
+<ul>
+  <li><code>dexa-fix serve web</code> renders the pages and serves the public HTTP, HTTPS and HTTP/3 listeners. It has no database. Flags: <code>--listen</code>, <code>--backend-url</code> (the internal address of the api process, such as <code>http://api:8081</code>), <code>--service-secret-file</code>, and optionally <code>--api-upstream</code> to pass <code>/api/</code> on to the api process.</li>
+  <li><code>dexa-fix serve api</code> owns the database and every security decision. <code>--listen</code> serves the JSON API (<code>/api/v1</code>) behind your reverse proxy; <code>--internal-listen</code> serves the internal API for the web process and must stay on a private network.</li>
+</ul>
+<p>The two share a secret file: create it with <code>dexa-fix secrets service-secret &gt; service.secret</code> and give its path to both. The settings on the Admin page apply to both, and the web process picks changes up within seconds. In your reverse proxy send <code>/api/</code> to the api process and everything else to the web process. Plain <code>dexa-fix serve</code> still runs everything in one process. The page <em>Running as two processes</em> in the documentation folder has a Compose example and the details.</p>
 </section>
 
 <section id="database">

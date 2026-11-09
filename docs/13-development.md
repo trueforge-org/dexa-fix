@@ -14,6 +14,16 @@ DEXAFIX_TEST_POSTGRES_DSN='postgres://postgres:x@localhost:5432/postgres?sslmode
   go test ./pkg/store/sqlstore/
 ```
 
+To run the browser-level tests of `pkg/web` against the split deployment (a
+frontend without a database that talks over TCP to a separate backend), set
+`DEXAFIX_TEST_SPLIT`. CI runs both ways. The tests that cover the combined
+server's listeners are skipped there; `frontend_tls_test.go` covers HTTPS in
+the split.
+
+```bash
+DEXAFIX_TEST_SPLIT=1 go test ./pkg/web
+```
+
 ## Layout
 
 - `main.go`: entry point. Sets up logging and prints the version.

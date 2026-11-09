@@ -115,7 +115,7 @@
     <h2>HTTPS, HTTP/2 and HTTP/3</h2>
     {{if .TLS.Active}}<span class="status on">HTTPS on</span>{{else}}<span class="status">HTTPS off</span>{{end}}
   </div>
-  <p class="help">Plain HTTP stays on the port the server was started with; it speaks HTTP/1.1 and HTTP/2 (also without TLS, for proxies that use it). With a certificate the server also listens for HTTPS on <strong>its own port</strong> (HTTP/2 and HTTP/1.1), and optionally for HTTP/3 on the UDP port with the same number. A wrong certificate or port cannot lock you out of the plain port. Behind a reverse proxy you usually leave this off and let the proxy do TLS.</p>
+  <p class="help">Plain HTTP stays on the port the server was started with; it speaks HTTP/1.1 and HTTP/2 (also without TLS, for proxies that use it). With a certificate the server also listens for HTTPS on <strong>its own port</strong> (HTTP/2 and HTTP/1.1), and optionally for HTTP/3 on the UDP port with the same number. A wrong certificate or port cannot lock you out of the plain port. When the web and api parts run as two processes, the web process serves these listeners. Behind a reverse proxy you usually leave this off and let the proxy do TLS.</p>
   {{if .TLS.ListenError}}<p class="notice error" role="alert">{{.TLS.ListenError}}</p>{{end}}
   {{if .TLS.Active}}<dl class="stats">
     <div><dt>Certificate for</dt><dd>{{.TLS.CertNames}}</dd></div>
