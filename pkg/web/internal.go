@@ -175,6 +175,7 @@ func (s *Server) internalSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) internalRoutes(mux *http.ServeMux) {
 	s.internalMeasureRoutes(mux)
 	s.internalSettingsRoutes(mux)
+	s.internalSecurityRoutes(mux)
 }
 
 // ---- the frontend side ----

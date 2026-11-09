@@ -28,14 +28,19 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, u models
 // renderSettingsWith is renderSettings with a chance to add to the sign-in section, for values
 // that are shown once (a QR code, recovery codes).
 func (s *Server) renderSettingsWith(w http.ResponseWriter, r *http.Request, u models.User, errMsg, saved, newToken string, status int, extra func(*securityView)) {
-	rows := make([]rankRow, len(u.MethodRanking))
-	for i, k := range u.MethodRanking {
-		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
-	}
 	pg, err := s.api.SettingsPage(r.Context(), u.ID, flashParam(r))
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	s.renderSettingsPage(w, u, pg, errMsg, saved, newToken, status, extra)
+}
+
+// renderSettingsPage shows the settings page from data the caller already has.
+func (s *Server) renderSettingsPage(w http.ResponseWriter, u models.User, pg apiclient.SettingsPage, errMsg, saved, newToken string, status int, extra func(*securityView)) {
+	rows := make([]rankRow, len(u.MethodRanking))
+	for i, k := range u.MethodRanking {
+		rows[i] = rankRow{Key: k, Label: methodLabel(k), Rank: i + 1}
 	}
 	sec := pg.Security
 	sec.NewToken = newToken

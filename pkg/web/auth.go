@@ -553,16 +553,10 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if u := currentUser(r); u != nil {
-		s.audit(r, u.ID, auditLogout, "")
+	if err := s.api.Logout(r.Context()); err != nil {
+		s.fail(w, err)
+		return
 	}
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		if err := s.store.DeleteSession(r.Context(), hashToken(c.Value)); err != nil {
-			s.fail(w, err)
-			return
-		}
-	}
-	clearSessionCookie(w, r)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

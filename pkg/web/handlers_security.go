@@ -7,11 +7,11 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -84,51 +84,27 @@ func parseEmail(raw string) (string, bool) {
 
 // saveProfile stores the name, e-mail address and height shown on the settings page.
 func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request, u models.User) {
-	email, ok := parseEmail(r.PostFormValue("email"))
-	if !ok {
-		s.settingsPage(w, r, u, "Please enter a valid e-mail address.", "", http.StatusUnprocessableEntity)
+	err := s.api.SaveProfile(r.Context(), u.ID, apiclient.Profile{
+		Name: r.PostFormValue("name"), Email: r.PostFormValue("email"), Timezone: r.PostFormValue("timezone"),
+		HeightCm: r.PostFormValue("height_cm"), Current: r.PostFormValue("current"),
+	})
+	if err != nil {
+		s.settingsError(w, r, u, err)
 		return
 	}
-	if email != u.Email && !s.confirmPassword(w, r, u) {
+	settingsRedirect(w, r, u.ID, "Profile saved.")
+}
+
+// settingsError shows a refused change on the settings page with the status the backend gave; any
+// other failure is answered as usual.
+func (s *Server) settingsError(w http.ResponseWriter, r *http.Request, u models.User, err error) {
+	var e *apiclient.Error
+	if errors.As(err, &e) && (e.Code == apiclient.CodeInvalid || e.Code == apiclient.CodeThrottled ||
+		e.Code == apiclient.CodeForbidden || e.Code == apiclient.CodeExists) {
+		s.settingsPage(w, r, u, e.Message, "", e.Status)
 		return
 	}
-	timezone := u.Timezone
-	if raw := strings.TrimSpace(r.PostFormValue("timezone")); raw != "" {
-		var err error
-		if timezone, err = parseTimezone(raw); err != nil {
-			s.settingsPage(w, r, u, err.Error(), "", http.StatusUnprocessableEntity)
-			return
-		}
-	}
-	var height *float64
-	if raw := strings.TrimSpace(r.PostFormValue("height_cm")); raw != "" {
-		v, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", "."), 64)
-		if err != nil || v < minHeightCm || v > maxHeightCm {
-			s.settingsPage(w, r, u, "Height must be between 50 and 280 cm.", "", http.StatusUnprocessableEntity)
-			return
-		}
-		height = &v
-	}
-	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, r.PostFormValue("name"), email, height); {
-	case errors.Is(err, store.ErrExists):
-		s.settingsPage(w, r, u, "Another account already uses that e-mail address.", "", http.StatusUnprocessableEntity)
-	case errors.Is(err, store.ErrInvalid):
-		s.settingsPage(w, r, u, "Please enter a name of 1-64 characters.", "", http.StatusUnprocessableEntity)
-	case err != nil:
-		s.fail(w, err)
-	default:
-		if email != u.Email {
-			s.forgetResets(r.Context(), u.ID) // links made for the old address must not work
-		}
-		if timezone != u.Timezone {
-			if err := s.store.UpdateUserTimezone(r.Context(), u.ID, timezone); err != nil {
-				s.fail(w, err)
-				return
-			}
-		}
-		s.audit(r, u.ID, auditProfile, "")
-		settingsRedirect(w, r, u.ID, "Profile saved.")
-	}
+	s.fail(w, err)
 }
 
 // confirmPassword asks a user who signs in with a password for it again before a change that
@@ -202,72 +178,25 @@ func (s *Server) checkReauth(r *http.Request, u models.User, recent bool) (ok bo
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	if !s.passwordEnabled(ctx) {
-		s.settingsPage(w, r, u, "Signing in with a password is turned off.", "", http.StatusForbidden)
+	pg, err := s.api.ChangePassword(r.Context(), u.ID, apiclient.PasswordChange{
+		Current: r.PostFormValue("current"), Password: r.PostFormValue("password"), Confirm: r.PostFormValue("confirm"),
+	})
+	if err != nil {
+		s.settingsError(w, r, u, err)
 		return
 	}
-	if !s.confirmPassword(w, r, u) { // changing a password needs the current one
-		return
-	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, r.PostFormValue("confirm")); msg != "" {
-		s.settingsPage(w, r, u, msg, "", http.StatusUnprocessableEntity)
-		return
-	}
-	if err := s.setPassword(ctx, u.ID, password); err != nil {
-		s.fail(w, err)
-		return
-	}
-	// A changed password signs out everywhere else and revokes API tokens, which would otherwise
-	// keep working for whoever stole the old session.
-	if err := s.store.DeleteUserSessions(ctx, u.ID); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := s.store.DeleteUserAccessTokens(ctx, u.ID); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := s.startSession(w, r, u.ID, models.ProviderLocal); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, u.ID, auditPasswordChanged, "")
-	s.settingsPage(w, r, u, "", "Password saved. Access tokens were revoked; create new ones if you use the API.", http.StatusOK)
+	// The old session is gone; the backend sent the page data along with the new session cookie.
+	s.renderSettingsPage(w, u, pg, "", "Password saved. Access tokens were revoked; create new ones if you use the API.", "", http.StatusOK, nil)
 }
 
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request, u models.User) {
-	if !s.confirmPassword(w, r, u) {
-		return
-	}
-	name := strings.TrimSpace(r.PostFormValue("name"))
-	if name == "" || len(name) > maxTokenNameLen {
-		s.settingsPage(w, r, u, "Please give the token a name of 1-64 characters.", "", http.StatusUnprocessableEntity)
-		return
-	}
-	t := models.AccessToken{UserID: u.ID, Name: name}
-	if days := r.PostFormValue("expires"); days != "" && days != "never" {
-		n, err := strconv.Atoi(days)
-		if err != nil || n < 1 || n > 3650 {
-			s.settingsPage(w, r, u, "Please choose a valid expiry.", "", http.StatusUnprocessableEntity)
-			return
-		}
-		exp := time.Now().UTC().AddDate(0, 0, n)
-		t.ExpiresAt = &exp
-	}
-	random, err := randomHex(32)
+	token, err := s.api.CreateToken(r.Context(), u.ID, apiclient.NewTokenRequest{
+		Name: r.PostFormValue("name"), Expires: r.PostFormValue("expires"), Current: r.PostFormValue("current"),
+	})
 	if err != nil {
-		s.fail(w, err)
+		s.settingsError(w, r, u, err)
 		return
 	}
-	token := tokenPrefix + random
-	t.Prefix, t.Hash = token[:tokenPrefixShown], hashToken(token)
-	if err := s.store.CreateAccessToken(r.Context(), &t); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, u.ID, auditTokenCreated, t.Prefix)
 	// Rendered directly, never redirected, so the token does not end up in a URL.
 	s.renderSettings(w, r, u, "", "Token created.", token, http.StatusOK)
 }
@@ -278,36 +207,20 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, u models.Us
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.store.DeleteAccessToken(r.Context(), u.ID, id); err != nil {
+	if err := s.api.DeleteToken(r.Context(), u.ID, id); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.audit(r, u.ID, auditTokenRevoked, "")
 	settingsRedirect(w, r, u.ID, "Token revoked.")
 }
 
 func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u models.User) {
-	ctx := r.Context()
-	provider := r.PathValue("provider")
-	if provider == models.ProviderPasskey {
-		settingsRedirect(w, r, u.ID, "Remove passkeys in the Passkeys section.")
-		return
-	}
-	mine, err := s.store.UserProviders(ctx, u.ID)
+	msg, err := s.api.UnlinkIdentity(r.Context(), u.ID, r.PathValue("provider"))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	if !s.keepsSignIn(ctx, mine, provider) {
-		settingsRedirect(w, r, u.ID, "Add another way to sign in before unlinking this account.")
-		return
-	}
-	if err := s.store.DeleteIdentity(ctx, u.ID, provider); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, u.ID, auditIdentityUnlinked, provider)
-	settingsRedirect(w, r, u.ID, "Account unlinked.")
+	settingsRedirect(w, r, u.ID, msg)
 }
 
 func settingsRedirect(w http.ResponseWriter, r *http.Request, userID int64, msg string) {

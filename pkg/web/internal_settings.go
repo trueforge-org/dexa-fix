@@ -57,20 +57,28 @@ func (s *Server) internalColumnsSave(w http.ResponseWriter, r *http.Request, u m
 }
 
 func (s *Server) internalSettingsPage(w http.ResponseWriter, r *http.Request, u models.User) {
-	sec, err := s.securityView(r, u, "")
+	pg, err := s.settingsPageData(r, u)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	if sec.Activity, err = s.activityFor(r.Context(), u); err != nil {
-		internalError(w, err)
-		return
+	internalJSON(w, http.StatusOK, pg)
+}
+
+// settingsPageData collects what the settings page shows besides the user.
+func (s *Server) settingsPageData(r *http.Request, u models.User) (apiclient.SettingsPage, error) {
+	sec, err := s.securityView(r, u, "")
+	if err != nil {
+		return apiclient.SettingsPage{}, err
 	}
-	internalJSON(w, http.StatusOK, apiclient.SettingsPage{
+	if sec.Activity, err = s.activityFor(r.Context(), u); err != nil {
+		return apiclient.SettingsPage{}, err
+	}
+	return apiclient.SettingsPage{
 		Withings:      s.withingsView(r, u),
 		StrengthLevel: s.strengthLevelView(r, u),
 		Security:      sec,
-	})
+	}, nil
 }
 
 func (s *Server) internalSettingsSave(w http.ResponseWriter, r *http.Request, u models.User) {
