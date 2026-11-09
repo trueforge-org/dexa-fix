@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -104,13 +105,17 @@ from the api process and apply without a restart.`,
 				log.Warn().Str("variable", name).Msg("ignored: the web frontend has no database; this belongs to the api process")
 			}
 		}
-		client, err := apiclient.New(backend, nil, secrets[0])
+		hc, secured, err := backendHTTPClient(cmd, backend)
 		if err != nil {
 			return err
 		}
-		if u, perr := url.Parse(backend); perr == nil && !privateHost(u.Hostname()) && u.Scheme == "http" {
+		client, err := apiclient.New(backend, hc, secrets[0])
+		if err != nil {
+			return err
+		}
+		if u, perr := url.Parse(backend); perr == nil && !secured && !privateHost(u.Hostname()) {
 			log.Warn().Str("backend", backend).Msg("the backend is reached over plain HTTP at an address that is not private: " +
-				"the link carries sessions, passwords and the TLS private key; use a private network or protect the link")
+				"the link carries sessions, passwords and the TLS private key; use a private network or mutual TLS (dexa-fix secrets mtls)")
 		}
 
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -187,6 +192,13 @@ API and another the internal one on the same database.`,
 		if listen == "" && internal == "" {
 			return errors.New("nothing to serve: --listen and --internal-listen are both empty")
 		}
+		internalTLS, err := internalServerTLS(cmd)
+		if err != nil {
+			return err
+		}
+		if internalTLS != nil && internal == "" {
+			return errors.New("the internal TLS files are set, but --internal-listen is empty")
+		}
 		var secrets []string
 		if internal != "" {
 			path, _ := cmd.Flags().GetString("service-secret-file")
@@ -224,7 +236,13 @@ API and another the internal one on the same database.`,
 				log.Warn().Str("variable", name).Msg("ignored: this is a setting on the Admin page now")
 			}
 		}
-		srv, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+		var backendOpts []mainbackend.Option
+		if !maintenance {
+			// Only the process that runs the maintenance loop creates and renews the self-signed
+			// certificate; the others load what it stored.
+			backendOpts = append(backendOpts, mainbackend.WithoutCertificateGeneration())
+		}
+		srv, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)), backendOpts...)
 		if err != nil {
 			return err
 		}
@@ -247,7 +265,11 @@ API and another the internal one on the same database.`,
 		if internal != "" {
 			srv.SetServiceSecrets(secrets...)
 			in := newHTTPServer(internal, srv.InternalHandler())
-			if err := listenAndServe(in, nil, errCh); err != nil {
+			var wrap func(net.Listener) net.Listener
+			if internalTLS != nil {
+				wrap = func(ln net.Listener) net.Listener { return tls.NewListener(ln, internalTLS) }
+			}
+			if err := listenAndServe(in, wrap, errCh); err != nil {
 				return err
 			}
 			servers = append(servers, in)
@@ -270,11 +292,13 @@ func init() {
 	serveWebCmd.Flags().String("backend-url", envOr("DEXAFIX_BACKEND_URL", ""), "internal address of the api process, such as http://api:8081")
 	serveWebCmd.Flags().String("api-upstream", envOr("DEXAFIX_API_UPSTREAM", ""), "pass /api/ on to this address (the api process's public listener), for setups without a reverse proxy that routes by path")
 	addServiceSecretFlag(serveWebCmd)
+	addBackendTLSFlags(serveWebCmd)
 
 	serveAPICmd.Flags().String("listen", envOr("DEXAFIX_LISTEN", ":8080"), "address of the public API (empty: off)")
 	serveAPICmd.Flags().String("internal-listen", envOr("DEXAFIX_INTERNAL_LISTEN", ":8081"), "address of the internal API for the web frontend (empty: off); keep it on a private network")
 	serveAPICmd.Flags().Bool("maintenance", envOr("DEXAFIX_MAINTENANCE", "true") != "false", "run the maintenance loop (audit log purge, self-signed certificate renewal); turn it off on all but one api process")
 	addServiceSecretFlag(serveAPICmd)
+	addInternalTLSFlags(serveAPICmd)
 	addDBFlags(serveAPICmd)
 	serveAPICmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	serveAPICmd.Flags().Bool("force-password-login", envOr("DEXAFIX_FORCE_PASSWORD_LOGIN", "false") == "true", "keep username and password sign-in on even if an administrator disabled it (to recover from a lockout)")

@@ -66,7 +66,7 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 	}
 	ctx := r.Context()
 	st, nonce, expires, ok := s.readMFA(r)
-	if !ok || st.Enrol || s.nonces.seen(nonce) { // seen: the cookie already signed someone in
+	if !ok || st.Enrol || s.nonces.seen(r.Context(), nonce) { // seen: the cookie already signed someone in
 		secondStepRedirect(w, "/")
 		return
 	}
@@ -81,13 +81,13 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !good {
-		s.limiter.Fail(mfaKey(st.UID))
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), mfaKey(st.UID))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "")
 		secondStepPage(w, apiclient.SecondStep{Mode: "verify", Error: secondFactorMessage}, http.StatusUnauthorized)
 		return
 	}
-	if !s.nonces.use(nonce, expires) { // the cookie was already used for a sign-in
+	if !s.nonces.use(r.Context(), nonce, expires) { // the cookie was already used for a sign-in
 		secondStepRedirect(w, "/")
 		return
 	}
@@ -96,7 +96,7 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		internalError(w, err)
 		return
 	}
-	s.limiter.Reset(mfaKey(st.UID))
+	s.limiter.Reset(r.Context(), mfaKey(st.UID))
 	clearMFACookie(w, r)
 	if recovery {
 		left, _ := s.store.CountRecoveryCodes(ctx, u.ID)
@@ -150,7 +150,7 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	st, nonce, expires, ok := s.readMFA(r)
-	if !ok || !st.Enrol || s.nonces.seen(nonce) {
+	if !ok || !st.Enrol || s.nonces.seen(r.Context(), nonce) {
 		secondStepRedirect(w, "/")
 		return
 	}
@@ -166,13 +166,13 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	step, good := checkTOTP(t.Secret, in.Code, time.Now())
 	if !good {
-		s.limiter.Fail(mfaKey(st.UID))
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), mfaKey(st.UID))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "setup")
 		s.internalLoginSetupView(w, r, st, "That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
 		return
 	}
-	if !s.nonces.use(nonce, expires) {
+	if !s.nonces.use(r.Context(), nonce, expires) {
 		secondStepRedirect(w, "/")
 		return
 	}
@@ -190,7 +190,7 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	s.limiter.Reset(mfaKey(st.UID))
+	s.limiter.Reset(r.Context(), mfaKey(st.UID))
 	clearMFACookie(w, r)
 	s.auditAs(r, u.ID, u.ID, auditTOTPEnabled, "required")
 	target, err := s.completeSignIn(w, r, u, st.Method)
@@ -238,11 +238,11 @@ func (s *Backend) internalForgot(w http.ResponseWriter, r *http.Request) {
 	}
 	email, valid := parseEmail(in.Email)
 	ipK, addrK := "reset-ip:"+ipKey(r), "reset-addr:"+email
-	allowed := valid && !s.limiter.Blocked(ipK, maxResetIP) && !s.limiter.Blocked(addrK, maxResetAddr)
+	allowed := valid && !s.limiter.Blocked(r.Context(), ipK, maxResetIP) && !s.limiter.Blocked(r.Context(), addrK, maxResetAddr)
 	// Every request counts, not only failures: this is a mail sender.
-	s.limiter.Fail(ipK)
+	s.limiter.Fail(r.Context(), ipK)
 	if valid {
-		s.limiter.Fail(addrK)
+		s.limiter.Fail(r.Context(), addrK)
 	}
 	if allowed {
 		base := s.cfg().baseURL
@@ -283,7 +283,7 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		resetOff(w)
 		return
 	}
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) {
 		resetStepPage(w, apiclient.ResetStep{Mode: "invalid", Error: "Too many attempts. Please wait a few minutes."}, http.StatusTooManyRequests)
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, 0, 0, auditResetInvalid, "")
 		resetStepPage(w, apiclient.ResetStep{Mode: "invalid"}, http.StatusNotFound)
 		return
@@ -323,13 +323,13 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !good {
-			s.limiter.Fail(mfaKey(u.ID))
-			s.limiter.Fail(ipKey(r))
+			s.limiter.Fail(r.Context(), mfaKey(u.ID))
+			s.limiter.Fail(r.Context(), ipKey(r))
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "reset")
 			form(secondFactorMessage, http.StatusUnauthorized)
 			return
 		}
-		s.limiter.Reset(mfaKey(u.ID))
+		s.limiter.Reset(r.Context(), mfaKey(u.ID))
 	}
 	hash, err := hashPassword(in.Password)
 	if err != nil {

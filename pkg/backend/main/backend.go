@@ -91,28 +91,45 @@ type Backend struct {
 	auditNoise *auditNoise
 	estCache   *estimateCache
 	proxy      edge.Proxy
-	limiter    *failLimiter // failed sign-in attempts
-	nonces     nonceStore   // sealed values that were already used
+	limiter    *dbLimiter // failed sign-in attempts, counted in the database
+	nonces     nonceStore // sealed values that were already used, recorded in the database
+	noCertGen  bool       // do not generate or renew the self-signed certificate on our own
 
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
 }
 
+// Option changes how NewBackend builds a backend.
+type Option func(*Backend)
+
+// WithoutCertificateGeneration makes the backend only load the stored self-signed certificate. It
+// never generates or renews one by itself (the maintenance backend does); only an administrator's
+// explicit TLS change on the Admin page still generates one. For backends that run with
+// --maintenance=false.
+func WithoutCertificateGeneration() Option { return func(s *Backend) { s.noCertGen = true } }
+
 // NewBackend builds a backend: the database side only. The internal API serves a frontend (see
 // SetServiceSecrets and InternalHandler), and PublicHandler serves /api/v1.
-func NewBackend(st store.Store, importers *importer.Registry) (*Backend, error) {
+//
+// Any number of backends may share one database; exactly one of them should run the maintenance
+// (StartMaintenance) and the others should be made WithoutCertificateGeneration.
+func NewBackend(st store.Store, importers *importer.Registry, opts ...Option) (*Backend, error) {
 	s := &Backend{
 		bg:          jobs.New(),
 		store:       st,
 		importers:   importers,
 		httpClient:  &http.Client{Timeout: providerTimeout},
 		oidcCache:   map[string]*oidc.Provider{},
-		limiter:     newFailLimiter(),
-		nonces:      newUsedNonces(),
+		limiter:     newDBLimiter(st),
+		nonces:      dbNonces{st},
+		sl:          slJobs{store: st},
 		slSlots:     make(chan struct{}, maxStrengthLevelJobs),
 		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
 		auditNoise:  newAuditNoise(),
 		estCache:    newEstimateCache(),
+	}
+	for _, o := range opts {
+		o(s)
 	}
 	s.authChain = []authenticator{s.authSession, s.authBearer, s.authBasic}
 	ctx := context.Background()

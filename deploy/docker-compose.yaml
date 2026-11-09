@@ -108,3 +108,43 @@ secrets:
     file: ./secrets/encryption_key
   service_secret:
     file: ./secrets/service_secret
+
+# OPTIONAL: mutual TLS between web and api (docs/15-split-deployment.md#mutual-tls-between-web-and-api).
+# Without it the internal link is protected by the service secret alone. Leave this block commented
+# out to keep that. To turn mTLS on:
+#
+# 1. Create the certificates once, with the image. The image runs as uid 65532, which cannot write
+#    into ./secrets (it belongs to you, mode 0700), so run the command as your own user:
+#      docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/secrets:/out" \
+#        ghcr.io/trueforge-org/dexa-fix:<tag> secrets mtls --dir /out/mtls --name api
+#    "--name api" is the service name that web reaches as api:8081. Add --name for other names.
+#    Then make the keys readable by the containers, as init-secrets.sh does for the other secrets
+#    (the directory ./secrets/mtls stays private on the host):
+#      chmod 444 secrets/mtls/*.key
+#
+# 2. In the api service, add these lines to its environment (uncomment them, keeping the
+#    indentation), and replace its secrets line with the one below:
+#      DEXAFIX_INTERNAL_TLS_CERT_FILE: /run/secrets/mtls_api_cert
+#      DEXAFIX_INTERNAL_TLS_KEY_FILE: /run/secrets/mtls_api_key
+#      DEXAFIX_INTERNAL_TLS_CLIENT_CA_FILE: /run/secrets/mtls_ca
+#    secrets: [dsn, encryption_key, service_secret, mtls_ca, mtls_api_cert, mtls_api_key]
+#
+# 3. In the web service, replace the DEXAFIX_BACKEND_URL line with the https one, add the other
+#    lines to its environment, and replace its secrets line with the one below:
+#      DEXAFIX_BACKEND_URL: https://api:8081
+#      DEXAFIX_BACKEND_CA_FILE: /run/secrets/mtls_ca
+#      DEXAFIX_BACKEND_CLIENT_CERT_FILE: /run/secrets/mtls_web_cert
+#      DEXAFIX_BACKEND_CLIENT_KEY_FILE: /run/secrets/mtls_web_key
+#    secrets: [service_secret, mtls_ca, mtls_web_cert, mtls_web_key]
+#
+# 4. Add the new files to the top-level secrets block:
+#  mtls_ca:
+#    file: ./secrets/mtls/ca.pem
+#  mtls_api_cert:
+#    file: ./secrets/mtls/api.pem
+#  mtls_api_key:
+#    file: ./secrets/mtls/api.key
+#  mtls_web_cert:
+#    file: ./secrets/mtls/web.pem
+#  mtls_web_key:
+#    file: ./secrets/mtls/web.key

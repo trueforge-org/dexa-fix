@@ -242,7 +242,7 @@ func (s *Backend) throttledVerify(r *http.Request, login, password string) (mode
 	switch {
 	case err != nil:
 	case ok:
-		s.limiter.Reset(loginKey(login))
+		s.limiter.Reset(r.Context(), loginKey(login))
 	default:
 		s.recordFailure(r, login)
 	}

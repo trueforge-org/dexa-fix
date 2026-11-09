@@ -193,8 +193,16 @@ CREATE TABLE auth_failures (
 );
 CREATE INDEX idx_auth_failures_key ON auth_failures(fail_key, failed_at);
 CREATE INDEX idx_auth_failures_at ON auth_failures(failed_at);
+-- The status of a user's Strength Level sync (a JSON view), written by the backend that runs it and
+-- read by any backend. A 'running' state that stopped being updated belongs to a dead process.
+CREATE TABLE strengthlevel_jobs (
+  user_id BIGINT NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  state TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
 
 -- +goose Down
+DROP TABLE strengthlevel_jobs;
 DROP TABLE auth_failures;
 DROP TABLE used_nonces;
 DROP TABLE passkeys;

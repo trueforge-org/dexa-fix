@@ -24,7 +24,7 @@ import (
 // loadCertificate reads the certificate for the stored mode. It returns nil, with a warning, when
 // the stored material is unusable: the server then serves plain HTTP only, which keeps the Admin
 // page reachable.
-func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.URL) (*tls.Certificate, *tlsutil.Info) {
+func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.URL, generate bool) (*tls.Certificate, *tlsutil.Info) {
 	switch mode {
 	case apiclient.TLSUpload:
 		certPEM, err1 := s.settingValue(ctx, settingTLSCert)
@@ -40,6 +40,9 @@ func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.UR
 		}
 		return c, info
 	case apiclient.TLSSelfSigned:
+		if !generate { // another backend makes the certificate; use what it stored
+			return s.storedCertificate(ctx)
+		}
 		c, info, err := s.selfSigned(ctx, base)
 		if err != nil {
 			log.Warn().Err(err).Msg("could not prepare the self-signed TLS certificate")
@@ -48,6 +51,22 @@ func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.UR
 		return c, info
 	}
 	return nil, nil
+}
+
+// storedCertificate loads the stored certificate without ever generating one. It returns nil when
+// there is none yet, or it is unusable.
+func (s *Backend) storedCertificate(ctx context.Context) (*tls.Certificate, *tlsutil.Info) {
+	certPEM, err1 := s.settingValue(ctx, settingTLSCert)
+	keyPEM, err2 := s.settingValue(ctx, settingTLSKey)
+	if err1 != nil || err2 != nil || certPEM == "" || keyPEM == "" {
+		return nil, nil
+	}
+	c, info, err := tlsutil.Parse(certPEM, keyPEM)
+	if err != nil {
+		log.Warn().Err(err).Msg("ignoring the stored TLS certificate")
+		return nil, nil
+	}
+	return c, info
 }
 
 // selfSignedNames are the names the generated certificate covers: those the administrator gave,
@@ -148,14 +167,18 @@ func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
 		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
 }
 
-// renewCertificate regenerates a self-signed certificate that is nearly expired. It runs from the
-// maintenance loop.
+// renewCertificate makes sure a self-signed certificate exists and is not nearly expired: it
+// generates one when there is none and renews one that is. It runs from the maintenance loop, and
+// not at all on a backend that must not generate.
 func (s *Backend) renewCertificate(ctx context.Context) {
 	l := s.cfg()
-	if l.tlsMode != apiclient.TLSSelfSigned || l.tlsInfo == nil || time.Until(l.tlsInfo.NotAfter) > selfSignedRenew {
+	if s.noCertGen || l.tlsMode != apiclient.TLSSelfSigned {
 		return
 	}
-	if err := s.reloadSettings(ctx); err != nil && ctx.Err() == nil {
+	if l.tlsInfo != nil && time.Until(l.tlsInfo.NotAfter) > selfSignedRenew {
+		return
+	}
+	if err := s.reload(ctx, true); err != nil && ctx.Err() == nil {
 		log.Error().Err(err).Msg("renew the self-signed certificate")
 	}
 }

@@ -100,15 +100,15 @@ func (s *Backend) checkReauth(r *http.Request, u models.User, recent bool) (ok b
 		return serr == nil, 0, "", serr
 	}
 	key := "pw:" + strconv.FormatInt(u.ID, 10)
-	if s.limiter.Blocked(key, maxLoginFail) || s.limiter.Blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(r.Context(), key, maxLoginFail) || s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) {
 		return false, http.StatusTooManyRequests, "Too many wrong passwords. Try again later.", nil
 	}
 	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
-		s.limiter.Fail(key)
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), key)
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.audit(r, u.ID, auditPasswordWrong, "")
 		return false, http.StatusUnprocessableEntity, "Enter your current password to make this change.", nil
 	}
-	s.limiter.Reset(key)
+	s.limiter.Reset(r.Context(), key)
 	return true, 0, "", nil
 }

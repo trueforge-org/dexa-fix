@@ -122,7 +122,15 @@ func (s *Backend) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSe
 
 // reloadSettings reads the administrator settings from the database and puts them in force. A
 // stored value that no longer parses is skipped with a warning, so a bad row cannot stop the server.
-func (s *Backend) reloadSettings(ctx context.Context) error {
+//
+// A backend that must not generate certificates only loads the stored one.
+func (s *Backend) reloadSettings(ctx context.Context) error { return s.reload(ctx, !s.noCertGen) }
+
+// reloadSettingsGenerating is reloadSettings for an explicit administrator action on TLS: it makes
+// the self-signed certificate on whichever backend serves the request.
+func (s *Backend) reloadSettingsGenerating(ctx context.Context) error { return s.reload(ctx, true) }
+
+func (s *Backend) reload(ctx context.Context, generate bool) error {
 	l := &liveSettings{}
 
 	if v, err := s.settingValue(ctx, settingBaseURL); err != nil {
@@ -162,7 +170,7 @@ func (s *Backend) reloadSettings(ctx context.Context) error {
 	if l.tlsMode != apiclient.TLSUpload && l.tlsMode != apiclient.TLSSelfSigned {
 		l.tlsMode = apiclient.TLSOff
 	}
-	l.tlsCert, l.tlsInfo = s.loadCertificate(ctx, l.tlsMode, l.baseURL)
+	l.tlsCert, l.tlsInfo = s.loadCertificate(ctx, l.tlsMode, l.baseURL, generate)
 	l.httpsPort = defaultHTTPSPort
 	if v, err := s.settingValue(ctx, settingHTTPS); err != nil {
 		return err

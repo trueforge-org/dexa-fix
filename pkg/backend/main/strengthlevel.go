@@ -52,7 +52,11 @@ func (s *Backend) strengthLevelView(r *http.Request, u models.User) *slView {
 		v.Saved, v.Email = true, login.Email
 	}
 	if u.StrengthLevelBulk {
-		v.Bulk, v.Job = true, s.sl.view(u.ID)
+		v.Bulk = true
+		var err error
+		if v.Job, err = s.sl.view(r.Context(), u.ID); err != nil {
+			log.Warn().Err(err).Msg("read the Strength Level sync status")
+		}
 	}
 	return v
 }
@@ -67,10 +71,11 @@ func (s *Backend) strengthLevelLogin(r *http.Request, u models.User) (slLogin, e
 }
 
 func (s *Backend) runStrengthLevelSync(ctx context.Context, job *slJob, login slLogin, entries []strengthlevel.Entry, since string, update bool) {
+	go s.sl.keepAlive(ctx, job)
 	c := client.New(strengthLevelBase, nil)
 	c.Delay = strengthLevelDelay
 	if err := c.Login(ctx, login.Email, login.Password); err != nil {
-		s.sl.finish(job, func(j *slJob) { j.err = "could not sign in: " + strengthLevelError(err) })
+		s.sl.finish(job, func(j *slState) { j.Err = "could not sign in: " + strengthLevelError(err) })
 		return
 	}
 	res, err := c.Sync(ctx, entries, since, client.Options{
@@ -80,10 +85,10 @@ func (s *Backend) runStrengthLevelSync(ctx context.Context, job *slJob, login sl
 	if len(res.Failed) > 0 {
 		log.Warn().Strs("failed", res.Failed).Msg("strengthlevel sync")
 	}
-	s.sl.finish(job, func(j *slJob) {
-		j.added, j.updated, j.unchanged, j.failed = res.Added, res.Updated, res.Skipped, len(res.Failed)
-		if err != nil && !j.canceled {
-			j.err = strengthLevelError(err)
+	s.sl.finish(job, func(j *slState) {
+		j.Added, j.Updated, j.Unchanged, j.Failed = res.Added, res.Updated, res.Skipped, len(res.Failed)
+		if err != nil && !j.Canceled {
+			j.Err = strengthLevelError(err)
 		}
 	})
 }

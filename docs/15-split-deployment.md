@@ -38,8 +38,9 @@ that faces visitors holds neither the database nor the keys.
 
 - web talks to the api process only over the internal listener. Keep that
   listener on a private network.
-- Exactly one api process serves the internal listener. Any number of api
-  processes may serve the public API only, on the same database. See
+- Any number of api processes may share one database, and exactly one of them
+  runs the maintenance (`--maintenance=false` on the others). The URL web uses
+  for the backend may point at a load balancer in front of them. See
   [Running more api processes](#running-more-api-processes).
 - The HTTPS and HTTP/3 listeners belong to web. See
   [TLS and HTTP/3](#tls-and-http3).
@@ -175,8 +176,11 @@ The api process has two listeners, and each can run in its own process:
 - `--listen`: the public API, `/api/v1`, behind the reverse proxy.
 - `--internal-listen`: the internal API for web. Keep it on a private network.
 
-Run exactly one process with the internal listener, and it also runs the
-maintenance. Public-only processes turn both off:
+Any number of processes may serve the internal listener, behind a load
+balancer if you like. Exactly one process runs the maintenance (audit purge,
+cleanup of nonces and lock-outs, the self-signed certificate); turn it off with
+`--maintenance=false` on all the others. Public-only processes turn the internal
+listener off as well:
 
 ```bash
 # The one api process for web: internal listener and maintenance on
@@ -203,9 +207,13 @@ Some limits apply:
   credentials cannot use up all the CPU.
 - **Settings reload.** A process reloads settings that another process changed,
   for example with `dexa-fix settings reset-network`, within about 5 seconds.
-- **Memory is per process.** Failed-login throttling, single-use nonces and the
-  Strength Level sync progress are held in memory in each api process. Each
-  process counts on its own. See [Limitations and security](14-limitations-and-security.md).
+- **State is shared through the database.** Failed-login lock-outs, single-use
+  nonces and the Strength Level sync status are stored in the database, so all
+  api processes agree. Only caches (estimates) and the de-duplication of noisy
+  audit events are per process. A Strength Level sync runs on the backend that
+  started it. Only the maintenance process generates or renews a self-signed
+  certificate; the others load the stored one. See
+  [Limitations and security](14-limitations-and-security.md).
 - **Database.** SQLite works for two api processes on one host, in WAL mode,
   but it still serialises writes. Use Postgres when isolation or several
   processes matter.
@@ -224,6 +232,125 @@ private network. See [HTTPS, HTTP/2 and HTTP/3](03-reverse-proxy.md#https-http2-
 If web terminates TLS itself, a proxy that only passes TCP cannot split the
 paths. Set `DEXAFIX_API_UPSTREAM` on web, as in the Compose example, or
 terminate TLS at the proxy and split the paths there.
+
+## Mutual TLS between web and api
+
+Mutual TLS (mTLS) makes both ends of the internal link prove who they are with
+a certificate. Use it for any link that leaves one host or private network, and
+as defence in depth on one host. The service secret stays required.
+
+With mTLS the internal listener speaks TLS 1.3 only and refuses plain HTTP. The
+api process accepts only a client certificate issued by a private CA, and web
+checks the api process's certificate against the same CA.
+
+### Create the certificates
+
+```bash
+dexa-fix secrets mtls --dir ./mtls --name api
+```
+
+`--name` is each host name or IP address that web uses to reach the api
+process. Repeat it for each name. `localhost`, `127.0.0.1` and `::1` are always
+included, and at least one `--name` is required. The command writes:
+
+- `ca.pem`: the CA certificate. Both processes trust it.
+- `api.pem` and `api.key`: the certificate and key of the api process.
+- `web.pem` and `web.key`: the certificate and key of the web process.
+
+Keys are mode 0600, certificates 0644 and the directory 0700. The command never
+overwrites a file: if any of the five exists, it writes nothing. The CA's
+private key is not kept, so no further certificates can be issued from this CA.
+Leaf certificates are valid for 2 years and the CA for 10 years. To renew,
+create a new set and follow [Rotating the certificates](#rotating-the-certificates).
+
+### Start both processes
+
+On the api host:
+
+```bash
+dexa-fix serve api \
+  --internal-tls-cert-file mtls/api.pem \
+  --internal-tls-key-file mtls/api.key \
+  --internal-tls-client-ca-file mtls/ca.pem \
+  --service-secret-file service.secret
+```
+
+On the web host:
+
+```bash
+dexa-fix serve web --backend-url https://api:8081 \
+  --backend-ca-file mtls/ca.pem \
+  --backend-client-cert-file mtls/web.pem \
+  --backend-client-key-file mtls/web.key \
+  --service-secret-file service.secret
+```
+
+Each flag has an environment variable, see [Configuration](02-configuration.md).
+
+- The api process takes all three `--internal-tls-*` options or none. It needs
+  `--internal-listen` to be on.
+- Web needs an `https://` URL in `--backend-url` together with all three
+  `--backend-*-file` options. The files with an `http://` URL are an error.
+- If the name in the backend's certificate is not the host of `--backend-url`,
+  set `--backend-server-name` to the name in the certificate.
+
+### Rotating the certificates
+
+Both processes read the certificate files again when they change. They check
+every 30 seconds. A broken or half-written file is ignored, and the last good
+one stays in use, so rotating needs no restart. Write the new file next to the
+old one and `mv` it into place.
+
+To rotate without a gap, for the CA or a leaf certificate:
+
+1. Create the new set: `dexa-fix secrets mtls --dir ./mtls-new --name api`.
+2. Concatenate the old and the new `ca.pem` into one file, and put that file in
+   the CA file of both processes.
+3. Wait at least 30 seconds.
+4. Put the new `api.pem` and `api.key` in the api process, and the new
+   `web.pem` and `web.key` in the web process.
+5. Wait at least 30 seconds, then put only the new `ca.pem` in the CA file of
+   both processes. The old certificates stop working here.
+
+### What it protects
+
+- A client without a certificate from the CA cannot reach the internal listener,
+  even with the service secret.
+- Web checks the name and the server-auth key usage of the api process's
+  certificate. An impostor on the network cannot receive the service secret.
+- The link is encrypted with TLS 1.3, so sessions, passwords and the TLS private
+  key do not cross it in clear.
+
+### What it does not protect
+
+- A stolen web host. Its client key and the service secret let an attacker act
+  as web, and web can ask the api process for the TLS private key of the HTTPS
+  listener.
+- The public listener. mTLS does not apply to it: keep it behind the reverse
+  proxy.
+- Revocation. There is no certificate revocation list. To cut off a leaked
+  client key, rotate the CA as above and drop the old one.
+- Key files on disk. Whoever can read `web.key` and `service.secret` is web.
+
+### Compose
+
+The Compose example in `deploy/docker-compose.yaml` has a commented block for
+mTLS at the end of the file. The image runs as uid 65532, which cannot write
+into `./secrets`, so create the files as your own user:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/secrets:/out" \
+  ghcr.io/trueforge-org/dexa-fix:<tag> secrets mtls --dir /out/mtls --name api
+chmod 444 secrets/mtls/*.key
+```
+
+The `--name api` matches the service name, which web reaches as `api:8081`.
+The keys must be readable by uid 65532 inside the container, as the other
+secrets are (`init-secrets.sh` sets 444). The `secrets/mtls` directory stays
+private on the host, and the containers get the files through their mounts.
+
+Then uncomment the block and add the new secret names to the `secrets` lists of
+the api and web services.
 
 ## Troubleshooting
 

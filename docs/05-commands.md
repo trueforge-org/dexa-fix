@@ -8,6 +8,7 @@
 | `serve web`               | Run the frontend of a [split deployment](15-split-deployment.md): pages, static files and the public HTTP, HTTPS and HTTP/3 listeners. No database. |
 | `serve api`               | Run the backend of a split deployment: database, keys, public API, internal API and maintenance. |
 | `secrets service-secret`  | Print a new service secret of 64 hexadecimal characters for `serve web` and `serve api`. |
+| `secrets mtls`            | Create certificates for [mTLS](15-split-deployment.md#mutual-tls-between-web-and-api).   |
 
 Create the service secret file and keep it private:
 

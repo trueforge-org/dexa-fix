@@ -183,7 +183,7 @@ func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u 
 	// Sign in first, so a wrong password is reported now and nothing wrong is stored. The check
 	// signs in to another service from this server, so the failures are limited like sign-ins.
 	limitKey := "sl:" + strconv.FormatInt(u.ID, 10)
-	if s.limiter.Blocked(limitKey, maxStrengthLevelLoginFail) {
+	if s.limiter.Blocked(r.Context(), limitKey, maxStrengthLevelLoginFail) {
 		flashed(w, "Too many failed Strength Level sign-ins. Try again in a few minutes.")
 		return
 	}
@@ -191,12 +191,12 @@ func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u 
 	defer cancel()
 	if err := client.New(strengthLevelBase, nil).Login(ctx, email, password); err != nil {
 		if errors.Is(err, client.ErrLogin) {
-			s.limiter.Fail(limitKey)
+			s.limiter.Fail(r.Context(), limitKey)
 		}
 		flashed(w, "Could not sign in to Strength Level: "+strengthLevelError(err))
 		return
 	}
-	s.limiter.Reset(limitKey)
+	s.limiter.Reset(r.Context(), limitKey)
 	data, err := json.Marshal(slLogin{Email: email, Password: password})
 	if err == nil {
 		err = s.store.PutIntegration(r.Context(), u.ID, strengthLevelProvider, data)
@@ -259,7 +259,12 @@ func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u model
 	// Every written day is one request, so allow time for as many as were asked for. The job does
 	// not belong to this request: it carries on after the response.
 	ctx, cancel := context.WithTimeout(s.bg.Ctx, strengthLevelTimeout+time.Duration(days)*2*time.Second)
-	job, ok := s.sl.begin(u.ID, days, update, cancel)
+	job, ok, err := s.sl.begin(r.Context(), u.ID, days, update, cancel)
+	if err != nil {
+		cancel()
+		internalError(w, err)
+		return
+	}
 	if !ok {
 		cancel()
 		flashed(w, "A sync is already running.")
@@ -291,7 +296,12 @@ func (s *Backend) internalSLStatus(w http.ResponseWriter, r *http.Request, u mod
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
 		return
 	}
-	internalJSON(w, http.StatusOK, s.sl.view(u.ID))
+	v, err := s.sl.view(r.Context(), u.ID)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	internalJSON(w, http.StatusOK, v)
 }
 
 // internalSLDay sends one day's estimate to Strength Level now, adding the day or overwriting the

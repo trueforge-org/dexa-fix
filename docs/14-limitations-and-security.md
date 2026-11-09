@@ -1,9 +1,9 @@
 # Limitations and security
 
-- **Rate limiting is basic and in memory.** Failed password sign-ins are limited
-  per login name and per address, but the counts reset when the server restarts
-  and are not shared between several servers. On a public deployment, limit
-  sign-in attempts at the reverse proxy too. See
+- **Rate limiting is basic.** Failed password sign-ins are limited per login
+  name and per address. The counts are kept in the database, so they survive a
+  restart and are shared by all backend processes on it. On a public
+  deployment, limit sign-in attempts at the reverse proxy too. See
   [Storage and rate limiting](07-accounts-and-sign-in.md#storage-and-rate-limiting).
 - **Measurements, height and names are not encrypted.** Protect the database
   file or Postgres database and its backups with disk or database encryption.
@@ -38,12 +38,19 @@
   TLS through a service mesh or a tunnel. dexa-fix warns at start when the
   backend URL is plain HTTP to an address that is not private. The api process
   never trusts `X-Dexafix-*` headers on the public listener. Personal access
-  tokens and Basic authentication work only on the public API. Sealed cookies,
-  keys and single-use nonces stay in the api process.
-- **Memory is per api process.** Failed-login throttling, single-use nonces and
-  Strength Level sync progress are held in memory by each api process, so
-  several api processes do not share them. Limit sign-in attempts at the reverse
-  proxy as well.
+  tokens and Basic authentication work only on the public API. Sealed cookies
+  and keys stay in the api process; the single-use nonces are in the database.
+- **Mutual TLS is available for the internal link, and recommended across
+  hosts.** It encrypts the link and requires a client certificate in addition to
+  the service secret. See [Mutual TLS](15-split-deployment.md#mutual-tls-between-web-and-api).
+- **State is in the database, not in the process.** Failed-attempt lock-outs,
+  single-use nonces (a sealed sign-in value can be spent once, on any backend)
+  and the status of Strength Level syncs are stored in the database, so several
+  backend processes on one database agree. A sync itself runs on the backend
+  that started it; if that backend dies, the status is reported as interrupted
+  after 2 minutes. What stays in memory is only a cache (the estimates) and the
+  de-duplication of noisy audit events. See
+  [Running more api processes](15-split-deployment.md#running-more-api-processes).
 - **Load budgets are per listener.** The public API admits 32 requests at once,
   queues 64 and allows 20 requests per second per client. The internal listener
   admits 128 at once, queues 256 and allows 50 per second per client. Excess

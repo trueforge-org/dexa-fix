@@ -279,7 +279,8 @@ with a password or a provider, or ask an administrator. See
 Some values are encrypted in the database. See [Encryption](08-encryption.md) for
 which ones and how to manage the key.
 
-Failed password sign-ins are counted in memory: 10 per login name and 60 per
+Failed password sign-ins are counted in the database, so every backend process on it
+shares the counts: 10 per login name and 60 per
 client address in 15 minutes, after which sign-in answers 429. The address is the
 visitor's: behind a reverse proxy, set **Trusted proxies** on the Admin page (see
 [Running behind a reverse proxy](03-reverse-proxy.md)), or everyone

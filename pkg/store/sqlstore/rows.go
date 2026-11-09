@@ -152,3 +152,11 @@ type integrationRow struct {
 	Data      string    `bun:"data"`
 	UpdatedAt time.Time `bun:"updated_at"`
 }
+
+type strengthLevelJobRow struct {
+	bun.BaseModel `bun:"table:strengthlevel_jobs"`
+
+	UserID    int64     `bun:"user_id,pk"`
+	State     string    `bun:"state"`
+	UpdatedAt time.Time `bun:"updated_at"`
+}

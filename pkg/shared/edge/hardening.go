@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -55,95 +54,6 @@ func LimitBody(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// ---- failure rate limiting ----
-
-const (
-	failWindow = 15 * time.Minute
-
-	maxLimiterKeys = 50000
-)
-
-// FailLimiter counts failed attempts per key in a sliding window. It only counts failures, so
-// people who type the right password never notice it.
-type FailLimiter struct {
-	mu    sync.Mutex
-	fails map[string][]time.Time
-	now   func() time.Time
-}
-
-func NewFailLimiter() *FailLimiter {
-	return &FailLimiter{fails: map[string][]time.Time{}, now: time.Now}
-}
-
-// prune drops attempts older than the window and returns what is left. Callers hold the lock.
-func (l *FailLimiter) prune(key string) []time.Time {
-	cutoff := l.now().Add(-failWindow)
-	list := l.fails[key]
-	i := 0
-	for i < len(list) && list[i].Before(cutoff) {
-		i++
-	}
-	list = list[i:]
-	if len(list) == 0 {
-		delete(l.fails, key)
-		return nil
-	}
-	l.fails[key] = list
-	return list
-}
-
-// Blocked reports whether key already used up its attempts.
-func (l *FailLimiter) Blocked(key string, max int) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.prune(key)) >= max
-}
-
-func (l *FailLimiter) Fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(l.fails) > maxLimiterKeys { // bound memory under a flood of distinct keys
-		l.evict()
-	}
-	l.prune(key)
-	l.fails[key] = append(l.fails[key], l.now())
-}
-
-// evict makes room by dropping the keys with the fewest recent failures (ties: the oldest), so
-// the counters of keys that are close to being blocked survive a flood of one-off keys. Callers
-// hold the lock.
-func (l *FailLimiter) evict() {
-	type entry struct {
-		key  string
-		n    int
-		last time.Time
-	}
-	entries := make([]entry, 0, len(l.fails))
-	for k := range l.fails {
-		if list := l.prune(k); list != nil {
-			entries = append(entries, entry{k, len(list), list[len(list)-1]})
-		}
-	}
-	if len(entries) <= maxLimiterKeys {
-		return
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].n != entries[j].n {
-			return entries[i].n < entries[j].n
-		}
-		return entries[i].last.Before(entries[j].last)
-	})
-	for _, e := range entries[:len(entries)-maxLimiterKeys*4/5] {
-		delete(l.fails, e.key)
-	}
-}
-
-func (l *FailLimiter) Reset(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.fails, key)
 }
 
 // ClientIP is the address of the peer, after proxy headers were settled by Proxy.Headers.

@@ -1028,7 +1028,7 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 		internalError(w, err)
 		return
 	}
-	if err := s.reloadSettings(ctx); err != nil {
+	if err := s.reloadSettingsGenerating(ctx); err != nil {
 		internalError(w, err)
 		return
 	}

@@ -239,6 +239,7 @@ func (s *Backend) StartMaintenance() {
 					log.Info().Int64("deleted", n).Msg("purged old audit events")
 				}
 			}
+			s.purgeState(s.bg.Ctx)
 			select {
 			case <-s.bg.Ctx.Done():
 				return
@@ -246,6 +247,17 @@ func (s *Backend) StartMaintenance() {
 			}
 		}
 	})
+}
+
+// purgeState drops the used nonces that expired and the failed attempts that left the window.
+func (s *Backend) purgeState(ctx context.Context) {
+	now := time.Now()
+	if _, err := s.store.PurgeNonces(ctx, now); err != nil && ctx.Err() == nil {
+		log.Error().Err(err).Msg("purge used nonces")
+	}
+	if _, err := s.store.PurgeFailures(ctx, now.Add(-failWindow)); err != nil && ctx.Err() == nil {
+		log.Error().Err(err).Msg("purge failed attempts")
+	}
 }
 
 // noisyAudit lists events that anyone, signed in or not, can trigger at will. They are recorded at

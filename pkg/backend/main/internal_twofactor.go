@@ -61,7 +61,7 @@ func (s *Backend) hasTwoFactor(ctx context.Context, userID int64) (bool, error) 
 // secondFactorBlocked reports whether too many wrong codes were tried for the account or from the
 // client address.
 func (s *Backend) secondFactorBlocked(r *http.Request, userID int64) bool {
-	return s.limiter.Blocked(mfaKey(userID), maxMFAFail) || s.limiter.Blocked(ipKey(r), maxIPFail)
+	return s.limiter.Blocked(r.Context(), mfaKey(userID), maxMFAFail) || s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail)
 }
 
 func mfaKey(userID int64) string { return "mfa:" + strconv.FormatInt(userID, 10) }
@@ -329,13 +329,13 @@ func (s *Backend) internalAdminVerify(w http.ResponseWriter, r *http.Request, u 
 		return
 	}
 	if !good {
-		s.limiter.Fail(mfaKey(u.ID))
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), mfaKey(u.ID))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "admin")
 		secondStepPage(w, apiclient.SecondStep{Mode: "admin", Error: secondFactorMessage}, http.StatusUnauthorized)
 		return
 	}
-	s.limiter.Reset(mfaKey(u.ID))
+	s.limiter.Reset(r.Context(), mfaKey(u.ID))
 	s.markAdminVerified(w, r, u.ID)
 	s.audit(r, u.ID, auditAdminVerified, "")
 	secondStepRedirect(w, "/admin")
@@ -357,13 +357,13 @@ func (s *Backend) internalCheckSecondFactor(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	if !good {
-		s.limiter.Fail(mfaKey(u.ID))
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), mfaKey(u.ID))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "settings")
 		internalFail(w, http.StatusUnprocessableEntity, apiclient.CodeInvalid, secondFactorMessage)
 		return false
 	}
-	s.limiter.Reset(mfaKey(u.ID))
+	s.limiter.Reset(r.Context(), mfaKey(u.ID))
 	return true
 }
 
@@ -434,8 +434,8 @@ func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Reques
 	}
 	step, good := checkTOTP(t.Secret, in.Code, time.Now())
 	if !good {
-		s.limiter.Fail(mfaKey(u.ID))
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), mfaKey(u.ID))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "setup")
 		refuse("That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
 		return
@@ -449,7 +449,7 @@ func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Reques
 		internalError(w, err)
 		return
 	}
-	s.limiter.Reset(mfaKey(u.ID))
+	s.limiter.Reset(r.Context(), mfaKey(u.ID))
 	s.audit(r, u.ID, auditTOTPEnabled, "")
 	internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Codes: codes})
 }

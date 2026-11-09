@@ -134,7 +134,7 @@ func (s *Backend) readPasskeyCookie(r *http.Request, purpose string) (c passkeyC
 		return c, "", time.Time{}, false
 	}
 	nonce, expires, ok = s.openValue(purpose, ck.Value, &c)
-	if ok && s.nonces.seen(nonce) {
+	if ok && s.nonces.seen(r.Context(), nonce) {
 		ok = false
 	}
 	return c, nonce, expires, ok
@@ -264,7 +264,7 @@ func (s *Backend) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.R
 		passkeyFail(w, http.StatusUnprocessableEntity, "The passkey could not be added. Check that the device unlocks with a fingerprint, face or PIN, and try again.")
 		return
 	}
-	if !s.nonces.use(nonce, expires) {
+	if !s.nonces.use(r.Context(), nonce, expires) {
 		passkeyFail(w, http.StatusBadRequest, "The registration was already used. Start again.")
 		return
 	}
@@ -362,7 +362,7 @@ func (s *Backend) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Reque
 		passkeyFail(w, http.StatusUnprocessableEntity, "Passkeys need HTTPS and a host name (not an IP address); localhost also works.")
 		return
 	}
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) {
 		passkeyFail(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
 		return
 	}
@@ -389,7 +389,7 @@ const passkeyLoginFailed = "That passkey did not work. Try again, or sign in ano
 func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) {
 		passkeyFail(w, http.StatusTooManyRequests, "Too many attempts. Please wait a few minutes.")
 		return
 	}
@@ -414,18 +414,18 @@ func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Requ
 	}
 	_, cred, err := wa.FinishPasskeyLogin(handler, c.Session, r)
 	if err != nil {
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, 0, 0, auditPasskeyFailed, "")
 		passkeyFail(w, http.StatusUnauthorized, passkeyLoginFailed)
 		return
 	}
 	if cred.Authenticator.CloneWarning { // the counter went backwards: the credential may have been copied
-		s.limiter.Fail(ipKey(r))
+		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, signedIn.ID, signedIn.ID, auditPasskeyClone, "")
 		passkeyFail(w, http.StatusUnauthorized, passkeyLoginFailed)
 		return
 	}
-	if !s.nonces.use(nonce, expires) {
+	if !s.nonces.use(r.Context(), nonce, expires) {
 		passkeyFail(w, http.StatusBadRequest, "The sign-in was already used. Try again.")
 		return
 	}
@@ -437,7 +437,7 @@ func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Requ
 		log.Error().Err(err).Msg("could not record the passkey use")
 	}
 	clearPasskeyCookie(w, r)
-	s.limiter.Reset(ipKey(r))
+	s.limiter.Reset(r.Context(), ipKey(r))
 	s.markAdminVerified(w, r, signedIn.ID) // a passkey with its unlock is two factors: the Admin pages do not ask again
 	s.internalSignIn(w, r, signedIn, models.ProviderPasskey)
 }

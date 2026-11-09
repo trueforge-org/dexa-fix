@@ -9,6 +9,7 @@ package apiclient
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,9 +107,15 @@ func New(base string, hc *http.Client, secret string) (*Client, error) {
 }
 
 // DefaultHTTPClient is a client with timeouts and connection limits suited to the internal link.
-func DefaultHTTPClient() *http.Client {
+func DefaultHTTPClient() *http.Client { return HTTPClient(nil) }
+
+// HTTPClient is DefaultHTTPClient with a TLS configuration for the link, such as the mutual TLS
+// configuration of package mtls. nil means plain HTTP.
+func HTTPClient(tlsConfig *tls.Config) *http.Client {
 	return &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSClientConfig:       tlsConfig,
+		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		MaxConnsPerHost:       128,
 		MaxIdleConnsPerHost:   64,

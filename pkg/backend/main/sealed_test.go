@@ -97,27 +97,6 @@ func TestSealedValueRejectsOtherPurposeTamperingAndExpiry(t *testing.T) {
 	}
 }
 
-func TestUsedNoncesAllowsOnlyOnce(t *testing.T) {
-	u := newUsedNonces()
-	exp := time.Now().Add(time.Minute)
-
-	if !u.use("n1", exp) {
-		t.Fatal("first use of n1 refused")
-	}
-	if u.use("n1", exp) {
-		t.Fatal("second use of n1 accepted")
-	}
-	if !u.use("n2", exp) {
-		t.Fatal("first use of a different nonce refused")
-	}
-
-	// Once the sealed value has expired, its nonce is no longer remembered and may be accepted again.
-	u.now = func() time.Time { return exp.Add(time.Second) }
-	if !u.use("n1", exp) {
-		t.Fatal("nonce of an expired value still refused")
-	}
-}
-
 func TestProviderStateStillWorks(t *testing.T) {
 	s := sealedServer(t)
 	want := providerState{Slug: "idp", State: "state-1", Verifier: "verifier-1", Nonce: "nonce-1", Link: 3}

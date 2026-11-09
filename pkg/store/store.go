@@ -223,6 +223,11 @@ type Store interface {
 	ClearFailures(ctx context.Context, key string) error
 	PurgeFailures(ctx context.Context, before time.Time) (int64, error)
 
+	// PutStrengthLevelJob stores the status (a JSON document) of the user's Strength Level sync;
+	// GetStrengthLevelJob returns it with the time it was last written, or ErrNotFound.
+	PutStrengthLevelJob(ctx context.Context, userID int64, state string) error
+	GetStrengthLevelJob(ctx context.Context, userID int64) (state string, updatedAt time.Time, err error)
+
 	// PurgeAuditEvents deletes events older than the cutoff and returns how many.
 	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)
 

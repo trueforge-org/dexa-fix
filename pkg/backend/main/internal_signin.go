@@ -94,7 +94,7 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 	if !internalDecode(w, r, &in) {
 		return
 	}
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
+	if s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) {
 		signInFail(w, "Too many attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
 		return
 	}
@@ -126,7 +126,7 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 	u, err := s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
-		s.limiter.Fail(ipKey(r)) // repeated probing for registered addresses is throttled
+		s.limiter.Fail(r.Context(), ipKey(r)) // repeated probing for registered addresses is throttled
 		signInFail(w, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
 		signInFail(w, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
