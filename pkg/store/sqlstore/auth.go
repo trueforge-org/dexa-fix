@@ -500,8 +500,6 @@ func (s *Store) Stats(ctx context.Context) (store.Stats, error) {
 	}{
 		{&st.Users, (*userRow)(nil), ""},
 		{&st.Admins, (*userRow)(nil), "role = 'admin'"},
-		{&st.DexaScans, (*dexaRow)(nil), ""},
-		{&st.ScaleReadings, (*scaleRow)(nil), ""},
 		{&st.AccessTokens, (*tokenRow)(nil), ""},
 		{&st.TwoFactorUsers, (*totpRow)(nil), "confirmed_at IS NOT NULL"},
 	}

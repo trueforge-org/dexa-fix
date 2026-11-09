@@ -2,6 +2,7 @@ package sqlstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -147,11 +148,22 @@ func TestBulkUpsert(t *testing.T) {
 	}
 }
 
-func TestDataVersionChangesWithEverythingEstimatesUse(t *testing.T) {
+// The estimates depend on two things that change separately: the body data (scans and readings,
+// with its own counter) and the user's settings (users.data_version). Each counter must move with
+// its own writes and stay put for the other's.
+func TestVersionsFollowTheirOwnData(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	u, _ := s.CreateUser(ctx, "alice")
-	version := func() int64 {
+	bodyVersion := func() int64 {
+		t.Helper()
+		v, err := s.BodyVersion(ctx, u.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	userVersion := func() int64 {
 		t.Helper()
 		got, err := s.GetUser(ctx, u.ID)
 		if err != nil {
@@ -159,40 +171,103 @@ func TestDataVersionChangesWithEverythingEstimatesUse(t *testing.T) {
 		}
 		return got.DataVersion
 	}
-	last := version()
-	step := func(what string, do func() error) {
+	if bodyVersion() != 0 {
+		t.Fatalf("a user without data has body version %d", bodyVersion())
+	}
+	// step runs do and checks that exactly one of the two counters grew.
+	step := func(what string, body bool, do func() error) {
 		t.Helper()
+		b0, u0 := bodyVersion(), userVersion()
 		if err := do(); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
-		if v := version(); v <= last {
-			t.Errorf("%s did not change the data version (%d -> %d)", what, last, v)
-		} else {
-			last = v
+		b1, u1 := bodyVersion(), userVersion()
+		if body && (b1 <= b0 || u1 != u0) {
+			t.Errorf("%s: body version %d -> %d (want up), user version %d -> %d (want unchanged)", what, b0, b1, u0, u1)
+		}
+		if !body && (u1 <= u0 || b1 != b0) {
+			t.Errorf("%s: user version %d -> %d (want up), body version %d -> %d (want unchanged)", what, u0, u1, b0, b1)
 		}
 	}
 	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	var scan models.DexaScan
-	step("adding a scan", func() error {
+	step("adding a scan", true, func() error {
 		scan = models.DexaScan{UserID: u.ID, MeasuredAt: day}
 		return s.CreateDexaScan(ctx, &scan)
 	})
-	step("adding readings", func() error {
+	step("adding readings", true, func() error {
 		_, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{{MeasuredAt: day}})
 		return err
 	})
-	step("changing settings", func() error { return s.UpdateUserSettings(ctx, u.ID, true, nil) })
-	step("changing the height", func() error { h := 180.0; return s.UpdateUserProfile(ctx, u.ID, "alice", "a@example.com", &h) })
-	step("deleting a scan", func() error { return s.DeleteDexaScan(ctx, u.ID, scan.ID) })
+	step("changing settings", false, func() error { return s.UpdateUserSettings(ctx, u.ID, true, nil) })
+	step("changing the height", false, func() error { h := 180.0; return s.UpdateUserProfile(ctx, u.ID, "alice", "a@example.com", &h) })
+	step("changing the time zone", false, func() error { return s.UpdateUserTimezone(ctx, u.ID, "Europe/Amsterdam") })
+	step("deleting a scan", true, func() error { return s.DeleteDexaScan(ctx, u.ID, scan.ID) })
 	rs, _ := s.ListScaleReadings(ctx, u.ID)
-	step("deleting a reading", func() error { return s.DeleteScaleReading(ctx, u.ID, rs[0].ID) })
+	step("deleting a reading", true, func() error { return s.DeleteScaleReading(ctx, u.ID, rs[0].ID) })
 
-	// A failed or empty write leaves the version alone.
-	before := version()
+	// A failed or empty write leaves both versions alone.
+	b0, u0 := bodyVersion(), userVersion()
 	s.DeleteDexaScan(ctx, u.ID, 9999)
 	s.UpsertScaleReadings(ctx, u.ID, nil)
-	if version() != before {
-		t.Error("a write that changed nothing bumped the version")
+	if bodyVersion() != b0 || userVersion() != u0 {
+		t.Error("a write that changed nothing bumped a version")
+	}
+	// A write for a user that does not exist fails and leaves no counter behind.
+	if _, err := s.UpsertScaleReadings(ctx, 9999, []models.ScaleReading{{MeasuredAt: day}}); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("readings for an unknown user: %v", err)
+	}
+	if v, _ := s.BodyVersion(ctx, 9999); v != 0 {
+		t.Errorf("unknown user has body version %d", v)
+	}
+}
+
+func TestDeleteUserBodyDataAndBodyUserIDs(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	a, _ := s.CreateUser(ctx, "alice")
+	b, _ := s.CreateUser(ctx, "bob")
+	c, _ := s.CreateUser(ctx, "carol") // has no data
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, u := range []models.User{a, b} {
+		scan := models.DexaScan{UserID: u.ID, MeasuredAt: day}
+		if err := s.CreateDexaScan(ctx, &scan); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpsertScaleReadings(ctx, u.ID, []models.ScaleReading{{MeasuredAt: day}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := s.BodyUserIDs(ctx)
+	if err != nil || len(ids) != 2 || ids[0] != a.ID || ids[1] != b.ID {
+		t.Fatalf("BodyUserIDs = %v, %v (want %d and %d, not %d)", ids, err, a.ID, b.ID, c.ID)
+	}
+	st, _ := s.BodyStats(ctx)
+	if st.DexaScans != 2 || st.ScaleReadings != 2 {
+		t.Fatalf("BodyStats = %+v", st)
+	}
+
+	if err := s.DeleteUserBodyData(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if scans, _ := s.ListDexaScans(ctx, a.ID); len(scans) != 0 {
+		t.Errorf("scans left: %v", scans)
+	}
+	if rs, _ := s.ListScaleReadings(ctx, a.ID); len(rs) != 0 {
+		t.Errorf("readings left: %v", rs)
+	}
+	if v, _ := s.BodyVersion(ctx, a.ID); v != 0 {
+		t.Errorf("body version left: %d", v)
+	}
+	if rs, _ := s.ListScaleReadings(ctx, b.ID); len(rs) != 1 {
+		t.Errorf("another user's readings were touched: %v", rs)
+	}
+	// Deleting the user removes the rest through the foreign key, counter included.
+	if err := s.DeleteUser(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := s.BodyUserIDs(ctx); len(ids) != 0 {
+		t.Errorf("BodyUserIDs after deleting the user = %v", ids)
 	}
 }
 

@@ -64,6 +64,12 @@ func TestCopyPreservesData(t *testing.T) {
 	if !reflect.DeepEqual(gd, wd) {
 		t.Fatalf("scans differ:\n%+v\n%+v", gd, wd)
 	}
+	// The body counter goes along, or the estimates of the copy would start again from version 0.
+	gv, _ := dst.BodyVersion(ctx, u.ID)
+	wv, _ := src.BodyVersion(ctx, u.ID)
+	if wv == 0 || gv != wv {
+		t.Fatalf("body version: copy %d, source %d", gv, wv)
+	}
 	if b, _ := dst.GetIntegration(ctx, u.ID, "withings"); string(b) != `{"a":1}` {
 		t.Fatalf("integration = %s", b)
 	}

@@ -32,8 +32,6 @@ type Stats struct {
 	SchemaVersion  int64
 	Users          int
 	Admins         int
-	DexaScans      int
-	ScaleReadings  int
 	Sessions       int
 	AccessTokens   int
 	TwoFactorUsers int
@@ -41,6 +39,12 @@ type Stats struct {
 	KeyID       string    // id of the configured encryption key (empty when encryption is off)
 	KeySince    time.Time // when this key was introduced, at least (zero when unknown)
 	KeyPrevious bool      // the database still belongs to a previous key: `db rekey` is due
+}
+
+// BodyStats counts the body data: what the body domain (scans and readings) holds.
+type BodyStats struct {
+	DexaScans     int
+	ScaleReadings int
 }
 
 // Cursor marks a position in a listing that is sorted newest first, by measurement time and id.
@@ -84,8 +88,43 @@ type AuditFilter struct {
 	Limit    int   // at most this many; 0 means 100
 }
 
-// Store persists users, DEXA scans, scale readings and per-user integration data.
+// BodyStore is the body domain: DEXA scans and scale readings, and the per-user counter of their
+// changes. It is its own interface so that the domain can later move to a service of its own; for
+// now Store embeds it and one sqlstore.Store implements both.
+//
+// A user id is an opaque reference here. Nothing in this interface reads the users table.
+type BodyStore interface {
+	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
+	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
+	// ListDexaScansPage lists one page. The cursor is non-nil when there are older scans.
+	ListDexaScansPage(ctx context.Context, userID int64, f ListFilter) ([]models.DexaScan, *Cursor, error)
+	DeleteDexaScan(ctx context.Context, userID, id int64) error
+
+	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
+	// updated in place when (user, source, external_id) already exists. An update changes the
+	// measured values and notes only, so a reading keeps its method and athlete mode.
+	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
+	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
+	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
+	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
+	DeleteScaleReading(ctx context.Context, userID, id int64) error
+
+	// BodyVersion counts the changes to a user's scans and readings (0 when there are none). It
+	// grows in the same transaction as each change, so a reader never sees new data under an old
+	// version, whichever process made the change.
+	BodyVersion(ctx context.Context, userID int64) (int64, error)
+	// DeleteUserBodyData removes all of a user's scans and readings.
+	DeleteUserBodyData(ctx context.Context, userID int64) error
+	// BodyUserIDs lists the users that have body data, in id order.
+	BodyUserIDs(ctx context.Context) ([]int64, error)
+	BodyStats(ctx context.Context) (BodyStats, error)
+}
+
+// Store persists users, per-user integration data and everything else the main backend holds,
+// and, through BodyStore, DEXA scans and scale readings.
 type Store interface {
+	BodyStore
+
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
 	CreateUser(ctx context.Context, name string) (models.User, error)
 	// CreateUserWithIdentity creates a user and its identity atomically. An empty Subject means
@@ -115,21 +154,6 @@ type Store interface {
 	SetUserStrengthLevelBulk(ctx context.Context, userID int64, enabled bool) error
 	// UpdateUserHiddenColumns stores which daily table columns the user has hidden.
 	UpdateUserHiddenColumns(ctx context.Context, userID int64, keys []string) error
-
-	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
-	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
-	// ListDexaScansPage lists one page. The cursor is non-nil when there are older scans.
-	ListDexaScansPage(ctx context.Context, userID int64, f ListFilter) ([]models.DexaScan, *Cursor, error)
-	DeleteDexaScan(ctx context.Context, userID, id int64) error
-
-	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
-	// updated in place when (user, source, external_id) already exists. An update changes the
-	// measured values and notes only, so a reading keeps its method and athlete mode.
-	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
-	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
-	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
-	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
-	DeleteScaleReading(ctx context.Context, userID, id int64) error
 
 	// GetIntegration returns the provider data (e.g. OAuth tokens) stored for a user, or ErrNotFound.
 	GetIntegration(ctx context.Context, userID int64, provider string) ([]byte, error)

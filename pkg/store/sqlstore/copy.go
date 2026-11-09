@@ -41,7 +41,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 	if sv != dv {
 		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
 	}
-	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*totpRow)(nil), (*recoveryRow)(nil), (*passkeyRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
+	for _, m := range []any{(*userRow)(nil), (*dexaRow)(nil), (*scaleRow)(nil), (*bodyStateRow)(nil), (*integrationRow)(nil), (*identityRow)(nil), (*totpRow)(nil), (*recoveryRow)(nil), (*passkeyRow)(nil), (*tokenRow)(nil), (*settingRow)(nil), (*providerRow)(nil), (*auditRow)(nil)} {
 		q := dst.db.NewSelect().Model(m)
 		if _, ok := m.(*settingRow); ok {
 			q = q.Where("name <> ?", checkSetting) // written by Open when the target has a key
@@ -65,6 +65,9 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		}
 		if stats.ScaleReads, err = copyTable[scaleRow](ctx, src, tx, "id"); err != nil {
 			return fmt.Errorf("scale_readings: %w", err)
+		}
+		if _, err = copyTable[bodyStateRow](ctx, src, tx, "user_id"); err != nil {
+			return fmt.Errorf("body_user_state: %w", err)
 		}
 		if stats.Integrations, err = copyTable[integrationRow](ctx, src, tx, "user_id, provider"); err != nil {
 			return fmt.Errorf("user_integrations: %w", err)

@@ -2,7 +2,9 @@ package mainbackend
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/trueforge-org/dexa-fix/pkg/estimate"
@@ -14,7 +16,10 @@ import (
 // estcache.go) and is shared, so callers must not modify it.
 func (s *Backend) computeEstimates(ctx context.Context, u models.User) (estimate.Result, error) {
 	now, loc := time.Now(), u.Location()
-	key := estimateKey{version: u.DataVersion, day: now.In(loc).Format(dateLayout)}
+	key, err := s.estimateKeyFor(ctx, u, now)
+	if err != nil {
+		return estimate.Result{}, err
+	}
 	return s.estCache.get(u.ID, key, func() (estimate.Result, error) {
 		scans, err := s.store.ListDexaScans(ctx, u.ID)
 		if err != nil {
@@ -32,6 +37,26 @@ func (s *Backend) computeEstimates(ctx context.Context, u models.User) (estimate
 			HeightCm:       u.HeightCm,
 		}), nil
 	})
+}
+
+// estimateKeyFor names the inputs of a user's estimates: the version of their body data, the
+// settings of the user row the estimates depend on, and the day in their time zone.
+func (s *Backend) estimateKeyFor(ctx context.Context, u models.User, now time.Time) (estimateKey, error) {
+	v, err := s.store.BodyVersion(ctx, u.ID)
+	if err != nil {
+		return estimateKey{}, err
+	}
+	return estimateKey{version: v, params: estimateParamsHash(u), day: now.In(u.Location()).Format(dateLayout)}, nil
+}
+
+// estimateParamsHash digests what the estimates take from the user row besides the body data.
+// The body data has its own version, so these settings need their own part of the cache key.
+func estimateParamsHash(u models.User) string {
+	height := "-"
+	if u.HeightCm != nil {
+		height = fmt.Sprint(*u.HeightCm)
+	}
+	return hashToken(fmt.Sprintf("%s|%s|%t|%s", u.Timezone, strings.Join(u.MethodRanking, ","), u.AthleteDefault, height))[:12]
 }
 
 // withingsView reports the Withings state for a user. Unlike oauthProvider it also returns a view

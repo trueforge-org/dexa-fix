@@ -14,8 +14,8 @@ CREATE TABLE users (
   hidden_columns TEXT NOT NULL DEFAULT '',
   -- Set by an administrator: the user may store Strength Level credentials and sync automatically.
   strengthlevel_auto BOOLEAN NOT NULL DEFAULT FALSE,
-  -- Counts changes to everything the estimates are computed from, so cached estimates can tell when
-  -- they are out of date (see Store.bumpVersion).
+  -- Counts changes to the user settings the estimates depend on (time zone, height, ranking, athlete
+  -- default). The scans and readings have their own counter: body_user_state.
   data_version BIGINT NOT NULL DEFAULT 0,
   -- Set by an administrator: the user may also run the multi-day Strength Level sync from Settings.
   strengthlevel_bulk BOOLEAN NOT NULL DEFAULT FALSE,
@@ -56,6 +56,12 @@ CREATE TABLE dexa_scans (
   created_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX idx_dexa_user_time ON dexa_scans(user_id, measured_at);
+-- Counts changes to a user's scans and readings, so cached estimates can tell when they are out of
+-- date (see bumpBodyVersion). The body domain's own counter: it does not touch the users table.
+CREATE TABLE body_user_state (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data_version BIGINT NOT NULL DEFAULT 0
+);
 CREATE TABLE user_integrations (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
@@ -267,6 +273,7 @@ DROP TABLE access_tokens;
 DROP TABLE sessions;
 DROP TABLE user_identities;
 DROP TABLE user_integrations;
+DROP TABLE body_user_state;
 DROP TABLE dexa_scans;
 DROP TABLE scale_readings;
 DROP TABLE users;

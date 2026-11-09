@@ -7,7 +7,7 @@ description: "Rules for the Store interface, the SQL implementation, migrations 
 
 # Store instructions
 
-`pkg/store` is the interface (`store.Store`) and the error values; `pkg/store/sqlstore` implements it with bun for **SQLite and PostgreSQL through one query path**. Only the backend uses it.
+`pkg/store` is the interface (`store.Store`, which embeds `store.BodyStore`: scans, readings and their change counter) and the error values; `pkg/store/sqlstore` implements it with bun for **SQLite and PostgreSQL through one query path**. Only the backend uses it.
 
 ## Schema changes
 
@@ -25,6 +25,10 @@ description: "Rules for the Store interface, the SQL implementation, migrations 
 ## Encryption
 
 Sensitive columns (settings values, secrets, TOTP seeds, tokens) go through the cipher with a context string that names the column and row (`settingContext(name)` style) so ciphertext cannot be moved between rows. A key rotation (`db rekey`) must keep working: new encrypted fields are added to the rekey logic and its tests.
+
+## Body data
+
+`BodyStore` (`sqlstore/body.go`) is the DEXA scans and scale readings, kept apart so the domain can later leave this database. Its methods take a user id as an opaque reference and never read `users`. Every change to them bumps `body_user_state.data_version` in the same transaction (`bumpBodyVersion`); `users.data_version` only follows the user's settings, height and time zone. A new body table or write path must bump the counter and be in `Copy`.
 
 ## Settings and counters
 

@@ -269,7 +269,12 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users/{id}/estimates", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
 		// The response only changes with the user's data and the day, so a client that kept an
 		// earlier copy can ask whether it is still good without the server computing anything.
-		etag := s.estimateETag(u.ID, u.DataVersion, time.Now().In(u.Location()).Format(dateLayout))
+		key, err := s.estimateKeyFor(r.Context(), u, time.Now())
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		etag := s.estimateETag(u.ID, key)
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "private, no-cache")
 		if etagMatches(r.Header.Get("If-None-Match"), etag) {

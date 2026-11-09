@@ -63,6 +63,14 @@ func (r *userRow) toModel() models.User {
 	}
 }
 
+// bodyStateRow counts the changes to one user's scans and readings (see bumpBodyVersion).
+type bodyStateRow struct {
+	bun.BaseModel `bun:"table:body_user_state"`
+
+	UserID      int64 `bun:"user_id,pk"`
+	DataVersion int64 `bun:"data_version"`
+}
+
 type scaleRow struct {
 	bun.BaseModel `bun:"table:scale_readings"`
 

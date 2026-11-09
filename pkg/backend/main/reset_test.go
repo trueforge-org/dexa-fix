@@ -335,14 +335,16 @@ func TestForgotPasswordNeedsSettings(t *testing.T) {
 	enableSelfService(t, srv, fm) // both
 	on("both set")
 
-	l = *srv.cfg() // a base URL without a mailer
-	l.mailer = nil
-	srv.swapSettings(&l)
+	// Each swap gets a variable of its own: swapSettings publishes the pointer, so reusing one
+	// variable would write to a config that a worker request may be reading.
+	noMailer := *srv.cfg() // a base URL without a mailer
+	noMailer.mailer = nil
+	srv.swapSettings(&noMailer)
 	off("no mailer")
 
-	l = *srv.cfg()
-	l.mailer = fm
-	srv.swapSettings(&l)
+	again := *srv.cfg()
+	again.mailer = fm
+	srv.swapSettings(&again)
 	on("both set again")
 }
 

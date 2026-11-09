@@ -92,6 +92,11 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		internalError(w, err)
 		return
 	}
+	body, err := s.store.BodyStats(ctx)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
 		internalError(w, err)
@@ -110,7 +115,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 	view := apiclient.AdminPage{
 		Status: apiclient.AdminStatus{
 			Driver: stats.Driver, Encrypted: stats.Encrypted, SchemaVersion: stats.SchemaVersion, Users: stats.Users,
-			Admins: stats.Admins, DexaScans: stats.DexaScans, ScaleReadings: stats.ScaleReadings,
+			Admins: stats.Admins, DexaScans: body.DexaScans, ScaleReadings: body.ScaleReadings,
 			Sessions: stats.Sessions, AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
 		},
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,

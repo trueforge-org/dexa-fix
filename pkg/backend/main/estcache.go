@@ -12,13 +12,14 @@ import (
 // readings, and every visit to the Estimates page and every API call asks for them again. They
 // only change when the data does, so the result is kept in memory.
 //
-// Invalidation is the part that must be right. A cached result is valid for exactly one pair:
+// Invalidation is the part that must be right. A cached result is valid for exactly one triple:
 //
-//   - the user's data version, a counter in the database that every write to scans, readings and
-//     the settings the estimates depend on increments in the same transaction (see
-//     Store.bumpVersion). It is read together with the user on every request, so a change made by
-//     any path (web form, API, import, another process on the same Postgres) is seen at once,
-//     and there is no list of places to remember to invalidate from.
+//   - the body version, a counter in the database that every write to the user's scans and
+//     readings increments in the same transaction (see BodyStore.BodyVersion). It is read on every
+//     request, so a change made by any path (web form, API, import, another process on the same
+//     Postgres) is seen at once, and there is no list of places to remember to invalidate from.
+//   - a hash of the user's settings the estimates depend on (time zone, height, method ranking,
+//     athlete default), because those are not part of the body data.
 //   - the date, because the series runs up to today and holds the last value forward.
 //
 // A server upgrade starts with an empty cache, so a change in the algorithm is never masked.
@@ -30,7 +31,8 @@ import (
 const estimateCacheUsers = 32
 
 type estimateKey struct {
-	version int64
+	version int64  // BodyStore.BodyVersion
+	params  string // estimateParamsHash
 	day     string
 }
 
@@ -111,6 +113,6 @@ func (c *estimateCache) evictOldest() {
 
 // estimateETag identifies the estimates API response of a user: it changes with their data, the
 // day and the running version of the program, and so lets clients keep their own copy.
-func (s *Backend) estimateETag(userID, version int64, day string) string {
-	return `W/"est-` + strconv.FormatInt(userID, 10) + "-" + strconv.FormatInt(version, 10) + "-" + day + "-" + hashToken(s.Version)[:8] + `"`
+func (s *Backend) estimateETag(userID int64, k estimateKey) string {
+	return `W/"est-` + strconv.FormatInt(userID, 10) + "-" + strconv.FormatInt(k.version, 10) + "-" + k.params + "-" + k.day + "-" + hashToken(s.Version)[:8] + `"`
 }

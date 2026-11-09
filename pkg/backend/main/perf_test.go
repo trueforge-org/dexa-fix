@@ -185,6 +185,18 @@ func TestEstimatesAreCachedAndInvalidatedByEveryWrite(t *testing.T) {
 				t.Fatalf("put settings: %d", code)
 			}
 		},
+		// The user row is not body data: only the hash of the settings in the cache key sees these.
+		"changing the height": func() {
+			h := 181.5
+			if err := st.UpdateUserProfile(t.Context(), 1, "root", "", &h); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"changing the time zone": func() {
+			if err := st.UpdateUserTimezone(t.Context(), 1, "Pacific/Auckland"); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"deleting a reading behind the web app's back": func() {
 			rs, _ := st.ListScaleReadings(t.Context(), 1)
 			if err := st.DeleteScaleReading(t.Context(), 1, rs[0].ID); err != nil {
