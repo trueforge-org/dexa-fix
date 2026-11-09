@@ -21,6 +21,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
 )
 
@@ -514,7 +515,7 @@ func TestTLSSettingsValidation(t *testing.T) {
 func TestTLSBadStoredCertificateFallsBack(t *testing.T) {
 	rig := newTLSRig(t)
 	ctx := context.Background()
-	for name, value := range map[string]string{settingTLSMode: tlsUpload, settingTLSCert: "garbage", settingTLSKey: "garbage"} {
+	for name, value := range map[string]string{settingTLSMode: apiclient.TLSUpload, settingTLSCert: "garbage", settingTLSKey: "garbage"} {
 		if err := rig.srv.store.PutSetting(ctx, name, value); err != nil {
 			t.Fatal(err)
 		}

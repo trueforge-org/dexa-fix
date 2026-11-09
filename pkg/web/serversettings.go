@@ -13,6 +13,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/mailer"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -50,7 +51,7 @@ type liveSettings struct {
 	mailer         mailer.Sender // nil without an SMTP server
 	tlsMode        string        // off, upload or selfsigned
 	tlsCert        *tls.Certificate
-	tlsInfo        *tlsInfo
+	tlsInfo        *tlsutil.Info
 	http3          bool
 	httpsPort      string // TCP port for HTTPS, and UDP port for HTTP/3
 }
@@ -158,8 +159,8 @@ func (s *Backend) reloadSettings(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if l.tlsMode != tlsUpload && l.tlsMode != tlsSelfSigned {
-		l.tlsMode = tlsOff
+	if l.tlsMode != apiclient.TLSUpload && l.tlsMode != apiclient.TLSSelfSigned {
+		l.tlsMode = apiclient.TLSOff
 	}
 	l.tlsCert, l.tlsInfo = s.loadCertificate(ctx, l.tlsMode, l.baseURL)
 	l.httpsPort = defaultHTTPSPort

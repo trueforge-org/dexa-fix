@@ -258,14 +258,14 @@ func (s *Backend) internalSLSync(w http.ResponseWriter, r *http.Request, u model
 
 	// Every written day is one request, so allow time for as many as were asked for. The job does
 	// not belong to this request: it carries on after the response.
-	ctx, cancel := context.WithTimeout(s.jobCtx, strengthLevelTimeout+time.Duration(days)*2*time.Second)
+	ctx, cancel := context.WithTimeout(s.bg.Ctx, strengthLevelTimeout+time.Duration(days)*2*time.Second)
 	job, ok := s.sl.begin(u.ID, days, update, cancel)
 	if !ok {
 		cancel()
 		flashed(w, "A sync is already running.")
 		return
 	}
-	started := s.startJob(func() {
+	started := s.bg.Start(func() {
 		// Only a few syncs hit Strength Level at once; the others wait their turn.
 		select {
 		case s.slSlots <- struct{}{}:

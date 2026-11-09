@@ -16,6 +16,7 @@ import (
 	"github.com/trueforge-org/dexa-fix/pkg/mailer"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -950,7 +951,7 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 	ctx := r.Context()
 	mode := in.Mode
 	switch mode {
-	case tlsOff, tlsUpload, tlsSelfSigned:
+	case apiclient.TLSOff, apiclient.TLSUpload, apiclient.TLSSelfSigned:
 	default:
 		adminMsg(w, "Choose off, an uploaded certificate or a self-signed certificate.")
 		return
@@ -963,7 +964,7 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 		adminMsg(w, "The HTTPS port is a number from 1 to 65535.")
 		return
 	}
-	if in.HTTP3 && mode == tlsOff {
+	if in.HTTP3 && mode == apiclient.TLSOff {
 		adminMsg(w, "HTTP/3 needs TLS: choose a certificate first.")
 		return
 	}
@@ -973,12 +974,12 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 	switch mode {
-	case tlsUpload:
+	case apiclient.TLSUpload:
 		cert, key := strings.TrimSpace(in.Cert), strings.TrimSpace(in.Key)
-		if cert == "" && key == "" && prev == tlsUpload {
+		if cert == "" && key == "" && prev == apiclient.TLSUpload {
 			break // keep the stored one
 		}
-		if _, _, err := parseCertificate(cert, key); err != nil {
+		if _, _, err := tlsutil.Parse(cert, key); err != nil {
 			adminMsg(w, err.Error())
 			return
 		}
@@ -990,7 +991,7 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 			internalError(w, err)
 			return
 		}
-	case tlsSelfSigned:
+	case apiclient.TLSSelfSigned:
 		names := strings.TrimSpace(in.Names)
 		for _, n := range strings.Split(names, ",") {
 			if n = strings.TrimSpace(n); names != "" && !validName(n) {
@@ -998,7 +999,7 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 				return
 			}
 		}
-		if prev != tlsSelfSigned { // never reuse an uploaded certificate as a self-signed one
+		if prev != apiclient.TLSSelfSigned { // never reuse an uploaded certificate as a self-signed one
 			for _, name := range []string{settingTLSCert, settingTLSKey} {
 				if err := s.store.DeleteSetting(ctx, name); err != nil {
 					internalError(w, err)
@@ -1033,9 +1034,9 @@ func (s *Backend) internalAdminSaveTLS(w http.ResponseWriter, r *http.Request, _
 	}
 	s.audit(r, 0, auditSettingChanged, "tls="+mode)
 	switch {
-	case mode != tlsOff && s.cfg().tlsCert == nil:
+	case mode != apiclient.TLSOff && s.cfg().tlsCert == nil:
 		adminMsgChanged(w, "The certificate could not be used, so TLS stays off. Check the server log.")
-	case mode == tlsOff:
+	case mode == apiclient.TLSOff:
 		adminMsgChanged(w, "TLS is off. The server accepts plain HTTP only.")
 	default:
 		msg := "HTTPS is on, on port " + s.cfg().httpsPort + " (HTTP/2 and HTTP/1.1). Plain HTTP stays on its own port."

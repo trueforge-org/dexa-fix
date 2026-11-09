@@ -246,7 +246,7 @@ func (s *Backend) internalForgot(w http.ResponseWriter, r *http.Request) {
 	}
 	if allowed {
 		base := s.cfg().baseURL
-		s.startJob(func() { s.sendResetFor(email, base) })
+		s.bg.Start(func() { s.sendResetFor(email, base) })
 	}
 	resetStepPage(w, apiclient.ResetStep{Mode: "sent"}, http.StatusOK)
 }
@@ -528,7 +528,7 @@ func (s *Backend) internalLinkIdentity(w http.ResponseWriter, r *http.Request, p
 // ---- reset helpers ----
 
 func (s *Backend) sendResetFor(email string, base *url.URL) {
-	ctx := s.jobCtx
+	ctx := s.bg.Ctx
 	u, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {

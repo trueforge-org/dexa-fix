@@ -22,6 +22,9 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/jobs"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/timezones"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 )
 
 // The frontend half on its own: a process with no database that renders pages from what the
@@ -34,7 +37,7 @@ import (
 // few administrator settings the backend hands it (frontendSettings). The Backend is another type,
 // so nothing here can reach its fields.
 type Frontend struct {
-	*jobGroup // the settings poll, stopped by Close
+	bg *jobs.Group // the settings poll, stopped by Close
 
 	api       *apiclient.Client // how the page handlers reach the backend
 	tmpl      map[string]*template.Template
@@ -73,7 +76,7 @@ type frontendSettings struct {
 	proxyProtocol bool
 	tlsMode       string // off, upload or selfsigned
 	tlsCert       *tls.Certificate
-	tlsInfo       *tlsInfo
+	tlsInfo       *tlsutil.Info
 	http3         bool
 	httpsPort     string // TCP port for HTTPS, and UDP port for HTTP/3
 }
@@ -82,9 +85,9 @@ type frontendSettings struct {
 // templates. Call RefreshConfig before serving, and StartConfigPoll to follow changes.
 func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 	s := &Frontend{
-		jobGroup: newJobGroup(),
-		api:      api,
-		tmpl:     map[string]*template.Template{},
+		bg:   jobs.New(),
+		api:  api,
+		tmpl: map[string]*template.Template{},
 	}
 	static, _ := fs.Sub(assets, "static")
 	s.assetVer = staticVersions(static)
@@ -94,7 +97,7 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 
 		"initial":   initial,
 		"help":      help,
-		"timezones": func() []string { return commonTimezones },
+		"timezones": func() []string { return timezones.Common },
 		"asset":     s.assetURL,
 	}
 	for _, p := range pages {
@@ -104,14 +107,14 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 		}
 		s.tmpl[p] = t
 	}
-	s.swapSettings(&frontendSettings{tlsMode: tlsOff, httpsPort: defaultHTTPSPort})
+	s.swapSettings(&frontendSettings{tlsMode: apiclient.TLSOff, httpsPort: defaultHTTPSPort})
 	return s, nil
 }
 
 // Close cancels the background jobs and waits for them to stop, and stops the HTTPS and HTTP/3
 // servers. Call it after the HTTP server has been shut down.
 func (s *Frontend) Close() {
-	s.stopJobs()
+	s.bg.Stop()
 	s.closeListeners()
 }
 
@@ -157,8 +160,8 @@ func (s *Frontend) RefreshConfig(ctx context.Context) error {
 // same-origin check and the listeners.
 func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
 	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol}
-	if l.tlsMode != tlsUpload && l.tlsMode != tlsSelfSigned {
-		l.tlsMode = tlsOff
+	if l.tlsMode != apiclient.TLSUpload && l.tlsMode != apiclient.TLSSelfSigned {
+		l.tlsMode = apiclient.TLSOff
 	}
 	if l.httpsPort == "" {
 		l.httpsPort = defaultHTTPSPort
@@ -170,8 +173,8 @@ func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
 	if l.trusted, err = ParseTrustedProxies(c.TrustedProxies); err != nil {
 		return fmt.Errorf("trusted proxies from the backend: %w", err)
 	}
-	if c.CertPEM != "" && l.tlsMode != tlsOff {
-		cert, info, err := parseCertificate(c.CertPEM, c.KeyPEM)
+	if c.CertPEM != "" && l.tlsMode != apiclient.TLSOff {
+		cert, info, err := tlsutil.Parse(c.CertPEM, c.KeyPEM)
 		if err != nil {
 			log.Warn().Err(err).Msg("ignoring the TLS certificate from the backend")
 		} else {
@@ -217,16 +220,16 @@ var configPollInterval = 5 * time.Second
 // StartConfigPoll follows changes to the settings until Close. A backend that is down is not an
 // error here: the frontend keeps the last good settings.
 func (s *Frontend) StartConfigPoll() {
-	s.startJob(func() {
+	s.bg.Start(func() {
 		for {
 			wait := configPollInterval + time.Duration(rand.Int64N(int64(configPollInterval/5)+1))
 			select {
-			case <-s.jobCtx.Done():
+			case <-s.bg.Ctx.Done():
 				return
 			case <-time.After(wait):
 			}
-			ctx, cancel := context.WithTimeout(s.jobCtx, 10*time.Second)
-			if err := s.RefreshConfig(ctx); err != nil && s.jobCtx.Err() == nil {
+			ctx, cancel := context.WithTimeout(s.bg.Ctx, 10*time.Second)
+			if err := s.RefreshConfig(ctx); err != nil && s.bg.Ctx.Err() == nil {
 				log.Warn().Err(err).Msg("could not refresh the settings from the backend; keeping the last ones")
 			}
 			cancel()

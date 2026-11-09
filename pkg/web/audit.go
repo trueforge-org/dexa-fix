@@ -147,7 +147,7 @@ func (s *Backend) auditBackground(target int64, action, detail string) {
 	if target != 0 {
 		e.TargetID = &target
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.jobCtx), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.bg.Ctx), 5*time.Second)
 	defer cancel()
 	if err := s.store.AddAuditEvent(ctx, &e); err != nil {
 		log.Error().Err(err).Str("action", action).Msg("audit log write failed")
@@ -224,15 +224,15 @@ func (s *Backend) auditRoutes(mux *http.ServeMux) {
 // StartMaintenance purges audit events older than the retention period now and every few hours,
 // until Close. The period is an Admin setting read at every round; zero keeps the log for good.
 func (s *Backend) StartMaintenance() {
-	s.startJob(func() {
+	s.bg.Start(func() {
 		t := time.NewTicker(auditPurgeEvery)
 		defer t.Stop()
 		for {
-			s.renewCertificate(s.jobCtx)
+			s.renewCertificate(s.bg.Ctx)
 			if keep := s.cfg().auditRetention; keep > 0 {
 				cutoff := time.Now().Add(-keep)
-				if n, err := s.store.PurgeAuditEvents(s.jobCtx, cutoff); err != nil {
-					if s.jobCtx.Err() == nil {
+				if n, err := s.store.PurgeAuditEvents(s.bg.Ctx, cutoff); err != nil {
+					if s.bg.Ctx.Err() == nil {
 						log.Error().Err(err).Msg("purge audit log")
 					}
 				} else if n > 0 {
@@ -240,7 +240,7 @@ func (s *Backend) StartMaintenance() {
 				}
 			}
 			select {
-			case <-s.jobCtx.Done():
+			case <-s.bg.Ctx.Done():
 				return
 			case <-t.C:
 			}

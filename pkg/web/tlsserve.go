@@ -1,15 +1,11 @@
 package web
 
 import (
-	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
@@ -27,10 +23,6 @@ import (
 // with a certificate they trust: a self-signed certificate suits tests and private networks where
 // it is trusted explicitly.
 const (
-	tlsOff        = "off"
-	tlsUpload     = "upload"
-	tlsSelfSigned = "selfsigned"
-
 	settingTLSMode  = "tls.mode"
 	settingTLSCert  = "tls.cert"  // PEM chain, stored encrypted with the other settings
 	settingTLSKey   = "tls.key"   // PEM private key, stored encrypted
@@ -44,14 +36,6 @@ const (
 	selfSignedRenew = 30 * 24 * time.Hour // regenerate when less than this is left
 	h3MaxAge        = 24 * time.Hour
 )
-
-// tlsInfo describes the certificate in force, for the Admin page.
-type tlsInfo struct {
-	Subject     string
-	Names       []string
-	NotAfter    time.Time
-	Fingerprint string // SHA-256 of the certificate
-}
 
 // tlsConfig is the configuration for TCP connections; the certificate is looked up per handshake,
 // so a new one applies at once.
@@ -67,31 +51,6 @@ func (s *Frontend) tlsConfig() *tls.Config {
 			return c, nil
 		},
 	}
-}
-
-// parseCertificate checks a PEM certificate chain and its private key.
-func parseCertificate(certPEM, keyPEM string) (*tls.Certificate, *tlsInfo, error) {
-	if strings.TrimSpace(certPEM) == "" || strings.TrimSpace(keyPEM) == "" {
-		return nil, nil, errors.New("both a certificate and a private key are needed")
-	}
-	c, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
-	if err != nil {
-		return nil, nil, fmt.Errorf("the certificate and key do not belong together or are not PEM: %w", err)
-	}
-	leaf, err := x509.ParseCertificate(c.Certificate[0])
-	if err != nil {
-		return nil, nil, fmt.Errorf("certificate: %w", err)
-	}
-	c.Leaf = leaf
-	if time.Now().After(leaf.NotAfter) {
-		return nil, nil, fmt.Errorf("the certificate expired on %s", leaf.NotAfter.UTC().Format("2006-01-02"))
-	}
-	sum := sha256.Sum256(leaf.Raw)
-	names := append([]string{}, leaf.DNSNames...)
-	for _, ip := range leaf.IPAddresses {
-		names = append(names, ip.String())
-	}
-	return &c, &tlsInfo{Subject: leaf.Subject.String(), Names: names, NotAfter: leaf.NotAfter, Fingerprint: hex.EncodeToString(sum[:])}, nil
 }
 
 // ---- the HTTPS and HTTP/3 servers ----

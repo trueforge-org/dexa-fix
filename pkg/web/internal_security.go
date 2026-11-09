@@ -9,6 +9,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/timezones"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -65,7 +66,7 @@ func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u 
 	timezone := u.Timezone
 	if raw := strings.TrimSpace(in.Timezone); raw != "" {
 		var err error
-		if timezone, err = parseTimezone(raw); err != nil {
+		if timezone, err = timezones.Parse(raw); err != nil {
 			invalid(err.Error())
 			return
 		}

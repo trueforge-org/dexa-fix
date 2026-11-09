@@ -17,6 +17,7 @@ import (
 
 	"github.com/trueforge-org/dexa-fix/pkg/importer"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/jobs"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
@@ -57,7 +58,7 @@ func publicInFlight(st store.Store) int {
 // decision. It never renders a page. Nothing in the frontend can reach its fields: the Frontend is
 // another type, and the two meet only in the internal API (see internal.go).
 type Backend struct {
-	*jobGroup // background jobs, stopped by Close
+	bg *jobs.Group // background jobs, stopped by Close
 
 	store     store.Store
 	importers *importer.Registry
@@ -96,7 +97,7 @@ type Backend struct {
 // SetServiceSecrets and InternalHandler), and PublicHandler serves /api/v1.
 func NewBackend(st store.Store, importers *importer.Registry) (*Backend, error) {
 	s := &Backend{
-		jobGroup:    newJobGroup(),
+		bg:          jobs.New(),
 		store:       st,
 		importers:   importers,
 		httpClient:  &http.Client{Timeout: providerTimeout},
@@ -131,7 +132,7 @@ func NewBackend(st store.Store, importers *importer.Registry) (*Backend, error) 
 
 // Close cancels the background jobs and waits for them to stop. Call it after the HTTP servers
 // have been shut down.
-func (s *Backend) Close() { s.stopJobs() }
+func (s *Backend) Close() { s.bg.Stop() }
 
 // WrapListener makes ln understand the PROXY protocol according to the current settings. Wrap the
 // listener once at start; it costs nothing while the setting is off.
@@ -194,19 +195,19 @@ var settingsPollInterval = 5 * time.Second
 // StartSettingsPoll reloads the settings when another process (a second backend, or the
 // `settings reset-network` command) changed them, until Close.
 func (s *Backend) StartSettingsPoll() {
-	s.startJob(func() {
-		seen, _ := s.store.SettingsGeneration(s.jobCtx)
+	s.bg.Start(func() {
+		seen, _ := s.store.SettingsGeneration(s.bg.Ctx)
 		t := time.NewTicker(settingsPollInterval)
 		defer t.Stop()
 		for {
 			select {
-			case <-s.jobCtx.Done():
+			case <-s.bg.Ctx.Done():
 				return
 			case <-t.C:
 			}
-			g, err := s.store.SettingsGeneration(s.jobCtx)
+			g, err := s.store.SettingsGeneration(s.bg.Ctx)
 			if err != nil {
-				if s.jobCtx.Err() == nil {
+				if s.bg.Ctx.Err() == nil {
 					log.Warn().Err(err).Msg("could not check for changed settings")
 				}
 				continue
@@ -214,7 +215,7 @@ func (s *Backend) StartSettingsPoll() {
 			if g == seen {
 				continue
 			}
-			if err := s.reloadSettings(s.jobCtx); err != nil {
+			if err := s.reloadSettings(s.bg.Ctx); err != nil {
 				log.Error().Err(err).Msg("reload the changed settings")
 				continue
 			}

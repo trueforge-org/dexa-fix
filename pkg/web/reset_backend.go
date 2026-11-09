@@ -46,7 +46,7 @@ func (s *Backend) sendResetMail(u models.User, link string, ttl time.Duration) b
 	if m == nil || u.Email == "" {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(s.jobCtx, 40*time.Second)
+	ctx, cancel := context.WithTimeout(s.bg.Ctx, 40*time.Second)
 	defer cancel()
 	subject, body := resetMail(u.Name, link, ttl)
 	if err := m.Send(ctx, u.Email, subject, body); err != nil {

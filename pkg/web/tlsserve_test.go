@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 )
 
 // tlsCertFor makes a self-signed certificate with the given validity, for the cases the server
@@ -67,7 +69,7 @@ func TestGenerateSelfSigned(t *testing.T) {
 	if _, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM)); err != nil {
 		t.Fatalf("certificate and key do not load as a pair: %v", err)
 	}
-	c, info, err := parseCertificate(certPEM, keyPEM)
+	c, info, err := tlsutil.Parse(certPEM, keyPEM)
 	if err != nil {
 		t.Fatalf("parseCertificate: %v", err)
 	}
@@ -129,7 +131,7 @@ func TestParseCertificateErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, _, err := parseCertificate(c.cert, c.key)
+			_, _, err := tlsutil.Parse(c.cert, c.key)
 			if err == nil {
 				t.Fatal("accepted, want an error")
 			}
@@ -208,7 +210,7 @@ func TestSelfSignedIsRegeneratedWhenNamesChangeOrNearExpiry(t *testing.T) {
 	// Same names, but nearly expired: it must be replaced.
 	now := time.Now()
 	certPEM, keyPEM := tlsCertFor(t, srv.selfSignedNames(ctx, nil), now.Add(-time.Hour), now.Add(10*24*time.Hour))
-	_, soon, err := parseCertificate(certPEM, keyPEM)
+	_, soon, err := tlsutil.Parse(certPEM, keyPEM)
 	if err != nil {
 		t.Fatal(err)
 	}

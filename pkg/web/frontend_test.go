@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
 )
 
@@ -55,7 +56,7 @@ func TestFrontendFollowsBackendSettings(t *testing.T) {
 func TestFrontendShipsCertificateOnlyWithAValidSecret(t *testing.T) {
 	bs, srv, _ := newInternalServer(t)
 	ctx := context.Background()
-	if err := srv.store.PutSetting(ctx, settingTLSMode, tlsSelfSigned); err != nil {
+	if err := srv.store.PutSetting(ctx, settingTLSMode, apiclient.TLSSelfSigned); err != nil {
 		t.Fatal(err)
 	}
 	if err := srv.reloadSettings(ctx); err != nil {

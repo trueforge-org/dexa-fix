@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
 )
 
 func peerFingerprint(t *testing.T, addr string) string {
@@ -28,7 +30,7 @@ func TestSplitFrontendServesHTTPSWithTheBackendsCertificate(t *testing.T) {
 	bs, srv, _ := newInternalServer(t)
 	ctx := context.Background()
 	port := tlsFreePort(t, false)
-	for name, v := range map[string]string{settingTLSMode: tlsSelfSigned, settingHTTPS: port} {
+	for name, v := range map[string]string{settingTLSMode: apiclient.TLSSelfSigned, settingHTTPS: port} {
 		if err := srv.store.PutSetting(ctx, name, v); err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +90,7 @@ func TestSplitFrontendServesHTTPSWithTheBackendsCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, v := range map[string]string{settingTLSMode: tlsUpload, settingTLSCert: certPEM, settingTLSKey: keyPEM} {
+	for name, v := range map[string]string{settingTLSMode: apiclient.TLSUpload, settingTLSCert: certPEM, settingTLSKey: keyPEM} {
 		srv.store.PutSetting(ctx, name, v)
 	}
 	if err := srv.reloadSettings(ctx); err != nil {
@@ -102,7 +104,7 @@ func TestSplitFrontendServesHTTPSWithTheBackendsCertificate(t *testing.T) {
 	}
 
 	// The backend goes back to plain HTTP: the frontend closes HTTPS.
-	srv.store.PutSetting(ctx, settingTLSMode, tlsOff)
+	srv.store.PutSetting(ctx, settingTLSMode, apiclient.TLSOff)
 	srv.reloadSettings(ctx)
 	f.RefreshConfig(ctx)
 	if conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond); err == nil {

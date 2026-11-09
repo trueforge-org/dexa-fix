@@ -17,27 +17,29 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
 )
 
 // loadCertificate reads the certificate for the stored mode. It returns nil, with a warning, when
 // the stored material is unusable: the server then serves plain HTTP only, which keeps the Admin
 // page reachable.
-func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.URL) (*tls.Certificate, *tlsInfo) {
+func (s *Backend) loadCertificate(ctx context.Context, mode string, base *url.URL) (*tls.Certificate, *tlsutil.Info) {
 	switch mode {
-	case tlsUpload:
+	case apiclient.TLSUpload:
 		certPEM, err1 := s.settingValue(ctx, settingTLSCert)
 		keyPEM, err2 := s.settingValue(ctx, settingTLSKey)
 		if err1 != nil || err2 != nil {
 			log.Warn().Msg("could not read the stored TLS certificate")
 			return nil, nil
 		}
-		c, info, err := parseCertificate(certPEM, keyPEM)
+		c, info, err := tlsutil.Parse(certPEM, keyPEM)
 		if err != nil {
 			log.Warn().Err(err).Msg("ignoring the stored TLS certificate")
 			return nil, nil
 		}
 		return c, info
-	case tlsSelfSigned:
+	case apiclient.TLSSelfSigned:
 		c, info, err := s.selfSigned(ctx, base)
 		if err != nil {
 			log.Warn().Err(err).Msg("could not prepare the self-signed TLS certificate")
@@ -68,11 +70,11 @@ func (s *Backend) selfSignedNames(ctx context.Context, base *url.URL) []string {
 
 // selfSigned returns the stored self-signed certificate, generating a new one when there is none,
 // when it is nearly expired or when the names changed.
-func (s *Backend) selfSigned(ctx context.Context, base *url.URL) (*tls.Certificate, *tlsInfo, error) {
+func (s *Backend) selfSigned(ctx context.Context, base *url.URL) (*tls.Certificate, *tlsutil.Info, error) {
 	names := s.selfSignedNames(ctx, base)
 	certPEM, _ := s.settingValue(ctx, settingTLSCert)
 	keyPEM, _ := s.settingValue(ctx, settingTLSKey)
-	if c, info, err := parseCertificate(certPEM, keyPEM); err == nil && time.Until(info.NotAfter) > selfSignedRenew && sameNames(info.Names, names) {
+	if c, info, err := tlsutil.Parse(certPEM, keyPEM); err == nil && time.Until(info.NotAfter) > selfSignedRenew && sameNames(info.Names, names) {
 		return c, info, nil
 	}
 	certPEM, keyPEM, err := generateSelfSigned(names)
@@ -86,7 +88,7 @@ func (s *Backend) selfSigned(ctx context.Context, base *url.URL) (*tls.Certifica
 		return nil, nil, err
 	}
 	log.Info().Strs("names", names).Msg("generated a self-signed TLS certificate")
-	return parseCertificate(certPEM, keyPEM)
+	return tlsutil.Parse(certPEM, keyPEM)
 }
 
 func sameNames(a, b []string) bool {
@@ -150,7 +152,7 @@ func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
 // maintenance loop.
 func (s *Backend) renewCertificate(ctx context.Context) {
 	l := s.cfg()
-	if l.tlsMode != tlsSelfSigned || l.tlsInfo == nil || time.Until(l.tlsInfo.NotAfter) > selfSignedRenew {
+	if l.tlsMode != apiclient.TLSSelfSigned || l.tlsInfo == nil || time.Until(l.tlsInfo.NotAfter) > selfSignedRenew {
 		return
 	}
 	if err := s.reloadSettings(ctx); err != nil && ctx.Err() == nil {

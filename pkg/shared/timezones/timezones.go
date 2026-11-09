@@ -1,4 +1,5 @@
-package web
+// Package timezones lists the common IANA time zones and validates a name.
+package timezones
 
 import (
 	"errors"
@@ -6,8 +7,8 @@ import (
 	"time"
 )
 
-// commonTimezones are suggested in the time zone field; any IANA name is accepted.
-var commonTimezones = []string{
+// Common lists the zones suggested in the time zone field; any IANA name is accepted.
+var Common = []string{
 	"UTC",
 	"Europe/London", "Europe/Dublin", "Europe/Lisbon", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam",
 	"Europe/Brussels", "Europe/Madrid", "Europe/Rome", "Europe/Zurich", "Europe/Vienna", "Europe/Stockholm",
@@ -22,16 +23,17 @@ var commonTimezones = []string{
 	"Australia/Perth", "Australia/Adelaide", "Australia/Brisbane", "Australia/Sydney", "Pacific/Auckland",
 }
 
-var errTimezone = errors.New("Choose a valid time zone, such as Europe/Amsterdam.")
+// ErrInvalid is returned by Parse for a name that is not a usable time zone.
+var ErrInvalid = errors.New("Choose a valid time zone, such as Europe/Amsterdam.")
 
-// parseTimezone validates an IANA time zone name. "Local" is refused: it would mean the server's.
-func parseTimezone(raw string) (string, error) {
+// Parse validates an IANA time zone name. "Local" is refused: it would mean the server's.
+func Parse(raw string) (string, error) {
 	name := strings.TrimSpace(raw)
 	if name == "" || len(name) > 64 || strings.EqualFold(name, "local") {
-		return "", errTimezone
+		return "", ErrInvalid
 	}
 	if _, err := time.LoadLocation(name); err != nil {
-		return "", errTimezone
+		return "", ErrInvalid
 	}
 	return name, nil
 }

@@ -7,6 +7,13 @@ import (
 	"net/http"
 )
 
+// The values of FrontendConfig.TLSMode.
+const (
+	TLSOff        = "off"
+	TLSUpload     = "upload"
+	TLSSelfSigned = "selfsigned"
+)
+
 // FrontendConfig is what the frontend process needs from the administrator settings to serve
 // visitors: who its trusted proxies are, its public address, and the TLS material for the HTTPS and
 // HTTP/3 listeners it owns.
