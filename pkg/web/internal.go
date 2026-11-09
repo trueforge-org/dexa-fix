@@ -211,6 +211,10 @@ func (s *Server) frontAuth(next http.Handler) http.Handler {
 	backend := s.withAuth(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if s.isFrontendOnly() { // not ours: passed on to the api process, which authenticates it
+				next.ServeHTTP(w, r)
+				return
+			}
 			backend.ServeHTTP(w, r)
 			return
 		}

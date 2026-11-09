@@ -218,6 +218,7 @@ func TestProxyProtocolOffPassesBytesThrough(t *testing.T) {
 }
 
 func TestProxyProtocolReachesTheAuditLog(t *testing.T) {
+	skipInSplit(t)
 	ts, _, st := newAuthServer(t)
 	srv := serverOf(ts)
 	setProxyPolicy(t, srv, true, "127.0.0.1/32")

@@ -66,6 +66,9 @@ func (s *Server) cfg() *liveSettings { return s.live.Load() }
 func (s *Server) swapSettings(l *liveSettings) {
 	s.live.Store(l)
 	s.cop.Store(newCrossOriginProtection(l.baseURL))
+	if s.onSettings != nil {
+		s.onSettings()
+	}
 }
 
 // newCrossOriginProtection builds the same-origin check that guards the cookie-authenticated

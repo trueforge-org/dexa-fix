@@ -70,6 +70,7 @@ func newEncryptedTLSRig(t *testing.T) *tlsRig {
 // and signs up the administrator over plain HTTP.
 func startTLSRig(t *testing.T, srv *Server) *tlsRig {
 	t.Helper()
+	skipInSplit(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

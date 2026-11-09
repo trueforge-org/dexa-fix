@@ -173,6 +173,20 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) (*Res
 	return &Result{Status: resp.StatusCode, Header: resp.Header}, nil
 }
 
+// Health asks the backend whether it is up.
+func (c *Client) Health(ctx context.Context) error {
+	resp, err := c.Raw(ctx, http.MethodGet, "/healthz", nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: health check answered %d", ErrUnavailable, resp.StatusCode)
+	}
+	return nil
+}
+
 // Get is Do with GET and no body.
 func (c *Client) Get(ctx context.Context, path string, out any) error {
 	_, err := c.Do(ctx, http.MethodGet, path, nil, out)

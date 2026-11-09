@@ -56,13 +56,18 @@ func newServerAndStore(t *testing.T, wi *withings.Importer) (*httptest.Server, *
 	if err := st.PutSetting(context.Background(), settingSignup, valueEnabled); err != nil { // sign-up is closed by default
 		t.Fatal(err)
 	}
-	srv, err := New(st, importer.NewRegistry(wi))
-	if err != nil {
-		t.Fatal(err)
+	var ts *httptest.Server
+	if splitTests() {
+		ts = newSplitServer(t, st, wi)
+	} else {
+		srv, err := New(st, importer.NewRegistry(wi))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ts = httptest.NewServer(srv.Handler())
+		t.Cleanup(ts.Close)
+		testServers.Store(ts, srv)
 	}
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	testServers.Store(ts, srv)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return ts, client, st
 }

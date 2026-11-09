@@ -151,6 +151,9 @@ func TestPublicAPIIgnoresInternalHeaders(t *testing.T) {
 }
 
 func TestFrontendResolvesSessionThroughBackend(t *testing.T) {
+	if splitTests() {
+		t.Skip("tests the combined server")
+	}
 	ts, c, _ := newAuthServer(t)
 	signup(t, ts, c, "root")
 	resp, err := c.Get(ts.URL + "/u/1/scale")

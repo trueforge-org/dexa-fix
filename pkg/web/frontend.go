@@ -210,9 +210,46 @@ func (s *Server) SetAPIUpstream(u *url.URL) {
 			pr.Out.Header.Set("X-Forwarded-Host", pr.In.Host)
 			pr.Out.Host = pr.In.Host
 		},
+		// This process adds the security headers to every response; the upstream's copies would
+		// repeat them.
+		ModifyResponse: func(resp *http.Response) error {
+			for _, h := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options",
+				"Referrer-Policy", "Strict-Transport-Security"} {
+				resp.Header.Del(h)
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Error().Err(err).Msg("the API upstream failed")
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the API is temporarily unavailable"})
 		},
 	}
+}
+
+// limitFrontend turns the frontend's request limits on. Tests that drive a frontend hard from one
+// address turn it off.
+var limitFrontend = true
+
+// frontendOnlyRoutes are the routes of a frontend that has no database: the API passthrough (or a
+// clear answer where the API lives) and the readiness check.
+func (s *Server) frontendOnlyRoutes(mux *http.ServeMux) {
+	if s.apiUpstream != nil {
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Del("Cache-Control") // the API chooses its own caching
+			s.apiUpstream.ServeHTTP(w, r)
+		})
+	} else {
+		mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "the API is served by the api process, not by this address"})
+		})
+	}
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := s.api.Health(ctx); err != nil {
+			http.Error(w, "the backend is not available", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte("ok"))
+	})
 }

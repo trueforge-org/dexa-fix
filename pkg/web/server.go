@@ -62,6 +62,7 @@ type Server struct {
 	api            *apiclient.Client      // how the page handlers reach the backend
 	configETag     string                 // of the frontend config in force (frontend only)
 	apiUpstream    *httputil.ReverseProxy // frontend only: where /api/ goes, if set
+	onSettings     func()                 // called after the settings in force change (tests)
 	internalBudget *edge.Limiter          // load budget of the internal API; nil in the combined process
 	warnedVersion  bool
 	serviceSecrets [][32]byte // accepted by the internal API, see internal.go
@@ -229,6 +230,9 @@ func (s *Server) Handler() http.Handler {
 		s.auditRoutes(mux)
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	if s.isFrontendOnly() {
+		s.frontendOnlyRoutes(mux)
+	}
 	// Same-origin checks protect the cookie-authenticated forms. The Apple callback arrives as a
 	// cross-site POST and is protected by its signed state instead.
 	// The check is rebuilt when the base URL changes, so it is looked up for every request.
@@ -236,7 +240,11 @@ func (s *Server) Handler() http.Handler {
 	sameOrigin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.cop.Load().Handler(guarded).ServeHTTP(w, r)
 	})
-	return edge.LogRequests(s.proxyHeaders(s.altSvc(edge.SecureHeaders(edge.Compress(edge.LimitBody(sameOrigin))))))
+	var h http.Handler = s.altSvc(edge.SecureHeaders(edge.Compress(edge.LimitBody(sameOrigin))))
+	if s.isFrontendOnly() && limitFrontend { // shed floods here, before they become calls to the backend
+		h = s.frontendLimiter()(h)
+	}
+	return edge.LogRequests(s.proxyHeaders(h))
 }
 
 // pageData is the data passed to every template.
