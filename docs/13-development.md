@@ -70,6 +70,19 @@ drive the HTML flows).
 The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
 reuses its `pkg/info`.
 
+## Guidance for AI coding agents
+
+`AGENTS.md` is the canonical, tool-agnostic instruction file. The rules for one
+area of the code are in `.github/instructions/<area>.instructions.md`, with
+`applyTo:` (read by GitHub Copilot) and `paths:` (read by Claude Code)
+frontmatter. `.claude/rules/` holds a symlink to each of them, plus
+`dexa-fix.md` with the Claude-only rules, and `.github/copilot-instructions.md`
+is a short summary. When you add an area, add its file, the symlink
+(`ln -s ../../.github/instructions/<area>.instructions.md .claude/rules/`) and
+a row in the table of `AGENTS.md`. `guidance_test.go` fails when the two path
+lists differ, a symlink is missing, a link is broken, or a path no longer
+matches any file after a directory moved.
+
 ## Schema changes
 
 Until the first release (1.0.0) the schema is kept in one migration per database,
