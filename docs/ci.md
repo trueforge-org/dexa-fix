@@ -55,6 +55,10 @@ docker run -p 8080:8080 -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:la
 The process runs as uid 65532; a bind-mounted data directory must be writable by it
 (`chown 65532:65532 ./data`).
 
+The image is built `FROM scratch`: the binary embeds its time zones and CA roots, and there is no
+shell, so `docker exec ... sh` does not work. Run one-off commands as a new container instead, for
+example `docker run --rm -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:latest db migrate status`.
+
 ### Required configuration
 
 - Secret `CODECOV_TOKEN` (from codecov.io after adding the repository). Without it uploads fail

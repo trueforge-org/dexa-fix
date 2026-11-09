@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	_ "golang.org/x/crypto/x509roots/fallback" // CA roots for HTTPS when the image (scratch) has none
 
 	"github.com/trueforge-org/dexa-fix/cmd"
 )

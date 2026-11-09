@@ -1,12 +1,21 @@
-# Goreleaser-friendly image: the prebuilt static binary is copied in (no build stage).
+# Goreleaser-friendly image: the prebuilt static binary is copied in (no Go build stage).
 # To build by hand: go build -o dexa-fix . && docker build -t dexa-fix .
-# Pinned by digest (the tag is nonroot); the docker Dependabot ecosystem keeps it current.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+# The final image is `scratch`: the binary embeds its own time zones (time/tzdata) and CA roots
+# (x509roots/fallback), so no OS files are needed. There is no shell: use `docker run ... <command>`
+# instead of `docker exec`. Pinned by digest; the docker Dependabot ecosystem keeps it current.
+
+# Build-only helper stage: creates the /data directory with the right owner (scratch has no mkdir/chown).
+FROM --platform=$BUILDPLATFORM busybox:1.37-musl@sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478 AS data
+RUN mkdir -p /out/data
+
+FROM scratch
 
 COPY dexa-fix /dexa-fix
 
-# The app runs as the nonroot user (uid/gid 65532). The /data volume must be writable by that
-# user: with a bind mount run `chown 65532:65532 <dir>`; named volumes copy the image ownership.
+# The app runs as uid/gid 65532. The /data volume must be writable by that user: with a bind mount
+# run `chown 65532:65532 <dir>`; named volumes copy the image ownership.
+COPY --from=data --chown=65532:65532 /out/data /data
+USER 65532:65532
 WORKDIR /data
 VOLUME /data
 
