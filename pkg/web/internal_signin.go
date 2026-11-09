@@ -17,6 +17,7 @@ func (s *Server) internalSignInRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+p+"/pages/login", s.internalLoginPage)
 	mux.HandleFunc("POST "+p+"/auth/password", s.internalLogin)
 	mux.HandleFunc("POST "+p+"/auth/signup", s.internalSignup)
+	s.internalSignInStepRoutes(mux)
 }
 
 func signInFail(w http.ResponseWriter, msg string, status int) {

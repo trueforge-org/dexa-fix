@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
 	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
@@ -246,151 +247,44 @@ func (s *Server) renderSecondStep(w http.ResponseWriter, v twoFactorView, status
 	s.render(w, "twofactor.html", status, pageData{Title: "Two-step verification · dexa-fix", TwoFactor: &v})
 }
 
-func (s *Server) loginTwoFactorPage(w http.ResponseWriter, r *http.Request) {
-	st, _, _, ok := s.readMFA(r)
-	if !ok || st.Enrol {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+// stepPage renders what the backend answered for a step of the second step of signing in, or
+// redirects. The backend's cookies are relayed with either.
+func (s *Server) stepPage(w http.ResponseWriter, r *http.Request, o apiclient.SecondStep, err error) {
+	if err != nil {
+		s.fail(w, err)
 		return
 	}
-	s.renderSecondStep(w, twoFactorView{Mode: "verify"}, http.StatusOK)
+	if o.Redirect != "" {
+		http.Redirect(w, r, o.Redirect, http.StatusSeeOther)
+		return
+	}
+	status := o.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	s.renderSecondStep(w, twoFactorView{Mode: o.Mode, Error: o.Error, QR: template.HTML(o.QR), Secret: o.Secret, Codes: o.Codes, Continue: o.Continue}, status)
+}
+
+func (s *Server) loginTwoFactorPage(w http.ResponseWriter, r *http.Request) {
+	o, err := s.api.LoginSecondStepPage(r.Context())
+	s.stepPage(w, r, o, err)
 }
 
 func (s *Server) loginTwoFactor(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	st, nonce, expires, ok := s.readMFA(r)
-	if !ok || st.Enrol || s.nonces.seen(nonce) { // seen: the cookie already signed someone in
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	if s.secondFactorBlocked(r, st.UID) {
-		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
-		s.renderSecondStep(w, twoFactorView{Mode: "verify", Error: "Too many wrong codes. Please wait a few minutes and sign in again."}, http.StatusTooManyRequests)
-		return
-	}
-	good, recovery, err := s.verifySecondFactor(ctx, st.UID, r.PostFormValue("code"))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !good {
-		s.limiter.Fail(mfaKey(st.UID))
-		s.limiter.Fail(ipKey(r))
-		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "")
-		s.renderSecondStep(w, twoFactorView{Mode: "verify", Error: secondFactorMessage}, http.StatusUnauthorized)
-		return
-	}
-	if !s.nonces.use(nonce, expires) { // the cookie was already used for a sign-in
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	u, err := s.store.GetUser(ctx, st.UID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.limiter.Reset(mfaKey(st.UID))
-	clearMFACookie(w, r)
-	if recovery {
-		left, _ := s.store.CountRecoveryCodes(ctx, u.ID)
-		s.auditAs(r, u.ID, u.ID, auditRecoveryUsed, "")
-		if left == 0 {
-			s.auditAs(r, u.ID, u.ID, auditRecoveryUsed, "last")
-		}
-	}
-	target, err := s.completeSignIn(w, r, u, st.Method)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.markAdminVerified(w, r, u.ID) // the code just entered counts for the Admin pages too
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	o, err := s.api.LoginSecondStep(r.Context(), r.PostFormValue("code"))
+	s.stepPage(w, r, o, err)
 }
 
 // ---- required setup during sign-in ----
 
 func (s *Server) loginSetupPage(w http.ResponseWriter, r *http.Request) {
-	st, _, _, ok := s.readMFA(r)
-	if !ok || !st.Enrol {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	s.renderLoginSetup(w, r, st, "", http.StatusOK)
-}
-
-func (s *Server) renderLoginSetup(w http.ResponseWriter, r *http.Request, st mfaState, errMsg string, status int) {
-	ctx := r.Context()
-	u, err := s.store.GetUser(ctx, st.UID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	secret, err := s.pendingTOTPSecret(ctx, u.ID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	setup, err := s.twoFactorSetupFor(u, secret)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.renderSecondStep(w, twoFactorView{Mode: "setup", Error: errMsg, QR: setup.QR, Secret: setup.Secret}, status)
+	o, err := s.api.LoginSetupPage(r.Context())
+	s.stepPage(w, r, o, err)
 }
 
 func (s *Server) loginSetup(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	st, nonce, expires, ok := s.readMFA(r)
-	if !ok || !st.Enrol || s.nonces.seen(nonce) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	if s.secondFactorBlocked(r, st.UID) {
-		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
-		s.renderLoginSetup(w, r, st, "Too many wrong codes. Please wait a few minutes and sign in again.", http.StatusTooManyRequests)
-		return
-	}
-	t, err := s.store.GetTOTP(ctx, st.UID)
-	if err != nil || t.Confirmed {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	step, good := checkTOTP(t.Secret, r.PostFormValue("code"), time.Now())
-	if !good {
-		s.limiter.Fail(mfaKey(st.UID))
-		s.limiter.Fail(ipKey(r))
-		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "setup")
-		s.renderLoginSetup(w, r, st, "That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
-		return
-	}
-	if !s.nonces.use(nonce, expires) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	if err := s.store.ConfirmTOTP(ctx, st.UID, step); err != nil {
-		s.fail(w, err)
-		return
-	}
-	codes, err := s.issueRecoveryCodes(ctx, st.UID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	u, err := s.store.GetUser(ctx, st.UID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.limiter.Reset(mfaKey(st.UID))
-	clearMFACookie(w, r)
-	s.auditAs(r, u.ID, u.ID, auditTOTPEnabled, "required")
-	target, err := s.completeSignIn(w, r, u, st.Method)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.markAdminVerified(w, r, u.ID)
-	// Signed in; the recovery codes are shown once, on this response, never in a redirect.
-	s.renderSecondStep(w, twoFactorView{Mode: "codes", Codes: codes, Continue: target}, http.StatusOK)
+	o, err := s.api.LoginSetup(r.Context(), r.PostFormValue("code"))
+	s.stepPage(w, r, o, err)
 }
 
 // ---- settings ----

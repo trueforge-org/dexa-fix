@@ -51,6 +51,7 @@ func (s *Server) InternalHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+apiclient.Prefix+"/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET "+apiclient.Prefix+"/session", s.internalSession)
+	mux.HandleFunc("GET "+apiclient.Prefix+"/frontend-config", s.internalFrontendConfig)
 	s.internalRoutes(mux)
 	mux.HandleFunc(apiclient.Prefix+"/", func(w http.ResponseWriter, r *http.Request) {
 		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")

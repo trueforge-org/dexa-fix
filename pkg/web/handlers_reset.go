@@ -2,15 +2,14 @@ package web
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/trueforge-org/dexa-fix/pkg/apiclient"
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 // Password reset.
@@ -138,177 +137,46 @@ func (s *Server) sendResetMail(u models.User, link string, ttl time.Duration) bo
 
 // ---- asking for a link by e-mail ----
 
+func (s *Server) resetStep(w http.ResponseWriter, r *http.Request, o apiclient.ResetStep, err error, token string) {
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if o.Redirect != "" {
+		http.Redirect(w, r, o.Redirect, http.StatusSeeOther)
+		return
+	}
+	status := o.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	v := resetView{Mode: o.Mode, Error: o.Error, NeedsCode: o.NeedsCode}
+	if o.Mode == "form" {
+		v.Token = token
+	}
+	s.renderReset(w, v, status)
+}
+
 func (s *Server) forgotPage(w http.ResponseWriter, r *http.Request) {
-	if !s.selfServiceReset(r.Context()) {
-		http.NotFound(w, r)
-		return
-	}
-	s.renderReset(w, resetView{Mode: "forgot"}, http.StatusOK)
+	o, err := s.api.ResetForgotPage(r.Context())
+	s.resetStep(w, r, o, err, "")
 }
 
-// forgot answers the same page, with the same status, whoever the address belongs to, so it cannot
-// be used to find out which addresses have accounts. The work (lookup, token, mail) runs in the
-// background for every request that is not rate limited, so the response time says nothing either.
 func (s *Server) forgot(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if !s.selfServiceReset(ctx) {
-		http.NotFound(w, r)
-		return
-	}
-	email, valid := parseEmail(r.PostFormValue("email"))
-	ipK, addrK := "reset-ip:"+ipKey(r), "reset-addr:"+email
-	allowed := valid && !s.limiter.Blocked(ipK, maxResetIP) && !s.limiter.Blocked(addrK, maxResetAddr)
-	// Every request counts, not only failures: this is a mail sender.
-	s.limiter.Fail(ipK)
-	if valid {
-		s.limiter.Fail(addrK)
-	}
-	if allowed {
-		base := s.cfg().baseURL
-		s.startJob(func() { s.sendResetFor(email, base) })
-	}
-	s.renderReset(w, resetView{Mode: "sent"}, http.StatusOK)
-}
-
-func (s *Server) sendResetFor(email string, base *url.URL) {
-	ctx := s.jobCtx
-	u, err := s.store.GetUserByEmail(ctx, email)
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
-			log.Error().Err(err).Msg("password reset lookup")
-		}
-		return
-	}
-	if has, err := s.hasLocalPassword(ctx, u); err != nil || !has { // provider-only accounts have no password to reset
-		return
-	}
-	token, _, err := s.newResetToken(ctx, u.ID, nil, resetEmailTTL)
-	if err != nil {
-		log.Error().Err(err).Msg("password reset token")
-		return
-	}
-	link := base.Scheme + "://" + base.Host + resetPath + "?t=" + url.QueryEscape(token)
-	s.auditBackground(u.ID, auditResetRequested, "")
-	if !s.sendResetMail(u, link, resetEmailTTL) {
-		s.auditBackground(u.ID, auditResetEmailFailed, "")
-	}
-}
-
-// ---- using a link ----
-
-func (s *Server) resetUser(r *http.Request, token string) (models.User, bool, error) {
-	if token == "" || len(token) > 128 {
-		return models.User{}, false, nil
-	}
-	u, err := s.store.PasswordResetUser(r.Context(), hashToken(token))
-	if errors.Is(err, store.ErrNotFound) {
-		return models.User{}, false, nil
-	}
-	return u, err == nil, err
+	o, err := s.api.ResetForgot(r.Context(), r.PostFormValue("email"))
+	s.resetStep(w, r, o, err, "")
 }
 
 func (s *Server) resetPage(w http.ResponseWriter, r *http.Request) {
-	if !s.passwordEnabled(r.Context()) {
-		http.Error(w, "signing in with a password is turned off", http.StatusForbidden)
-		return
-	}
 	token := r.URL.Query().Get("t")
-	u, ok, err := s.resetUser(r, token)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !ok {
-		s.renderReset(w, resetView{Mode: "invalid"}, http.StatusNotFound)
-		return
-	}
-	has, err := s.hasTwoFactor(r.Context(), u.ID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.renderReset(w, resetView{Mode: "form", Token: token, NeedsCode: has}, http.StatusOK)
+	o, err := s.api.ResetFormPage(r.Context(), token)
+	s.resetStep(w, r, o, err, token)
 }
 
 func (s *Server) reset(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if !s.passwordEnabled(ctx) {
-		http.Error(w, "signing in with a password is turned off", http.StatusForbidden)
-		return
-	}
-	if s.limiter.Blocked(ipKey(r), maxIPFail) {
-		s.renderReset(w, resetView{Mode: "invalid", Error: "Too many attempts. Please wait a few minutes."}, http.StatusTooManyRequests)
-		return
-	}
 	token := r.PostFormValue("t")
-	u, ok, err := s.resetUser(r, token)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !ok {
-		s.limiter.Fail(ipKey(r))
-		s.auditAs(r, 0, 0, auditResetInvalid, "")
-		s.renderReset(w, resetView{Mode: "invalid"}, http.StatusNotFound)
-		return
-	}
-	has, err := s.hasTwoFactor(ctx, u.ID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	form := func(msg string, status int) {
-		s.renderReset(w, resetView{Mode: "form", Token: token, NeedsCode: has, Error: msg}, status)
-	}
-	password := r.PostFormValue("password")
-	if msg := validatePassword(password, r.PostFormValue("confirm")); msg != "" {
-		form(msg, http.StatusUnprocessableEntity)
-		return
-	}
-	if has {
-		if s.secondFactorBlocked(r, u.ID) {
-			s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "reset")
-			form("Too many wrong codes. Please wait a few minutes.", http.StatusTooManyRequests)
-			return
-		}
-		good, _, err := s.verifySecondFactor(ctx, u.ID, r.PostFormValue("code"))
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		if !good {
-			s.limiter.Fail(mfaKey(u.ID))
-			s.limiter.Fail(ipKey(r))
-			s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "reset")
-			form(secondFactorMessage, http.StatusUnauthorized)
-			return
-		}
-		s.limiter.Reset(mfaKey(u.ID))
-	}
-	hash, err := hashPassword(password)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if _, err := s.store.CompletePasswordReset(ctx, hashToken(token), hash); errors.Is(err, store.ErrNotFound) {
-		s.renderReset(w, resetView{Mode: "invalid"}, http.StatusNotFound) // used or expired a moment ago
-		return
-	} else if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.auditAs(r, u.ID, u.ID, auditResetCompleted, "")
-	if has { // the code was just checked: no second prompt for the same sign-in
-		target, err := s.completeSignIn(w, r, u, models.ProviderLocal)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
-		s.markAdminVerified(w, r, u.ID)
-		http.Redirect(w, r, target, http.StatusSeeOther)
-		return
-	}
-	s.signIn(w, r, u, models.ProviderLocal)
+	o, err := s.api.Reset(r.Context(), token, r.PostFormValue("password"), r.PostFormValue("confirm"), r.PostFormValue("code"))
+	s.resetStep(w, r, o, err, token)
 }
 
 // forgetResets drops outstanding links after the password or e-mail address changed by other means.

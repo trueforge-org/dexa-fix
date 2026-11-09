@@ -59,7 +59,9 @@ type Server struct {
 	authChain []authenticator
 
 	api            *apiclient.Client // how the page handlers reach the backend
-	serviceSecrets [][32]byte        // accepted by the internal API, see internal.go
+	configETag     string            // of the frontend config in force (frontend only)
+	warnedVersion  bool
+	serviceSecrets [][32]byte // accepted by the internal API, see internal.go
 	cookieKey      []byte
 	httpClient     *http.Client
 
@@ -86,7 +88,33 @@ type Server struct {
 var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html", "reset.html"}
 
 // New builds a Server and parses the embedded templates. importers may be nil.
+//
+// In this form the process is both halves: the page handlers call the backend (the internal API)
+// through an in-process transport.
 func New(st store.Store, importers *importer.Registry) (*Server, error) {
+	s, err := newServer()
+	if err != nil {
+		return nil, err
+	}
+	s.store, s.importers = st, importers
+	ctx := context.Background()
+	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.applyWithingsCredentials(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.reloadSettings(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.connectInProcess(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// newServer builds what both halves need: the templates, the static asset hashes and the defaults.
+func newServer() (*Server, error) {
 	funcs := template.FuncMap{
 		"day": func(t time.Time) string { return t.Format("2006-01-02") },
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -97,7 +125,7 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 	}
 	static, _ := fs.Sub(assets, "static")
 	s := &Server{
-		store: st, importers: importers, tmpl: map[string]*template.Template{},
+		tmpl:       map[string]*template.Template{},
 		httpClient: &http.Client{Timeout: providerTimeout},
 		oidcCache:  map[string]*oidc.Provider{},
 		limiter:    newFailLimiter(),
@@ -116,20 +144,6 @@ func New(st store.Store, importers *importer.Registry) (*Server, error) {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		s.tmpl[p] = t
-	}
-	ctx := context.Background()
-	var err error
-	if s.cookieKey, err = s.loadCookieKey(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.applyWithingsCredentials(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.reloadSettings(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.connectInProcess(); err != nil {
-		return nil, err
 	}
 	return s, nil
 }

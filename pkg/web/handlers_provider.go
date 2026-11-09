@@ -20,11 +20,9 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 
 	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
 )
 
 const (
@@ -161,144 +159,33 @@ func fixed32(n *big.Int) []byte { return n.FillBytes(make([]byte, 32)) }
 
 // providerStart redirects to the provider, to sign in or, for a signed-in POST, to link it. Linking
 // is POST-only (and so same-origin checked): a link anyone could put on a web page must not be able
-// to attach someone else's provider account to the visitor's session.
+// to attach someone else's provider account to the visitor's session. The backend decides who is
+// signed in, asks for the current password and keeps the state cookie.
 func (s *Server) providerStart(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if u := currentUser(r); u != nil && r.Method == http.MethodPost && !s.confirmPassword(w, r, *u) {
-		return // linking a provider needs the current password
-	}
-	p, err := s.store.GetAuthProvider(ctx, r.PathValue("provider"))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	cfg, _, err := s.oauthConfig(ctx, p, r)
-	if err != nil {
-		log.Error().Err(err).Str("provider", p.Slug).Msg("provider setup failed")
-		s.renderLogin(w, r, p.Label+" sign-in is not available right now.", http.StatusBadGateway)
-		return
-	}
-	st := providerState{Slug: p.Slug, Verifier: oauth2.GenerateVerifier()}
-	if st.State, err = randomHex(16); err == nil {
-		st.Nonce, err = randomHex(16)
-	}
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if u := currentUser(r); u != nil && r.Method == http.MethodPost {
-		st.Link = u.ID
-	}
-	sealed, err := s.sealState(st)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	setProviderCookie(w, r, sealed, int(providerStateTTL.Seconds()))
-	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(st.Verifier)}
-	if p.Kind != models.ProviderKindOAuth2 {
-		opts = append(opts, oidc.Nonce(st.Nonce))
-	}
-	if p.Kind == models.ProviderKindApple {
-		opts = append(opts, oauth2.SetAuthURLParam("response_mode", "form_post"))
-	}
-	http.Redirect(w, r, cfg.AuthCodeURL(st.State, opts...), http.StatusSeeOther)
-}
-
-// providerCallback finishes a sign-in. Accounts are matched only by the provider's subject: never
-// by name or e-mail, because that would let someone take over an account by claiming its address.
-func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	slug := r.PathValue("provider")
-	p, err := s.store.GetAuthProvider(ctx, slug)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	c, err := r.Cookie(providerCookie)
-	if err != nil {
-		http.Error(w, "invalid or expired sign-in, please start again", http.StatusBadRequest)
-		return
-	}
-	setProviderCookie(w, r, "", -1)
-	st, ok := s.openState(c.Value)
-	if !ok || st.Slug != slug || !hmac.Equal([]byte(st.State), []byte(r.FormValue("state"))) {
-		http.Error(w, "invalid or expired sign-in, please start again", http.StatusBadRequest)
-		return
-	}
-	if r.FormValue("error") != "" || r.FormValue("code") == "" {
-		s.providerFailed(w, r, st, p.Label+" did not complete the sign-in.")
-		return
-	}
-	subject, claims, err := s.exchangeCode(ctx, p, r, st)
-	if err != nil {
-		log.Warn().Err(err).Str("provider", slug).Msg("provider sign-in failed")
-		s.providerFailed(w, r, st, "Could not sign in with "+p.Label+".")
-		return
-	}
-	id, err := s.store.GetIdentity(ctx, slug, subject)
-	found := err == nil
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		s.fail(w, err)
-		return
-	}
-	if st.Link != 0 {
-		s.linkIdentity(w, r, p, st.Link, subject, id, found)
-		return
-	}
-	if found {
-		u, err := s.store.GetUser(ctx, id.UserID)
-		if err != nil {
-			s.fail(w, err)
+	link := r.Method == http.MethodPost
+	o, err := s.api.ProviderStart(r.Context(), r.PathValue("provider"), link, r.PostFormValue("current"))
+	if err != nil && link {
+		if u := currentUser(r); u != nil {
+			s.settingsError(w, r, *u, err)
 			return
 		}
-		s.signIn(w, r, u, slug)
-		return
 	}
-	open, err := s.signupOpen(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !p.AllowSignup || !open {
-		s.renderLogin(w, r, "No account is linked to this "+p.Label+" login. Sign in another way and link it in Settings.", http.StatusForbidden)
-		return
-	}
-	u, err := s.store.CreateUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
-	if err == nil {
-		s.auditAs(r, u.ID, u.ID, auditSignup, slug)
-	}
-	if errors.Is(err, store.ErrExists) { // never linked automatically: the provider may not own that address
-		s.renderLogin(w, r, "An account with that e-mail address already exists. Sign in and link "+p.Label+" in Settings.", http.StatusConflict)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.signIn(w, r, u, slug)
+	s.signInOutcome(w, r, o, err)
 }
 
-func (s *Server) providerFailed(w http.ResponseWriter, r *http.Request, st providerState, msg string) {
-	if st.Link != 0 {
-		settingsRedirect(w, r, st.Link, msg)
+// providerCallback finishes a sign-in. The provider's answer arrives in the query or, for Apple, in
+// a cross-site form post; the backend gets every parameter.
+func (s *Server) providerCallback(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid or expired sign-in, please start again", http.StatusBadRequest)
 		return
 	}
-	s.renderLogin(w, r, msg, http.StatusBadGateway)
-}
-
-func (s *Server) linkIdentity(w http.ResponseWriter, r *http.Request, p models.AuthProvider, userID int64, subject string, existing models.Identity, found bool) {
-	if found && existing.UserID != userID {
-		settingsRedirect(w, r, userID, "That "+p.Label+" login is already linked to another account.")
-		return
+	params := make(map[string]string, len(r.Form))
+	for k := range r.Form {
+		params[k] = r.Form.Get(k)
 	}
-	err := s.store.PutIdentity(r.Context(), models.Identity{UserID: userID, Provider: p.Slug, Subject: subject})
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.audit(r, userID, auditIdentityLinked, p.Slug)
-	settingsRedirect(w, r, userID, p.Label+" linked.")
+	o, err := s.api.ProviderCallback(r.Context(), r.PathValue("provider"), params)
+	s.signInOutcome(w, r, o, err)
 }
 
 // exchangeCode swaps the authorisation code and returns the verified subject and claims.
