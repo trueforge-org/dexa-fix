@@ -91,14 +91,15 @@ func (o initOptions) writeAtomic(dir, name, content string, mode os.FileMode, ch
 		return err
 	}
 	defer os.Remove(tmp.Name()) // a no-op after the rename
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		return err
+	// Write, set the mode and close; the first error is the one that counts.
+	_, err = tmp.WriteString(content)
+	if err == nil {
+		err = tmp.Chmod(mode)
 	}
-	if err := tmp.Close(); err != nil {
-		return err
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
 	}
-	if err := os.Chmod(tmp.Name(), mode); err != nil {
+	if err != nil {
 		return err
 	}
 	if chown && o.uid >= 0 {
@@ -211,22 +212,21 @@ func (o initOptions) adopt(dir string) error {
 	if dir == "" || o.uid < 0 || initEuid() != 0 {
 		return nil
 	}
-	if err := os.Chown(dir, o.uid, o.gid); err != nil {
-		return fmt.Errorf("give %s to %d:%d: %w", dir, o.uid, o.gid, err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
+	entries, readErr := os.ReadDir(dir) // its error is reported after the folder itself was given away
+	// The folder first, then the files in it (not folders, not links).
+	type item struct{ path, label string }
+	items := []item{{dir, dir}}
 	for _, e := range entries {
-		if e.IsDir() || e.Type()&fs.ModeSymlink != 0 {
-			continue
-		}
-		if err := os.Chown(filepath.Join(dir, e.Name()), o.uid, o.gid); err != nil {
-			return fmt.Errorf("give %s to %d:%d: %w", e.Name(), o.uid, o.gid, err)
+		if !e.IsDir() && e.Type()&fs.ModeSymlink == 0 {
+			items = append(items, item{filepath.Join(dir, e.Name()), e.Name()})
 		}
 	}
-	return nil
+	for _, it := range items {
+		if err := os.Chown(it.path, o.uid, o.gid); err != nil {
+			return fmt.Errorf("give %s to %d:%d: %w", it.label, o.uid, o.gid, err)
+		}
+	}
+	return readErr
 }
 
 func (o initOptions) makeAll() error {
@@ -241,20 +241,19 @@ func (o initOptions) makeAll() error {
 		if d == "" {
 			continue
 		}
-		if err := os.MkdirAll(d, 0o700); err != nil {
+		// As root: give the folder to the owner the containers run as, so that init itself can run as
+		// that owner from now on. (The files that are made later are given to it one by one.)
+		err := os.MkdirAll(d, 0o700)
+		if err == nil {
+			err = o.adopt(d)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	// The files in it can be read by anybody (see keep), so the directory is what keeps them private.
 	if err := os.Chmod(o.hostDir, 0o700); err != nil {
 		return err
-	}
-	// As root: give the folders to the owner the containers run as, so that init itself can run as
-	// that owner from now on. (The files that are made later are given to it one by one.)
-	for _, d := range []string{o.hostDir, o.apiDir, o.webDir, o.workerDir, o.bodyDir, o.dbDir, o.dbsetupDir, o.valkeyDir} {
-		if err := o.adopt(d); err != nil {
-			return err
-		}
 	}
 
 	// ---- kept for good: the host directory ----
