@@ -81,6 +81,13 @@ func (f *flakyStore) TwoFactorUsers(ctx context.Context) (map[int64]bool, error)
 	return f.Store.TwoFactorUsers(ctx)
 }
 
+func (f *flakyStore) DeleteUserSessions(ctx context.Context, userID int64) error {
+	if f.fails("DeleteUserSessions") {
+		return errFlaky
+	}
+	return f.Store.DeleteUserSessions(ctx, userID)
+}
+
 func (f *flakyStore) SettingsGeneration(ctx context.Context) (int64, error) {
 	if f.fails("SettingsGeneration") {
 		return 0, errFlaky
@@ -155,7 +162,7 @@ func refuseWrites(t *testing.T, st *sqlstore.Store, table, col, val string) {
 	t.Helper()
 	for _, c := range []struct{ event, row string }{{"INSERT", "NEW"}, {"UPDATE", "NEW"}, {"DELETE", "OLD"}} {
 		q := "CREATE TRIGGER refuse_" + strings.ToLower(c.event) + "_" + table + " BEFORE " + c.event + " ON " + table +
-			" WHEN " + c.row + "." + col + " = '" + val + "' BEGIN SELECT RAISE(ABORT, 'refused'); END"
+			" WHEN CAST(" + c.row + "." + col + " AS TEXT) = '" + val + "' BEGIN SELECT RAISE(ABORT, 'refused'); END"
 		if err := st.ExecForTests(context.Background(), q); err != nil {
 			t.Fatalf("refuse %s on %s: %v", c.event, table, err)
 		}
