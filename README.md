@@ -12,7 +12,6 @@
 
 [![CI](https://github.com/trueforge-org/dexafix/actions/workflows/ci.yaml/badge.svg)](https://github.com/trueforge-org/dexafix/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/trueforge-org/dexafix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexafix)
-[![Go Report Card](https://goreportcard.com/badge/github.com/trueforge-org/dexafix)](https://goreportcard.com/report/github.com/trueforge-org/dexafix)
 [![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexafix)](https://github.com/trueforge-org/dexafix/releases/latest)
 [![License](https://img.shields.io/github/license/trueforge-org/dexafix)](LICENSE)
 [![Go version](https://img.shields.io/github/go-mod/go-version/trueforge-org/dexafix)](go.mod)
