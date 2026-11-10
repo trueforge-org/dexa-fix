@@ -247,6 +247,47 @@ dev container). Then a bind mount such as `./secrets` is not visible to it: use 
 normal host, or put `./secrets` in a volume as the test setup in
 `deploy.instructions.md` does.
 
+### Resource limits
+
+Every container in the Compose file has a ceiling on memory, CPU and processes,
+so that one runaway process (a flood of requests, a very large import, a leak)
+cannot starve the others on the same host. The defaults are generous for a
+household or a small team:
+
+| Container | Memory | CPUs | Processes | Why |
+| --- | --- | --- | --- | --- |
+| `api` | 512 MB | 2 | 256 | Sign-in work (bcrypt) and the pages' data |
+| `body` | 768 MB | 2 | 256 | The estimates: CPU heavy, and it keeps the results of up to 32 users in memory (about 160 MB at most) |
+| `web` | 256 MB | 1 | 256 | Pages and static files |
+| `worker-withings`, `worker-strengthlevel` | 256 MB | 0.5 | 128 | Waiting for jobs and talking to the provider |
+| `db` | 1 GB | 2 | 512 | PostgreSQL, with up to 20 connections each from `api` and `body` |
+| `valkey` | 512 MB | 1 | 128 | At most 256 MB of data (`--maxmemory`), more while it rewrites its file |
+| `init`, `db-setup` | 128 MB | 0.5 | 64 | They run for a moment and exit |
+
+The Go containers also get `GOMEMLIMIT` at about 80% of their memory limit, so
+the garbage collector works harder before the kernel kills the process. Go also
+reads the CPU limit, so a container limited to one CPU does not start a thread
+pool for sixteen.
+
+Change a limit in a `docker-compose.override.yaml` next to the file (Compose
+merges it), and raise `GOMEMLIMIT` with it:
+
+```yaml
+services:
+  body:
+    deploy:
+      resources:
+        limits: {memory: 2G}
+    environment:
+      GOMEMLIMIT: 1600MiB
+```
+
+`docker stats` shows the use against the limit. A container that is killed for
+using too much memory shows `OOMKilled: true` in `docker inspect`; raise its
+limit then. Check the PostgreSQL side too: each of `api` and `body` opens up to
+20 connections, so the server's `max_connections` (100 by default) must cover
+every `api` and `body` container you run, plus some for yourself.
+
 ## Status and health checks
 
 **The status page.** `/status` on the web process shows the health of each part:
