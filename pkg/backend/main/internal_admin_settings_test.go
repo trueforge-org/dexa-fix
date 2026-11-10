@@ -84,6 +84,7 @@ func TestAdminProviderChangesTellTheAdministratorWhatHappenedOrFailCleanly(t *te
 		{name: "an Apple provider with a key that is not one", path: "/admin/providers", form: formWith(apple, "client_secret", "not a key"), wantFlash: ".p8 key"},
 		{name: "an Apple provider with a good key", path: "/admin/providers", form: withKey(t), wantFlash: "Apple saved"},
 		{name: "an OAuth provider without https URLs", path: "/admin/providers", form: formWith(oauth, "token_url", "ftp://x"), wantFlash: "https authorisation"},
+		{name: "an OAuth provider with a URL that is not a URL", path: "/admin/providers", form: formWith(oauth, "auth_url", "https://idp.example/%zz"), wantFlash: "https authorisation"},
 		{name: "an OAuth provider without a secret", path: "/admin/providers", form: formWith(oauth, "client_secret", ""), wantFlash: "client secret is required"},
 		{name: "an OAuth provider", path: "/admin/providers", form: oauth, wantFlash: "GitHub saved"},
 		{name: "a provider of an unknown type", path: "/admin/providers", form: formWith(oauth, "kind", "saml"), wantFlash: "Unknown provider type"},

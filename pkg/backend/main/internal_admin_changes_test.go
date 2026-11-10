@@ -63,6 +63,13 @@ func enableSL(t *testing.T, e *adminEnv) {
 	}
 }
 
+func (f *flakyStore) DeleteTOTP(ctx context.Context, userID int64) error {
+	if f.fails("DeleteTOTP") {
+		return errFlaky
+	}
+	return f.Store.DeleteTOTP(ctx, userID)
+}
+
 func formWith(base url.Values, k, v string) url.Values {
 	c := url.Values{}
 	for kk, vv := range base {
@@ -98,6 +105,6 @@ func TestAdminUserChangesTellTheAdministratorWhatHappenedOrFailCleanly(t *testin
 		{name: "a new password when the access tokens cannot be removed", setup: func(t *testing.T, e *adminEnv) { breakTable(t, e.st, "access_tokens") }, path: "/admin/users/2/password", form: url.Values{"password": {"another password"}}},
 		{name: "deleting a user when the delete is refused", setup: refuseBob("users", "id"), path: "/admin/users/2/delete", form: url.Values{}},
 		{name: "deleting a user whose sessions cannot be ended afterwards", setup: func(t *testing.T, e *adminEnv) { e.flaky.failOn("DeleteUserSessions") }, path: "/admin/users/2/delete", form: url.Values{}, wantFlash: "bob and their data were deleted"},
-		{name: "removing two-step verification when the table is gone", setup: func(t *testing.T, e *adminEnv) { breakTable(t, e.st, "user_totp") }, path: "/admin/users/2/2fa/delete", form: url.Values{}},
+		{name: "removing two-step verification when the database cannot", setup: func(t *testing.T, e *adminEnv) { e.flaky.failOn("DeleteTOTP") }, path: "/admin/users/2/2fa/delete", form: url.Values{}},
 	})
 }
