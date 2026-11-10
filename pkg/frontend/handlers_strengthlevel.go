@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 func settingsFlash(w http.ResponseWriter, r *http.Request, u models.User, msg string) {
@@ -39,10 +40,7 @@ func (s *Frontend) strengthLevelStatus(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	var buf bytes.Buffer
-	if err := s.tmpl["settings.html"].ExecuteTemplate(&buf, "slstatus", slView{UserID: u.ID, Job: job}); err != nil {
-		s.fail(w, err)
-		return
-	}
+	must.Do(s.tmpl["settings.html"].ExecuteTemplate(&buf, "slstatus", slView{UserID: u.ID, Job: job})) // an embedded template with typed data
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(buf.Bytes())
 }

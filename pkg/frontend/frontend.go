@@ -23,6 +23,7 @@ import (
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 	"github.com/trueforge-org/dexafix/pkg/shared/jobs"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/shared/timezones"
 	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
@@ -93,9 +94,6 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 	static, _ := fs.Sub(assets, "static")
 	s.assetVer = staticVersions(static)
 	funcs := template.FuncMap{
-		"day": func(t time.Time) string { return t.Format("2006-01-02") },
-		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
-
 		"initial":    initial,
 		"help":       help,
 		"timezones":  func() []string { return timezones.Common },
@@ -104,11 +102,8 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 		"sponsorURL": func() string { return sponsorURL },
 	}
 	for _, p := range pages {
-		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", p, err)
-		}
-		s.tmpl[p] = t
+		// The templates are embedded in the binary, so a parse error is a bug found by any test.
+		s.tmpl[p] = must.Value(template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p))
 	}
 	s.swapSettings(&frontendSettings{tlsMode: apiclient.TLSOff, httpsPort: defaultHTTPSPort})
 	return s, nil
