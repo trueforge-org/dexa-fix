@@ -25,6 +25,7 @@ type flakyStore struct {
 	mu      sync.Mutex
 	failing map[string]bool
 	allowed map[string]int
+	calls   map[string]int
 }
 
 var errFlaky = errors.New("the database let us down")
@@ -52,9 +53,20 @@ func (f *flakyStore) failAfter(call string, n int) {
 	f.allowed[call] = n
 }
 
+// called says how many times a store call that can be made to fail was made.
+func (f *flakyStore) called(call string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[call]
+}
+
 func (f *flakyStore) fails(call string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[call]++
 	if left, ok := f.allowed[call]; ok {
 		if left == 0 {
 			return true
