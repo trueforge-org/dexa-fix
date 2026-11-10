@@ -43,10 +43,11 @@ func TestSecretsInitAsAnotherUserStopsWithAdviceInAFolderOfRoot(t *testing.T) {
 	if err := os.MkdirAll(dirs["host"], 0o755); err != nil {
 		t.Fatal(err)
 	}
+	o.apiDir, o.webDir, o.workerDir, o.bodyDir, o.dbDir, o.dbsetupDir, o.valkeyDir = "", "", "", "", "", "", ""
 	reachable(t, dirs["host"])
 	becomeUser(t, 65534)
 	err := o.run()
-	if err == nil || !strings.Contains(err.Error(), "--user 0:0") || !strings.Contains(err.Error(), "chmod") {
+	if err == nil || !strings.Contains(err.Error(), "--user 0:0") || !strings.Contains(err.Error(), "chmod "+dirs["host"]) {
 		t.Fatalf("want the advice to run init as root once, got %v", err)
 	}
 }
