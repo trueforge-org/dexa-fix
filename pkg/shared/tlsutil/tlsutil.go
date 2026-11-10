@@ -4,7 +4,6 @@ package tlsutil
 import (
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,11 +28,7 @@ func Parse(certPEM, keyPEM string) (*tls.Certificate, *Info, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("the certificate and key do not belong together or are not PEM: %w", err)
 	}
-	leaf, err := x509.ParseCertificate(c.Certificate[0])
-	if err != nil {
-		return nil, nil, fmt.Errorf("certificate: %w", err)
-	}
-	c.Leaf = leaf
+	leaf := c.Leaf // tls.X509KeyPair has parsed it since Go 1.23
 	if time.Now().After(leaf.NotAfter) {
 		return nil, nil, fmt.Errorf("the certificate expired on %s", leaf.NotAfter.UTC().Format("2006-01-02"))
 	}
