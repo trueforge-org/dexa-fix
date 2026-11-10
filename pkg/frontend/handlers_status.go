@@ -81,7 +81,7 @@ func (s *Frontend) statusPage(w http.ResponseWriter, r *http.Request) {
 	v := newStatusView(st, nil)
 	u := currentUser(r)
 	v.AdminLink = u != nil && u.IsAdmin()
-	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · DexaFix", Tab: "status", User: u, Status: v})
+	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · DexaFix", Tab: "status", User: u, Status: v, Track: s.trackingFor(u)})
 }
 
 func (s *Frontend) adminStatusPage(w http.ResponseWriter, r *http.Request, u models.User) {

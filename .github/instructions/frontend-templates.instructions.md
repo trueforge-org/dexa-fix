@@ -15,6 +15,7 @@ These rules apply to `pkg/frontend/templates/*.html` and `pkg/frontend/static/*`
 Every response carries `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`.
 
 - **No inline scripts and no inline event handlers** (`onclick=`, `<script>...</script>`). Put code in a file under `static/` and load it with `<script src>`; use htmx attributes (`hx-post`, `hx-get`, `hx-trigger`, ...) for behaviour.
+- The one place the policy is widened is `render`, for a page with `Track` set (optional analytics and ads, `tracking.go`): the hosts of the services an administrator turned on are added, and nothing else changes. Load third-party code only from `static/consent.js`, only after consent.
 - Inline `style=` attributes are tolerated for a few existing sizing cases; do not add more, and no inline `<style>` blocks. Put styles in `static/app.css`.
 - Forms and htmx requests go to **same-origin** URLs. Cross-origin POSTs are refused by `http.CrossOriginProtection`; there is no CSRF token to add.
 - Do not load anything from a CDN or another origin.

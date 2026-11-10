@@ -7,6 +7,7 @@
 [![codecov](https://codecov.io/gh/trueforge-org/dexafix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexafix)
 [![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexafix)](https://github.com/trueforge-org/dexafix/releases/latest)
 [![License](https://img.shields.io/github/license/trueforge-org/dexafix)](LICENSE)
+[![Sponsor on Open Collective](https://img.shields.io/opencollective/all/dexafix?label=sponsor&logo=opencollective)](https://opencollective.com/dexafix)
 ```
 
 ## CI and releases

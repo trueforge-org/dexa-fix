@@ -140,6 +140,7 @@ type AdminPage struct {
 	Key             KeyView
 	Require2FA      string // off, admins or everyone
 	Server          ServerSettingsView
+	Analytics       Analytics
 	SMTP            SMTPView
 	ResetByEmail    bool // users can ask for a reset e-mail
 	TLS             TLSView
@@ -243,6 +244,12 @@ type ServerForm struct {
 
 func (c *Client) AdminSaveServer(ctx context.Context, f ServerForm) (AdminResult, error) {
 	return c.adminDo(ctx, http.MethodPost, "/admin/server", f)
+}
+
+// AdminSaveAnalytics stores the identifiers of the optional analytics and ad services; an empty one
+// turns that service off.
+func (c *Client) AdminSaveAnalytics(ctx context.Context, a Analytics) (AdminResult, error) {
+	return c.adminDo(ctx, http.MethodPost, "/admin/analytics", a)
 }
 
 // SMTPForm is the text of the e-mail form, as typed.

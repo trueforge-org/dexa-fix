@@ -79,6 +79,7 @@ type frontendSettings struct {
 	tlsInfo       *tlsutil.Info
 	http3         bool
 	httpsPort     string // TCP port for HTTPS, and UDP port for HTTP/3
+	analytics     apiclient.Analytics
 }
 
 // NewFrontend builds a frontend that talks to the backend through api and parses the embedded
@@ -95,10 +96,12 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 		"day": func(t time.Time) string { return t.Format("2006-01-02") },
 		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
 
-		"initial":   initial,
-		"help":      help,
-		"timezones": func() []string { return timezones.Common },
-		"asset":     s.assetURL,
+		"initial":    initial,
+		"help":       help,
+		"timezones":  func() []string { return timezones.Common },
+		"asset":      s.assetURL,
+		"repoURL":    func() string { return repoURL },
+		"sponsorURL": func() string { return sponsorURL },
 	}
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
@@ -163,7 +166,7 @@ func (s *Frontend) RefreshConfig(ctx context.Context) error {
 // applyFrontendConfig puts the settings in force and rebuilds what depends on them: the
 // same-origin check and the listeners.
 func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
-	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol}
+	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol, analytics: c.Analytics}
 	if l.tlsMode != apiclient.TLSUpload && l.tlsMode != apiclient.TLSSelfSigned {
 		l.tlsMode = apiclient.TLSOff
 	}

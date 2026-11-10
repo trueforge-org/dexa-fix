@@ -22,7 +22,7 @@ import (
 //go:embed templates static
 var assets embed.FS
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "adminworkers.html", "status.html", "docs.html", "twofactor.html", "reset.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "adminworkers.html", "status.html", "docs.html", "terms.html", "privacy.html", "twofactor.html", "reset.html"}
 
 // assetURL returns the cache-busting URL of an embedded static file.
 func (s *Frontend) assetURL(name string) string {
@@ -40,6 +40,7 @@ func (s *Frontend) Handler() http.Handler {
 
 	mux.HandleFunc("GET /{$}", s.index)
 	mux.HandleFunc("GET /docs", s.docsPage)
+	s.legalRoutes(mux)
 	s.statusRoutes(mux)
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
@@ -127,6 +128,7 @@ type pageData struct {
 	Workers       *apiclient.WorkersPage // the workers page of the Admin section
 	Status        *statusView            // the status page
 	Admin         *adminView             // admin page
+	Track         *trackingView          // optional analytics and ads: set for a public page only
 }
 
 func (s *Frontend) render(w http.ResponseWriter, page string, status int, data pageData) {
@@ -137,6 +139,10 @@ func (s *Frontend) render(w http.ResponseWriter, page string, status int, data p
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if data.Track != nil {
+		// The one place the policy is widened, and only for what the administrator turned on.
+		w.Header().Set("Content-Security-Policy", data.Track.csp())
+	}
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
 }

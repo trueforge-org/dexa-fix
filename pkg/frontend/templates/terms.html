@@ -1,0 +1,44 @@
+{{define "content"}}
+{{/* Written for the project without legal review: have a lawyer read it before relying on it, and
+     keep it true to what the software does (docs/14-limitations-and-security.md). */}}
+<article class="legal">
+<div class="page-head"><h1>Terms of Service</h1></div>
+<p class="updated">Last updated 10 November 2026</p>
+
+<h2>1. What DexaFix is</h2>
+<p>DexaFix is free, open-source software that corrects the body-composition readings of a smart scale with the results of DEXA scans. It is published by the DexaFix project (<a href="{{repoURL}}" target="_blank" rel="noopener">trueforge-org/dexafix</a>) under the GNU Affero General Public License, version 3. Anyone can run their own copy. These terms apply to a copy run by the DexaFix project, and are a fair starting point for any other copy; the person who runs a copy (the operator) is who you are dealing with when you use it.</p>
+
+<h2>2. Not medical advice</h2>
+<p>DexaFix produces statistical estimates. They are not a diagnosis, a measurement or medical advice, and they can be wrong. Do not use them to decide on a treatment, a medication, a diet for a medical condition or anything else where a mistake could harm you. Talk to a doctor for that.</p>
+
+<h2>3. Your account</h2>
+<ul>
+  <li>You must give correct information and keep your password, passkeys and access tokens to yourself. What happens under your account is your responsibility until you tell the operator that it was compromised.</li>
+  <li>You must be old enough to agree to these terms where you live, and at least 16 years old.</li>
+  <li>The first account of a new copy is its administrator. An administrator can see which accounts exist, change their roles, set a new password for an account and delete it; they cannot read your password. Your readings and scans are encrypted at rest, but the operator&rsquo;s servers hold the key, so the operator is technically able to read them. Choose an operator you trust.</li>
+  <li>You can export your data at any time from your settings. To close your account, ask the operator to delete it.</li>
+</ul>
+
+<h2>4. What you may not do</h2>
+<ul>
+  <li>Attack, overload or probe the service, or try to reach another person&rsquo;s data.</li>
+  <li>Use the service to break the law or to store content that you have no right to store.</li>
+  <li>Use the public API faster than its rate limits allow, or work around them.</li>
+</ul>
+<p>The operator may limit or suspend an account that does, and may delete accounts that have been unused for a long time after telling the owner where possible.</p>
+
+<h2>5. Other services you connect</h2>
+<p>You can connect Withings, to import readings, and Strength Level, to send your estimates. They are separate services with their own terms and privacy policies, which apply to what they hold. You can disconnect them at any time in your settings.</p>
+
+<h2>6. No warranty, and limits of liability</h2>
+<p>The service is provided &ldquo;as is&rdquo;, without a promise that it is available, accurate or fit for a purpose. To the extent the law allows, the DexaFix project, its contributors and the operator are not liable for indirect or consequential loss, for lost data or for decisions you take on the basis of an estimate. Keep your own copy of anything that matters: the export is there for that. Nothing in these terms limits a liability that cannot be limited by law.</p>
+
+<h2>7. Source code</h2>
+<p>The complete source of this software, including any changes made to the copy you are using, is available from the link in the footer, as the AGPL requires. The licence also gives you the right to run and change your own copy.</p>
+
+<h2>8. Changes and contact</h2>
+<p>These terms may change. The date above says when they last did; if a change matters, the operator should tell you before it applies. Questions about the software: <a href="{{repoURL}}/issues" target="_blank" rel="noopener">GitHub issues</a>. Report a vulnerability privately, as the repository&rsquo;s security policy describes, not in a public issue. For anything about a particular copy, including your account and your data, write to the operator of that copy. The law of the place where the operator is established applies, unless the law of your country gives you stronger protection that cannot be waived.</p>
+
+<p class="help">See also the <a href="/privacy">Privacy Policy</a>.</p>
+</article>
+{{end}}

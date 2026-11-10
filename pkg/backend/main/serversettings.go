@@ -24,17 +24,20 @@ import (
 // The values are read into a liveSettings once and replaced as a whole when an administrator saves
 // a change, so a request always sees one consistent set.
 const (
-	settingBaseURL        = "server.base_url"
-	settingTrustedProxies = "server.trusted_proxies"
-	settingProxyProtocol  = "server.proxy_protocol"
-	settingAuditRetention = "audit.retention_days"
-	settingKeyReminder    = "crypto.key_reminder_days"
-	settingSMTPHost       = "smtp.host"
-	settingSMTPPort       = "smtp.port"
-	settingSMTPUsername   = "smtp.username"
-	settingSMTPPassword   = "smtp.password" // stored encrypted like every setting
-	settingSMTPFrom       = "smtp.from"
-	settingSMTPTLS        = "smtp.tls"
+	settingBaseURL         = "server.base_url"
+	settingTrustedProxies  = "server.trusted_proxies"
+	settingProxyProtocol   = "server.proxy_protocol"
+	settingAuditRetention  = "audit.retention_days"
+	settingKeyReminder     = "crypto.key_reminder_days"
+	settingScarfPixel      = "analytics.scarf_pixel_id"
+	settingGoogleAnalytics = "analytics.google_analytics_id"
+	settingAdSense         = "analytics.adsense_publisher"
+	settingSMTPHost        = "smtp.host"
+	settingSMTPPort        = "smtp.port"
+	settingSMTPUsername    = "smtp.username"
+	settingSMTPPassword    = "smtp.password" // stored encrypted like every setting
+	settingSMTPFrom        = "smtp.from"
+	settingSMTPTLS         = "smtp.tls"
 
 	defaultAuditDays = 365
 	defaultSMTPPort  = 587
@@ -55,7 +58,8 @@ type liveSettings struct {
 	http3          bool
 	httpsPort      string // TCP port for HTTPS, and UDP port for HTTP/3
 	workers        workerSettings
-	generation     int64 // the settings generation this set was read at; workers compare it
+	analytics      apiclient.Analytics // the optional measuring and ad services; the frontend loads them
+	generation     int64               // the settings generation this set was read at; workers compare it
 }
 
 // smtpSettings is what the Admin page shows and saves for e-mail.
@@ -202,6 +206,9 @@ func (s *Backend) reload(ctx context.Context, generate bool) error {
 		}
 	}
 	if l.workers, err = s.loadWorkerSettings(ctx); err != nil {
+		return err
+	}
+	if l.analytics, err = s.analyticsSettings(ctx); err != nil {
 		return err
 	}
 	s.swapSettings(l)

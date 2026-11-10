@@ -586,6 +586,43 @@ form.fields.card > * + * { margin-top: 0; }
 .recovery-codes li { padding: .15rem 0; }
 @media (max-width: 30rem) { .recovery-codes { columns: 1; } }
 
+/* ---- page frame: the footer stays at the bottom of short pages ---- */
+[hidden] { display: none !important; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+main { flex: 1 0 auto; width: 100%; }
+
+.site-footer { border-top: 1px solid var(--line); background: var(--surface); }
+.foot {
+  max-width: 72rem; margin: 0 auto; padding: 1rem;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1.25rem;
+  font-size: .875rem;
+}
+.foot nav { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; }
+.foot a { color: var(--muted); text-decoration: none; }
+.foot a:hover, .foot a:focus-visible { color: var(--accent); text-decoration: underline; }
+.foot .sponsor-link { color: var(--fg); font-weight: 500; }
+.foot .sponsor-link span { color: #db61a2; }
+.foot .gh { display: inline-flex; padding: .25rem; border-radius: 999px; line-height: 0; }
+.foot .gh:hover, .foot .gh:focus-visible { background: var(--surface-2); text-decoration: none; }
+.foot .gh svg { fill: currentColor; }
+
+/* a gentle, dismissible reminder that the project lives on support */
+.sponsor-note {
+  max-width: 72rem; margin: 0 auto; padding: .55rem 1rem;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1rem;
+  font-size: .9rem; color: var(--muted);
+}
+.sponsor-note p { margin: 0; }
+.sponsor-note .heart { color: #db61a2; }
+.sponsor-note button.link { color: var(--muted); }
+
+/* ---- the legal pages ---- */
+.legal { max-width: 46rem; }
+.legal h2 { margin-top: 1.5rem; }
+.legal p, .legal li { color: var(--fg); }
+.legal ul { padding-left: 1.25rem; }
+.legal .updated { color: var(--muted); font-size: .875rem; }
+
 /* ---- the status page ---- */
 .status-hero {
   display: flex; align-items: center; gap: 1rem;
@@ -623,3 +660,16 @@ form.fields.card > * + * { margin-top: 0; }
 .state-down::before { content: "✕"; }
 .state-off::before { content: "–"; }
 .checked { color: var(--muted); font-size: .875rem; }
+
+/* ---- the choice about analytics and ads ---- */
+.consent {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem;
+  padding: .9rem max(1rem, calc((100vw - 72rem) / 2 + 1rem));
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgb(16 24 40 / 10%);
+  font-size: .9rem;
+}
+.consent p { margin: 0; max-width: 46rem; }
+.consent-actions { display: flex; gap: .5rem; }
+.foot button.link { color: var(--muted); font-size: inherit; }
+.foot button.link:hover, .foot button.link:focus-visible { color: var(--accent); text-decoration: underline; }

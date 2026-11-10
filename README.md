@@ -14,6 +14,7 @@
 [![codecov](https://codecov.io/gh/trueforge-org/dexafix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexafix)
 [![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexafix)](https://github.com/trueforge-org/dexafix/releases/latest)
 [![License](https://img.shields.io/github/license/trueforge-org/dexafix)](LICENSE)
+[![Sponsor on Open Collective](https://img.shields.io/opencollective/all/dexafix?label=sponsor&logo=opencollective)](https://opencollective.com/dexafix)
 [![Go version](https://img.shields.io/github/go-mod/go-version/trueforge-org/dexafix)](go.mod)
 [![Container image](https://img.shields.io/badge/ghcr.io-dexa--fix-2496ED?logo=docker&logoColor=white)](https://github.com/trueforge-org/dexafix/pkgs/container/dexafix)
 
@@ -25,7 +26,8 @@
   <a href="docs/index.md">Documentation</a> &nbsp;·&nbsp;
   <a href="docs/02-configuration.md">Configuration</a> &nbsp;·&nbsp;
   <a href="#-security">Security</a> &nbsp;·&nbsp;
-  <a href="#-contributing-and-development">Contributing</a>
+  <a href="#-contributing-and-development">Contributing</a> &nbsp;·&nbsp;
+  <a href="https://opencollective.com/dexafix">Sponsor</a>
 </p>
 
 ---
@@ -149,6 +151,11 @@ in [CI and releases](docs/12-ci-and-releases.md).
 
 Ideas and questions are welcome as
 [GitHub issues](https://github.com/trueforge-org/dexafix/issues).
+
+## ♥ Support DexaFix
+
+DexaFix is free and open source and is built in spare time. If it helps you, please consider
+[sponsoring it on Open Collective](https://opencollective.com/dexafix). The app has the same links in its footer.
 
 ## 📄 License
 

@@ -26,6 +26,9 @@ func TestPersonalResponsesAreNotCacheable(t *testing.T) {
 	calls := []call{
 		{"sign-in page", "GET", "/", anon, nil},
 		{"docs", "GET", "/docs", anon, nil},
+		{"terms", "GET", "/terms", anon, nil},
+		{"privacy", "GET", "/privacy", anon, nil},
+		{"privacy signed in", "GET", "/privacy", alice, nil},
 		{"status page", "GET", "/status", anon, nil},
 		{"status page signed in", "GET", "/status", alice, nil},
 		{"status detail for an administrator", "GET", "/admin/status", alice, nil},

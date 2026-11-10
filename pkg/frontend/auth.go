@@ -73,7 +73,7 @@ func (s *Frontend) renderLogin(w http.ResponseWriter, r *http.Request, errMsg st
 		s.fail(w, err)
 		return
 	}
-	s.render(w, "index.html", status, pageData{Title: "Sign in · DexaFix", Error: errMsg, Login: &view})
+	s.render(w, "index.html", status, pageData{Title: "Sign in · DexaFix", Error: errMsg, Login: &view, Track: s.trackingFor(nil)})
 }
 
 // signInOutcome continues after a step of signing in: to the page the backend named, or back to the

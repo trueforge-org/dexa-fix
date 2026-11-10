@@ -36,6 +36,7 @@ func (s *Backend) internalAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+p+"/users/{id}/strengthlevel", s.internalAdmin(s.internalAdminSetStrengthLevel))
 	mux.HandleFunc("POST "+p+"/users/{id}/strengthlevel-bulk", s.internalAdmin(s.internalAdminSetStrengthLevelBulk))
 	mux.HandleFunc("POST "+p+"/users/{id}/password", s.internalAdmin(s.internalAdminSetPassword))
+	mux.HandleFunc("POST "+p+"/analytics", s.internalAdmin(s.internalAdminSaveAnalytics))
 	mux.HandleFunc("DELETE "+p+"/users/{id}", s.internalAdmin(s.internalAdminDeleteUser))
 	mux.HandleFunc("DELETE "+p+"/users/{id}/2fa", s.internalAdmin(s.internalAdminRemoveTwoFactor))
 	mux.HandleFunc("POST "+p+"/users/{id}/reset-link", s.internalAdmin(s.internalAdminResetLink))
@@ -134,6 +135,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		internalError(w, err)
 		return
 	}
+	view.Analytics = s.cfg().analytics
 	if view.Server, err = s.serverSettingsFor(ctx); err != nil {
 		internalError(w, err)
 		return

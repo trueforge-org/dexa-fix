@@ -90,6 +90,20 @@
   </form>
 </section>
 
+<section class="card" id="analytics-settings">
+  <h2>Analytics and ads</h2>
+  <p class="help">Off while the fields are empty. When you fill one in, visitors who are <strong>not signed in</strong> are asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether they accept it; nothing is loaded before they do, and signed-in people never get it. The <a href="/privacy#analytics">privacy policy</a> says so. Ads need a looser content security policy on those pages (inline scripts and images from any HTTPS address), so use them only if you accept that.</p>
+  <form method="post" action="/admin/analytics" class="fields">
+    <label>Scarf pixel ID <input type="text" name="scarf_pixel_id" value="{{.Analytics.ScarfPixelID}}" placeholder="123e4567-e89b-12d3-a456-426614174000" autocomplete="off" spellcheck="false">
+      <small>From scarf.sh. A small image counts visits.</small></label>
+    <label>Google Analytics measurement ID <input type="text" name="google_analytics_id" value="{{.Analytics.GoogleAnalyticsID}}" placeholder="G-ABC123XYZ9" autocomplete="off" spellcheck="false">
+      <small>A GA4 ID. Measures page views.</small></label>
+    <label>Google AdSense publisher ID <input type="text" name="adsense_publisher" value="{{.Analytics.AdSensePublisher}}" placeholder="ca-pub-1234567890123456" autocomplete="off" spellcheck="false">
+      <small>Shows ads with Google AdSense.</small></label>
+    <div class="form-actions"><button type="submit">Save</button></div>
+  </form>
+</section>
+
 <section class="card" id="email-settings">
   <div class="card-head">
     <h2>E-mail</h2>
