@@ -301,6 +301,32 @@ func TestRunnerIdlesWhileEveryKindIsOffAndStopsOnShutdown(t *testing.T) {
 	}
 }
 
+func TestRunnerAsksAgainAfterAFailedAsk(t *testing.T) {
+	t.Parallel()
+	f, c := newFault(t, "demo.import")
+	f.over["lease"] = func(w http.ResponseWriter, r *http.Request, n int) {
+		if n == 1 {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	startRunner(t, c, Options{}, "demo.import", idle)
+	waitUntil(t, "a second ask after the pause", func() bool { return f.hitCount("lease") >= 2 })
+}
+
+func TestRunnerThatIsShutDownBeforeTheBackendAnswersEndsWithoutError(t *testing.T) {
+	f, c := newFault(t, "demo.import")
+	f.fail("register", http.StatusServiceUnavailable)
+	r := New(c, Options{})
+	r.Handle("demo.import", idle)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("a shutdown is not an error: %v", err)
+	}
+}
+
 func TestRunnerStartsWorkingWhenTheAdministratorTurnsAKindOn(t *testing.T) {
 	t.Parallel()
 	f, c := newFault(t, "demo.import")
