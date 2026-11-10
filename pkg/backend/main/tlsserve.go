@@ -97,10 +97,7 @@ func (s *Backend) selfSigned(ctx context.Context, base *url.URL) (*tls.Certifica
 	if c, info, err := tlsutil.Parse(certPEM, keyPEM); err == nil && time.Until(info.NotAfter) > selfSignedRenew && sameNames(info.Names, names) {
 		return c, info, nil
 	}
-	certPEM, keyPEM, err := generateSelfSigned(names)
-	if err != nil {
-		return nil, nil, err
-	}
+	certPEM, keyPEM = must.Value2(generateSelfSigned(names)) // the names are never none: localhost is always among them
 	if err := s.store.PutSetting(ctx, settingTLSCert, certPEM); err != nil {
 		return nil, nil, err
 	}
