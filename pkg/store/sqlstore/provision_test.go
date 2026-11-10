@@ -22,7 +22,29 @@ func provisionDSN(t *testing.T) string {
 	if err := checkProvisionAdmin(dsn); err != nil {
 		t.Fatal(err)
 	}
+	lockProvisioning(t, dsn)
 	return dsn
+}
+
+// provisionLockKey is the advisory lock that every test taking the shared roles and the database
+// "dexafix" holds while it runs. Packages are tested in parallel, and one of these tests makes the
+// database refuse connections for a moment; cmd's TestDBProvisionSetsUpTheRolesTheDatabaseAndTheSchema
+// takes the same lock with the same number.
+const provisionLockKey = 7274707
+
+// lockProvisioning waits for the lock and holds it until the test is over.
+func lockProvisioning(t *testing.T, dsn string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", provisionLockKey); err != nil {
+		conn.Close(ctx)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(ctx) }) // closing the connection releases the lock
 }
 
 // checkProvisionAdmin refuses an administrator that is one of the roles Provision makes. Provision
