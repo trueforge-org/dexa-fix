@@ -20,7 +20,13 @@ import (
 // Version is set at build time through ldflags.
 var Version = "dev"
 
-func main() {
+// exit ends the process. It is a variable so that a test can run main without ending the test.
+var exit = os.Exit
+
+func main() { exit(run()) }
+
+// run sets up logging, runs the command line and returns the exit code of the process.
+func run() int {
 	format := logFormat(os.Getenv("LOGFORMAT"))
 	service := serviceFromArgs(os.Args[1:])
 	configureLogging(format, service)
@@ -37,8 +43,9 @@ func main() {
 		if format == formatJSON {
 			log.Error().Err(err).Msg("the command failed")
 		}
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 const (
