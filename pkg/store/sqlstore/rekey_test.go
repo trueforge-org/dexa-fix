@@ -26,12 +26,12 @@ func cipherWith(t *testing.T, cur byte, prev ...byte) *Cipher {
 
 func TestSealFormatAndKeyIDs(t *testing.T) {
 	c := cipherWith(t, 1, 2)
-	v, _ := c.seal("v", "ctx")
+	v := c.seal("v", "ctx")
 	if !strings.HasPrefix(v, encV2+c.current.id+":") {
 		t.Fatalf("format: %q", v)
 	}
 	// An old key is still read by its id; a configuration without it says what is missing.
-	oldValue, _ := cipherWith(t, 2).seal("legacy", "ctx")
+	oldValue := cipherWith(t, 2).seal("legacy", "ctx")
 	if got, e, err := c.open(oldValue, "ctx"); err != nil || got != "legacy" || e != c.previous[0] {
 		t.Fatalf("previous key: %q %v", got, err)
 	}

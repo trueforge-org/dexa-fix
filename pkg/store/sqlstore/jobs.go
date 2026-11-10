@@ -125,12 +125,10 @@ func (s *Store) loadJob(ctx context.Context, where string, args ...any) (jobRow,
 	return row, nil
 }
 
-func randomID() (string, error) {
+func randomID() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }
 
 // EnqueueJob queues a job. When the job has a DedupeKey and one with that key is already queued or
@@ -139,14 +137,8 @@ func (s *Store) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bo
 	if n.UserID <= 0 || n.Kind == "" || n.Origin == "" || n.MaxAttempts < 1 || n.Timeout < time.Second {
 		return models.Job{}, false, fmt.Errorf("%w: incomplete job", store.ErrInvalid)
 	}
-	id, err := randomID()
-	if err != nil {
-		return models.Job{}, false, err
-	}
-	payload, err := s.encrypt(n.Payload, jobPayloadContext(id))
-	if err != nil {
-		return models.Job{}, false, err
-	}
+	id := randomID()
+	payload := s.encrypt(n.Payload, jobPayloadContext(id))
 	at := now()
 	runAfter := at
 	if !n.RunAfter.IsZero() {
@@ -389,10 +381,8 @@ func (s *Store) CompleteJob(ctx context.Context, publicID, tokenHash string, c m
 	var ok bool
 	switch c.Outcome {
 	case models.OutcomeOK:
-		result, err := s.encrypt(c.Result, jobResultContext(row.PublicID))
-		if err != nil {
-			return models.Job{}, err
-		}
+		result := s.encrypt(c.Result, jobResultContext(row.PublicID))
+		var err error
 		ok, err = s.finishUpdate(ctx, row, models.JobSucceeded, at, func(q *bun.UpdateQuery) *bun.UpdateQuery {
 			return q.Set("result = ?", result).Set("error = ''")
 		})

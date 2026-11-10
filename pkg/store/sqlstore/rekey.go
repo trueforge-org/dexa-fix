@@ -56,7 +56,7 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 				stats.Current++
 				return "", nil
 			}
-			return s.cipher.seal(plain, sealCtx)
+			return s.cipher.seal(plain, sealCtx), nil
 		}
 
 		var integrations []integrationRow

@@ -64,17 +64,9 @@ func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 		return nil, err
 	}
 	b.DisableInternalBudget() // no flood protection between the halves of one process
-	secret, err := randomHex(32)
-	if err != nil {
-		b.Close()
-		return nil, err
-	}
+	secret := randomHex(32)
 	b.SetServiceSecrets(secret)
-	workerSecret, err := randomHex(32)
-	if err != nil {
-		b.Close()
-		return nil, err
-	}
+	workerSecret := randomHex(32)
 	b.SetWorkerSecrets(workerSecret)
 	client, err := apiclient.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret)
 	if err != nil {
@@ -149,10 +141,8 @@ func (s *Server) Close() {
 // WrapListener wraps the listener of the pages.
 func (s *Server) WrapListener(ln net.Listener) net.Listener { return s.Frontend.WrapListener(ln) }
 
-func randomHex(n int) (string, error) {
+func randomHex(n int) string {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }

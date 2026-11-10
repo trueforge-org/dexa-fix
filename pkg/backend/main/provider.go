@@ -21,6 +21,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"golang.org/x/oauth2"
 )
 
@@ -146,10 +147,7 @@ func appleClientSecret(p models.AuthProvider, now time.Time) (string, error) {
 	enc := base64.RawURLEncoding
 	signing := enc.EncodeToString(header) + "." + enc.EncodeToString(claims)
 	digest := sha256.Sum256([]byte(signing))
-	r, s, err := ecdsa.Sign(rand.Reader, key, digest[:])
-	if err != nil {
-		return "", err
-	}
+	r, s := must.Value2(ecdsa.Sign(rand.Reader, key, digest[:]))
 	sig := append(fixed32(r), fixed32(s)...)
 	return signing + "." + enc.EncodeToString(sig), nil
 }

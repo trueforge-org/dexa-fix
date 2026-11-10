@@ -31,9 +31,7 @@ func (s *Backend) sealValue(purpose string, v any, ttl time.Duration) (sealed, n
 	if err != nil {
 		return "", "", err
 	}
-	if nonce, err = randomHex(12); err != nil {
-		return "", "", err
-	}
+	nonce = randomHex(12)
 	env, err := json.Marshal(sealedEnvelope{Expires: time.Now().Add(ttl).Unix(), Nonce: nonce, Value: raw})
 	if err != nil {
 		return "", "", err

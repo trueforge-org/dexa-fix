@@ -192,14 +192,12 @@ func WithCipher(c *Cipher) Option { return func(o *openConfig) { o.cipher = c } 
 
 // seal encrypts a value with the current key. The context ties the ciphertext to its row, so that
 // copying it into another row, such as another user's tokens, makes decryption fail.
-func (c *Cipher) seal(value, context string) (string, error) {
+func (c *Cipher) seal(value, context string) string {
 	aead := c.current.v2
 	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
+	_, _ = rand.Read(nonce) // never fails: since Go 1.24 a broken random source ends the program
 	sealed := aead.Seal(nonce, nonce, []byte(value), []byte(context))
-	return encV2 + c.current.id + ":" + base64.RawStdEncoding.EncodeToString(sealed), nil
+	return encV2 + c.current.id + ":" + base64.RawStdEncoding.EncodeToString(sealed)
 }
 
 // open decrypts a value and reports which key made it. A v2 value names its key; a v1 value does
@@ -277,9 +275,9 @@ func (s *Store) emailLookup(email string) *string {
 	return &v
 }
 
-func (s *Store) encrypt(value, context string) (string, error) {
+func (s *Store) encrypt(value, context string) string {
 	if s.cipher == nil || value == "" {
-		return value, nil
+		return value
 	}
 	return s.cipher.seal(value, context)
 }
@@ -297,9 +295,9 @@ func (s *Store) decrypt(value, context string) (string, error) {
 
 // sealWith and openWith handle the values of a domain that has its own cipher (see bodyCipher). A
 // nil cipher leaves the value as it is, like encrypt and decrypt do for the main domain.
-func sealWith(c *Cipher, value, context string) (string, error) {
+func sealWith(c *Cipher, value, context string) string {
 	if c == nil || value == "" {
-		return value, nil
+		return value
 	}
 	return c.seal(value, context)
 }
@@ -519,10 +517,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.Data) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Data, integrationContext(r.UserID, r.Provider))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Data, integrationContext(r.UserID, r.Provider))
 			if _, err := tx.NewUpdate().Model((*integrationRow)(nil)).Set("data = ?", enc).
 				Where("user_id = ?", r.UserID).Where("provider = ?", r.Provider).Exec(ctx); err != nil {
 				return err
@@ -537,10 +532,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if r.Name == checkSetting || !needs(r.Value) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Value, settingContext(r.Name))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Value, settingContext(r.Name))
 			if _, err := tx.NewUpdate().Model((*settingRow)(nil)).Set("value = ?", enc).Where("name = ?", r.Name).Exec(ctx); err != nil {
 				return err
 			}
@@ -554,10 +546,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.ClientSecret) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.ClientSecret, providerContext(r.Slug))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.ClientSecret, providerContext(r.Slug))
 			if _, err := tx.NewUpdate().Model((*providerRow)(nil)).Set("client_secret = ?", enc).Where("slug = ?", r.Slug).Exec(ctx); err != nil {
 				return err
 			}
@@ -571,10 +560,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.Secret) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Secret, totpContext(r.UserID))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Secret, totpContext(r.UserID))
 			if _, err := tx.NewUpdate().Model((*totpRow)(nil)).Set("secret = ?", enc).Where("user_id = ?", r.UserID).Exec(ctx); err != nil {
 				return err
 			}
@@ -586,19 +572,13 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 		}
 		for _, r := range jobs {
 			if needs(r.Payload) {
-				enc, err := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
-				if err != nil {
-					return err
-				}
+				enc := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("payload = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
 			}
 			if needs(r.Result) {
-				enc, err := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
-				if err != nil {
-					return err
-				}
+				enc := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
@@ -634,9 +614,7 @@ func (s *Store) backfillEmails(ctx context.Context, tx bun.Tx) error {
 			log.Warn().Int64("user", r.ID).Msg("e-mail address already used by an older account: cleared")
 			enc, lookup = "", nil
 		case !strings.HasPrefix(r.Email, encPrefix):
-			if enc, err = s.cipher.seal(email, emailContext(r.ID)); err != nil {
-				return err
-			}
+			enc = s.cipher.seal(email, emailContext(r.ID))
 		}
 		if lookup != nil {
 			seen[*lookup] = true

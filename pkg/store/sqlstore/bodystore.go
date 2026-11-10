@@ -250,10 +250,7 @@ func (b *BodyStore) encryptExisting(ctx context.Context) error {
 			if !needs(r.Data) {
 				continue
 			}
-			enc, err := b.cipher.seal(r.Data, scaleContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
+			enc := b.cipher.seal(r.Data, scaleContext(r.UserID, r.RowUID))
 			if _, err := tx.NewUpdate().Model((*scaleRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 				return err
 			}
@@ -266,10 +263,7 @@ func (b *BodyStore) encryptExisting(ctx context.Context) error {
 			if !needs(r.Data) {
 				continue
 			}
-			enc, err := b.cipher.seal(r.Data, dexaContext(r.UserID, r.RowUID))
-			if err != nil {
-				return err
-			}
+			enc := b.cipher.seal(r.Data, dexaContext(r.UserID, r.RowUID))
 			if _, err := tx.NewUpdate().Model((*dexaRow)(nil)).Set("data = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 				return err
 			}
@@ -307,7 +301,7 @@ func (b *BodyStore) Rekey(ctx context.Context, dryRun bool) (BodyRekeyStats, err
 				stats.Current++
 				return "", nil
 			}
-			return b.cipher.seal(plain, sealCtx)
+			return b.cipher.seal(plain, sealCtx), nil
 		}
 		var scales []scaleRow
 		if err := tx.NewSelect().Model(&scales).OrderExpr("id").Scan(ctx); err != nil {

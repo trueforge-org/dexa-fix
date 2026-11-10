@@ -103,10 +103,7 @@ func (s *Backend) pendingTOTPSecret(ctx context.Context, userID int64) (string, 
 	case !errors.Is(err, store.ErrNotFound):
 		return "", err
 	}
-	secret, err := newTOTPSecret()
-	if err != nil {
-		return "", err
-	}
+	secret := newTOTPSecret()
 	return secret, s.store.PutPendingTOTP(ctx, userID, secret)
 }
 
@@ -143,10 +140,7 @@ func groupSecret(secret string) string {
 
 // issueRecoveryCodes replaces the user's recovery codes with a new set and returns it.
 func (s *Backend) issueRecoveryCodes(ctx context.Context, userID int64) ([]string, error) {
-	codes, err := newRecoveryCodes(recoveryCodeCount)
-	if err != nil {
-		return nil, err
-	}
+	codes := newRecoveryCodes(recoveryCodeCount)
 	hashes := make([]string, len(codes))
 	for i, c := range codes {
 		hashes[i] = recoveryHash(c)

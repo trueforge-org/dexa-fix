@@ -24,36 +24,30 @@ import (
 
 // newRowUID returns the random token that goes into the encryption context of a body row. It is
 // new on every write, so a sealed value is only ever valid for the write that made it.
-func newRowUID() (string, error) {
+func newRowUID() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }
 
 func (s *BodyStore) sealScale(r *scaleRow) (err error) {
-	if r.RowUID, err = newRowUID(); err != nil {
-		return err
-	}
+	r.RowUID = newRowUID()
 	raw, err := json.Marshal(r.Vals)
 	if err != nil {
 		return err
 	}
-	r.Data, err = sealWith(s.cipher, string(raw), scaleContext(r.UserID, r.RowUID))
-	return err
+	r.Data = sealWith(s.cipher, string(raw), scaleContext(r.UserID, r.RowUID))
+	return nil
 }
 
 func (s *BodyStore) sealDexa(r *dexaRow) (err error) {
-	if r.RowUID, err = newRowUID(); err != nil {
-		return err
-	}
+	r.RowUID = newRowUID()
 	raw, err := json.Marshal(r.Vals)
 	if err != nil {
 		return err
 	}
-	r.Data, err = sealWith(s.cipher, string(raw), dexaContext(r.UserID, r.RowUID))
-	return err
+	r.Data = sealWith(s.cipher, string(raw), dexaContext(r.UserID, r.RowUID))
+	return nil
 }
 
 // openScale reads the document of a row into Vals.

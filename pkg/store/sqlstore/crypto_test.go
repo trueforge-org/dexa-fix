@@ -227,8 +227,8 @@ func TestCiphertextIsBoundToItsRow(t *testing.T) {
 
 func TestSameValueEncryptsDifferently(t *testing.T) {
 	c := testCipher(t, 1)
-	x, _ := c.seal("v", "ctx")
-	y, _ := c.seal("v", "ctx")
+	x := c.seal("v", "ctx")
+	y := c.seal("v", "ctx")
 	if x == y {
 		t.Fatal("nonce reuse")
 	}

@@ -22,6 +22,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // Bundle is a CA with a certificate for the backend (server) and one for the frontend (client), in
@@ -60,10 +62,7 @@ func GenerateValid(serverNames []string, serverCN, clientCN string, validity tim
 		return Bundle{}, errors.New("the certificate validity must be positive")
 	}
 	now := time.Now().Add(-5 * time.Minute) // tolerate small clock differences between hosts
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return Bundle{}, err
-	}
+	caKey := must.Value(ecdsa.GenerateKey(elliptic.P256(), rand.Reader))
 	caTmpl := &x509.Certificate{
 		SerialNumber:          serial(),
 		Subject:               pkix.Name{CommonName: "DexaFix internal CA"},
@@ -74,14 +73,8 @@ func GenerateValid(serverNames []string, serverCN, clientCN string, validity tim
 		MaxPathLenZero:        true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
-	if err != nil {
-		return Bundle{}, err
-	}
-	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		return Bundle{}, err
-	}
+	caDER := must.Value(x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey))
+	ca := must.Value(x509.ParseCertificate(caDER))
 
 	var b Bundle
 	b.CA = pemCert(caDER)
@@ -107,9 +100,7 @@ func GenerateValid(serverNames []string, serverCN, clientCN string, validity tim
 		}
 	}
 	srvTmpl.IPAddresses = append(srvTmpl.IPAddresses, net.IPv4(127, 0, 0, 1), net.IPv6loopback)
-	if b.ServerCert, b.ServerKey, err = issue(srvTmpl, ca, caKey); err != nil {
-		return Bundle{}, err
-	}
+	b.ServerCert, b.ServerKey = issue(srvTmpl, ca, caKey)
 
 	cliTmpl := &x509.Certificate{
 		SerialNumber: serial(),
@@ -119,38 +110,25 @@ func GenerateValid(serverNames []string, serverCN, clientCN string, validity tim
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	if b.ClientCert, b.ClientKey, err = issue(cliTmpl, ca, caKey); err != nil {
-		return Bundle{}, err
-	}
+	b.ClientCert, b.ClientKey = issue(cliTmpl, ca, caKey)
 	return b, nil
 }
 
 func serial() *big.Int {
-	n, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
-	if err != nil {
-		panic(err) // the system's random source failed
-	}
-	return n
+	return must.Value(rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127)))
 }
 
 func pemCert(der []byte) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
-func issue(tmpl *x509.Certificate, ca *x509.Certificate, caKey *ecdsa.PrivateKey) (certPEM, keyPEM string, err error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return "", "", err
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
-	if err != nil {
-		return "", "", err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return "", "", err
-	}
-	return pemCert(der), string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
+// issue makes a key and a certificate for it signed by the CA. The templates are built in this
+// file, so none of the steps can fail.
+func issue(tmpl *x509.Certificate, ca *x509.Certificate, caKey *ecdsa.PrivateKey) (certPEM, keyPEM string) {
+	key := must.Value(ecdsa.GenerateKey(elliptic.P256(), rand.Reader))
+	der := must.Value(x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey))
+	keyDER := must.Value(x509.MarshalPKCS8PrivateKey(key))
+	return pemCert(der), string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
 }
 
 // ---- reading files, and again when they change ----

@@ -93,10 +93,7 @@ func (s *Backend) internalConnect(w http.ResponseWriter, r *http.Request, u mode
 		return
 	}
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		internalError(w, err)
-		return
-	}
+	_, _ = rand.Read(b)
 	state := hex.EncodeToString(b)
 	authURL, err := p.OAuth.AuthURL(r.Context(), s, state)
 	if err != nil {

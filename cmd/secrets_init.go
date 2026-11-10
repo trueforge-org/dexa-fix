@@ -265,7 +265,7 @@ func (o initOptions) makeAll() error {
 	}
 
 	// ---- kept for good: the host directory ----
-	randomHex := newServiceSecret
+	randomHex := func() (string, error) { return newServiceSecret(), nil }
 	// valkey_password is made whether or not Valkey is used (it is optional): it costs nothing, and
 	// turning Valkey on later then needs no second run.
 	for _, name := range []string{"db_admin_password", "db_password", "encryption_key", "body_db_password", "body_encryption_key", "valkey_password"} {
@@ -360,10 +360,7 @@ func (o initOptions) makeAll() error {
 		return err
 	}
 	tokenKey, err := o.keep(o.apiDir, fileBodyTokenKey, false, func() (string, error) {
-		_, _, priv, err := bodyapi.GenerateKey()
-		if err != nil {
-			return "", err
-		}
+		_, _, priv := bodyapi.GenerateKey()
 		return bodyapi.EncodePrivateKey(priv), nil
 	})
 	if err != nil {

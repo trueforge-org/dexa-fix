@@ -61,22 +61,22 @@ func TestUserIDCollisionRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func(old func() (int64, error)) { userIDSource = old }(userIDSource)
+	defer func(old func() int64) { userIDSource = old }(userIDSource)
 
 	calls := 0
-	userIDSource = func() (int64, error) {
+	userIDSource = func() int64 {
 		calls++
 		if calls < 3 {
-			return first.ID, nil // taken
+			return first.ID // taken
 		}
-		return first.ID + 7, nil
+		return first.ID + 7
 	}
 	u, err := st.CreateUser(ctx, "second")
 	if err != nil || u.ID != first.ID+7 || calls != 3 {
 		t.Fatalf("collision not retried: id=%d calls=%d err=%v", u.ID, calls, err)
 	}
 
-	userIDSource = func() (int64, error) { return first.ID, nil }
+	userIDSource = func() int64 { return first.ID }
 	if _, err := st.CreateUser(ctx, "third"); err == nil {
 		t.Fatal("an id source that always collides must fail, not loop or overwrite")
 	}

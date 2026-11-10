@@ -54,10 +54,7 @@ func (s *Store) GetTOTP(ctx context.Context, userID int64) (models.TOTP, error) 
 // ConfirmTOTP, and starting again discards an earlier, unconfirmed secret. A confirmed setup is
 // never replaced: it fails with ErrExists.
 func (s *Store) PutPendingTOTP(ctx context.Context, userID int64, secret string) error {
-	enc, err := s.encrypt(secret, totpContext(userID))
-	if err != nil {
-		return err
-	}
+	enc := s.encrypt(secret, totpContext(userID))
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		var cur totpRow
 		err := tx.NewSelect().Model(&cur).Where("user_id = ?", userID).Scan(ctx)

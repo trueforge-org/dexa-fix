@@ -296,15 +296,13 @@ func now() time.Time { return time.Now().UTC() }
 // means "nobody" to the body service.
 // newUserID returns a uniformly random user id in [1, 2^53). Ids are random instead of counted so
 // that nobody can guess another user's id or tell how many users there are.
-func newUserID() (int64, error) {
+func newUserID() int64 {
 	var b [8]byte
 	for {
-		if _, err := crand.Read(b[:]); err != nil {
-			return 0, err
-		}
+		_, _ = crand.Read(b[:]) // never fails: since Go 1.24 a broken random source ends the program
 		// 53 random bits, rejecting 0, so every id is equally likely.
 		if id := int64(binary.BigEndian.Uint64(b[:]) >> 11); id > 0 {
-			return id, nil
+			return id
 		}
 	}
 }
@@ -334,10 +332,7 @@ func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
 		return max.Int64 + 1, nil
 	}
 	for range 5 {
-		id, err := userIDSource()
-		if err != nil {
-			return 0, err
-		}
+		id := userIDSource()
 		taken, err := tx.NewSelect().Model((*userRow)(nil)).Where("id = ?", id).Exists(ctx)
 		if err != nil {
 			return 0, err
@@ -381,10 +376,7 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return err
 		}
-		enc, err := s.encrypt(email, emailContext(row.ID)) // the context needs the new id
-		if err != nil {
-			return err
-		}
+		enc := s.encrypt(email, emailContext(row.ID)) // the context needs the new id
 		if _, err := tx.NewUpdate().Model((*userRow)(nil)).Set("email = ?", enc).Where("id = ?", row.ID).Exec(ctx); err != nil {
 			return err
 		}
@@ -488,12 +480,9 @@ func (s *Store) GetIntegration(ctx context.Context, userID int64, provider strin
 }
 
 func (s *Store) PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error {
-	enc, err := s.encrypt(string(data), integrationContext(userID, provider))
-	if err != nil {
-		return err
-	}
+	enc := s.encrypt(string(data), integrationContext(userID, provider))
 	row := integrationRow{UserID: userID, Provider: provider, Data: enc, UpdatedAt: now()}
-	_, err = s.db.NewInsert().Model(&row).
+	_, err := s.db.NewInsert().Model(&row).
 		On("CONFLICT (user_id, provider) DO UPDATE").
 		Set("data = EXCLUDED.data").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
 	if isFK(err) {

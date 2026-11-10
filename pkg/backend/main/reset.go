@@ -24,10 +24,7 @@ func (s *Backend) resetURL(r *http.Request, token string, emailed bool) (link st
 }
 
 func (s *Backend) newResetToken(ctx context.Context, userID int64, createdBy *int64, ttl time.Duration) (string, time.Time, error) {
-	token, err := randomHex(32)
-	if err != nil {
-		return "", time.Time{}, err
-	}
+	token := randomHex(32)
 	expires := time.Now().Add(ttl)
 	return token, expires, s.store.CreatePasswordReset(ctx, hashToken(token), userID, createdBy, expires)
 }

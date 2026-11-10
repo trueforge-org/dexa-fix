@@ -281,11 +281,7 @@ var secretsBodySecretCmd = &cobra.Command{
 		"  dexafix secrets body-secret > body.secret && chmod 600 body.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := newServiceSecret()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), s)
+		fmt.Fprintln(cmd.OutOrStdout(), newServiceSecret())
 		return nil
 	},
 }
@@ -298,10 +294,7 @@ var secretsBodyTokenKeyCmd = &cobra.Command{
 		"  dexafix secrets body-token-key > body-token.key && chmod 600 body-token.key",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, _, priv, err := bodyapi.GenerateKey()
-		if err != nil {
-			return err
-		}
+		_, _, priv := bodyapi.GenerateKey()
 		fmt.Fprintln(cmd.OutOrStdout(), bodyapi.EncodePrivateKey(priv))
 		return nil
 	},

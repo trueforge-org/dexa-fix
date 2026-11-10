@@ -318,12 +318,10 @@ func (s *Backend) signupOpen(ctx context.Context) (bool, error) {
 	return !has, err
 }
 
-func randomHex(n int) (string, error) {
+func randomHex(n int) string {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }
 
 // hashToken hashes session ids and access tokens. They are long random values, so a fast hash is
@@ -336,9 +334,8 @@ func hashToken(token string) string {
 func (s *Backend) loadCookieKey(ctx context.Context) ([]byte, error) {
 	v, err := s.store.GetSetting(ctx, settingCookieKey)
 	if errors.Is(err, store.ErrNotFound) {
-		if v, err = randomHex(32); err == nil {
-			err = s.store.PutSetting(ctx, settingCookieKey, v)
-		}
+		v = randomHex(32)
+		err = s.store.PutSetting(ctx, settingCookieKey, v)
 	}
 	if err != nil {
 		return nil, err
@@ -348,10 +345,7 @@ func (s *Backend) loadCookieKey(ctx context.Context) ([]byte, error) {
 
 // startSession signs the user in, whichever way they proved who they are.
 func (s *Backend) startSession(w http.ResponseWriter, r *http.Request, userID int64, method string) error {
-	token, err := randomHex(32)
-	if err != nil {
-		return err
-	}
+	token := randomHex(32)
 	expires := time.Now().Add(sessionTTL)
 	if err := s.sessions.CreateSession(r.Context(), hashToken(token), userID, method, expires); err != nil {
 		return err

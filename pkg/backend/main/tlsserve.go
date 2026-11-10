@@ -18,6 +18,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
 
@@ -131,14 +132,8 @@ func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
 	if len(names) == 0 {
 		return "", "", errors.New("a self-signed certificate needs at least one name")
 	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return "", "", err
-	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
-	if err != nil {
-		return "", "", err
-	}
+	key := must.Value(ecdsa.GenerateKey(elliptic.P256(), rand.Reader))
+	serial := must.Value(rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127)))
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: names[0], Organization: []string{"DexaFix (self-signed)"}},
@@ -155,14 +150,8 @@ func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
 			tpl.DNSNames = append(tpl.DNSNames, n)
 		}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
-	if err != nil {
-		return "", "", err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return "", "", err
-	}
+	der := must.Value(x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key))
+	keyDER := must.Value(x509.MarshalPKCS8PrivateKey(key))
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
 		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
 }

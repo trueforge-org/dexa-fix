@@ -35,10 +35,7 @@ func newRig(t testing.TB) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	_, pub, priv, err := bodyapi.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, pub, priv := bodyapi.GenerateKey()
 	svc, err := New(st, testSecret, bodyapi.NewVerifier(pub), WithVersion("test"))
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +97,7 @@ func TestEveryCallNeedsTheSecretAndAValidToken(t *testing.T) {
 		t.Fatalf("control: %d", resp.StatusCode)
 	}
 
-	_, _, otherPriv, _ := bodyapi.GenerateKey()
+	_, _, otherPriv := bodyapi.GenerateKey()
 	expired := bodyapi.NewSigner(otherPriv)
 	for name, h := range map[string]map[string]string{
 		"no headers":         {},

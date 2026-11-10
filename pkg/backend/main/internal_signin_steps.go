@@ -396,13 +396,8 @@ func (s *Backend) internalProviderStart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	st := providerState{Slug: p.Slug, Verifier: oauth2.GenerateVerifier()}
-	if st.State, err = randomHex(16); err == nil {
-		st.Nonce, err = randomHex(16)
-	}
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	st.State = randomHex(16)
+	st.Nonce = randomHex(16)
 	if linking {
 		st.Link = u.ID
 	}

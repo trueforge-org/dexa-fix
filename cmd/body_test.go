@@ -280,7 +280,7 @@ func TestBodyLinkOverMutualTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	_, pub, priv, _ := bodyapi.GenerateKey()
+	_, pub, priv := bodyapi.GenerateKey()
 	secretFile := writeSecretFile(t, strings.Repeat("d", 40)+"\n")
 	svc, err := bodybackend.New(st, strings.Repeat("d", 40), bodyapi.NewVerifier(pub))
 	if err != nil {

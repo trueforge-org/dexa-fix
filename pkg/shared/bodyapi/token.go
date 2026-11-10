@@ -10,6 +10,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // Claims are what a token says. They are signed, so the body service can rely on all of them.
@@ -31,12 +33,9 @@ var b64 = base64.RawURLEncoding
 
 // GenerateKey makes a signing key pair. The key id names the public key, so several can be trusted
 // side by side while one is being replaced.
-func GenerateKey() (keyID string, pub ed25519.PublicKey, priv ed25519.PrivateKey, err error) {
-	pub, priv, err = ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	return KeyID(pub), pub, priv, nil
+func GenerateKey() (keyID string, pub ed25519.PublicKey, priv ed25519.PrivateKey) {
+	pub, priv = must.Value2(ed25519.GenerateKey(rand.Reader))
+	return KeyID(pub), pub, priv
 }
 
 // KeyID is the first eight hexadecimal characters of the SHA-256 of a public key.

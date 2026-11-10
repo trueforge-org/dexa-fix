@@ -157,9 +157,7 @@ func (m *SMTP) message(to, subject, body string) (string, error) {
 		return "", errors.New("subject contains a line break")
 	}
 	id := make([]byte, 12)
-	if _, err := rand.Read(id); err != nil {
-		return "", err
-	}
+	_, _ = rand.Read(id) // never fails: since Go 1.24 a broken random source ends the program
 	domain := "localhost"
 	if _, d, ok := strings.Cut(m.from.Address, "@"); ok && d != "" {
 		domain = d

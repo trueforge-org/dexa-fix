@@ -69,9 +69,7 @@ func resolveEncryptionKey(envValue, path string, hasData func() (bool, error)) (
 		}
 	}
 	key = make([]byte, sqlstore.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		return nil, false, err
-	}
+	_, _ = rand.Read(key) // never fails: since Go 1.24 a broken random source ends the program
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("create encryption key file: %w", err)

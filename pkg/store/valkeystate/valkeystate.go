@@ -97,9 +97,7 @@ func (v *Client) RecordFailure(ctx context.Context, key string, at time.Time) er
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	var salt [6]byte
-	if _, err := rand.Read(salt[:]); err != nil {
-		return err
-	}
+	_, _ = rand.Read(salt[:]) // never fails: since Go 1.24 a broken random source ends the program
 	// The member must be unique, or two failures in the same millisecond count once.
 	member := strconv.FormatInt(at.UnixNano(), 10) + "-" + hex.EncodeToString(salt[:])
 	k := failPrefix + key

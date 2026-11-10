@@ -78,10 +78,7 @@ func TestBodyAndMainKeysAreSeparate(t *testing.T) {
 	if _, _, err := s.BodyStore.cipher.open(raw, ctx); err != nil {
 		t.Errorf("the body key does not open a body value: %v", err)
 	}
-	mainValue, err := s.cipher.seal(`{"weight_kg":1}`, ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mainValue := s.cipher.seal(`{"weight_kg":1}`, ctx)
 	if _, _, err := s.BodyStore.cipher.open(mainValue, ctx); err == nil {
 		t.Error("the body key opened a main value")
 	}

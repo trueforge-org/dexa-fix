@@ -172,12 +172,7 @@ func (s *Backend) internalTokenCreate(w http.ResponseWriter, r *http.Request, u 
 		exp := time.Now().UTC().AddDate(0, 0, n)
 		t.ExpiresAt = &exp
 	}
-	random, err := randomHex(32)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	token := tokenPrefix + random
+	token := tokenPrefix + randomHex(32)
 	t.Prefix, t.Hash = token[:tokenPrefixShown], hashToken(token)
 	if err := s.store.CreateAccessToken(r.Context(), &t); err != nil {
 		internalError(w, err)

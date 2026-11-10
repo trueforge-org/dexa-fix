@@ -19,6 +19,7 @@ description: "Rules for code both the frontend and the backend use: what may liv
 | `mtls` | Mutual TLS: certificate generation, server and client configs that reload their files. |
 | `jobs` | The background job group. |
 | `timezones`, `tlsutil` | The common zone list; PEM certificate parsing. |
+| `must` | `must.Do` / `must.Value` / `must.Value2`: turn an error that cannot happen (a key from the system's random source, a certificate from a template written in the code) into a panic. Never for input from a person, a file, the network or a database. |
 
 ## Rules
 
