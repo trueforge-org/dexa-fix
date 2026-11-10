@@ -43,10 +43,11 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 		return errors.New("provision: the two roles must have different passwords")
 	}
 
-	admin, err := openPG(o.AdminDSN, nil)
+	cfg, err := parsePG(o.AdminDSN)
 	if err != nil {
 		return err
 	}
+	admin := openPool(cfg)
 	defer admin.Close()
 	if err := admin.PingContext(ctx); err != nil {
 		return fmt.Errorf("provision: connect as the administrator: %w", err)
@@ -72,10 +73,9 @@ func Provision(ctx context.Context, o ProvisionOptions) error {
 		}
 	}
 
-	db, err := openPG(o.AdminDSN, func(c *pgx.ConnConfig) { c.Database = ProvisionDatabase })
-	if err != nil {
-		return err
-	}
+	dbCfg := cfg.Copy()
+	dbCfg.Database = ProvisionDatabase
+	db := openPool(dbCfg)
 	defer db.Close()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -125,16 +125,30 @@ func ensureRole(ctx context.Context, db *sql.DB, role, password string) error {
 // openPG opens a connection pool from a PostgreSQL connection string (URL or key/value form),
 // optionally changing the parsed settings first (another database, another user).
 func openPG(dsn string, change func(*pgx.ConnConfig)) (*sql.DB, error) {
-	cfg, err := pgx.ParseConfig(dsn)
+	cfg, err := parsePG(dsn)
 	if err != nil {
-		return nil, errors.New("provision: the connection string cannot be parsed") // never echo it: it may hold a password
+		return nil, err
 	}
 	if change != nil {
 		change(cfg)
 	}
+	return openPool(cfg), nil
+}
+
+// parsePG parses a connection string without ever echoing it: it may hold a password.
+func parsePG(dsn string) (*pgx.ConnConfig, error) {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, errors.New("provision: the connection string cannot be parsed")
+	}
+	return cfg, nil
+}
+
+// openPool opens a small pool for a parsed configuration. Nothing connects until the first use.
+func openPool(cfg *pgx.ConnConfig) *sql.DB {
 	db := stdlib.OpenDB(*cfg)
 	db.SetMaxOpenConns(2)
-	return db, nil
+	return db
 }
 
 // quoteIdent quotes a name that comes from a constant of this file, never from a request.
