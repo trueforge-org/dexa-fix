@@ -39,9 +39,9 @@ git push origin v1.0.0
 Run the Release workflow manually (workflow_dispatch) for a dry run that builds a snapshot only.
 
 Every third-party action is pinned to a commit SHA with its version in a comment, because the
-release job holds write and signing permissions. Dependabot (github-actions and docker) proposes
-the updates. The GoReleaser version is pinned in `.github/goreleaser/Dockerfile` (a file that is never built; it is there so
-Dependabot's docker ecosystem proposes updates, and `release.yaml` reads the tag from it).
+release job holds write and signing permissions. Renovate proposes the updates. The GoReleaser
+version is pinned in `.github/goreleaser/Dockerfile` (a file that is never built; it is there so
+Renovate's docker manager proposes updates, and `release.yaml` reads the tag from it).
 
 ### Dependency updates
 
@@ -51,14 +51,19 @@ and Docker images, with pinned digests, semantic commit messages, labels and sch
 added here: a custom manager that keeps `GOVULNCHECK_VERSION` in `ci.yaml` current, because an old
 govulncheck crashes at random on newer Go code.
 
-Renovate only acts once the Renovate app is enabled for the repository. `.github/dependabot.yml` still
-exists and covers the same ecosystems, so while both are on, each update is proposed twice; remove
-the Dependabot file (and the Dependabot mentions above) when Renovate has taken over.
+Renovate is the only tool that proposes dependency updates here (there is no Dependabot
+configuration). It acts only where the Renovate app is enabled for the repository.
 
 ### Container
 
-The release builds and publishes no container image. `Dockerfile.ci` is for CI, tests and
-automation (the Compose example in `deploy/`, split-mode runs, agents). Build it from the repository:
+This repository's release builds and publishes no container image. The released image is built by
+ContainerForge (`apps/dexafix` in [trueforge-org/containerforge](https://github.com/trueforge-org/containerforge))
+from a GitHub release of this repository, and is published as `ghcr.io/trueforge-org/dexafix`. The Compose
+example in `deploy/` pulls it, and relies on what `Dockerfile.ci` has too: the binary at `/dexafix`, the user
+`568:568`, `/config`, and the mount points `/secrets/<name>` owned by `568:568`.
+
+`Dockerfile.ci` is for CI, tests and automation (the Compose example in `deploy/`, split-mode runs,
+agents). Build it from the repository:
 
 ```sh
 CGO_ENABLED=0 go build -trimpath -o dexafix . && docker build -f Dockerfile.ci -t dexafix .

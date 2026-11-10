@@ -7,7 +7,8 @@ runs on pushes to `main`, on pull requests, when started by hand, and weekly on
 Monday. Coverage is reported to Codecov. Pushing a tag such as `v1.0.0` publishes
 a GitHub release (archives, checksums, a cosign signature, SBOMs, build
 provenance, a grouped changelog). The release does not build or publish a
-container image; `Dockerfile.ci` is for CI and automation. See [ci.md](ci.md)
+container image: ContainerForge builds `ghcr.io/trueforge-org/dexafix` from it,
+and `Dockerfile.ci` is for CI and automation. See [ci.md](ci.md)
 for the details, the secrets to configure and how to cut a release.
 
 ```bash

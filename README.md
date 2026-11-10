@@ -16,7 +16,7 @@
 [![License](https://img.shields.io/github/license/trueforge-org/dexafix)](LICENSE)
 [![Sponsor on Open Collective](https://img.shields.io/opencollective/all/dexafix?label=sponsor&logo=opencollective)](https://opencollective.com/dexafix)
 [![Go version](https://img.shields.io/github/go-mod/go-version/trueforge-org/dexafix)](go.mod)
-[![Container image](https://img.shields.io/badge/ghcr.io-dexa--fix-2496ED?logo=docker&logoColor=white)](https://github.com/trueforge-org/dexafix/pkgs/container/dexafix)
+[![Container image](https://img.shields.io/badge/ghcr.io-dexafix-2496ED?logo=docker&logoColor=white)](https://github.com/trueforge-org/containerforge/tree/main/apps/dexafix)
 
 </p>
 
@@ -59,7 +59,7 @@ own data. Users sign in with a password or with an external provider.
 | 🛠️ **Operations** | SQLite (default) or Postgres. Schema changes are versioned migrations, applied on startup. See [Database](docs/04-database.md). |
 | | Server settings (base URL, trusted proxies, PROXY protocol, audit retention, e-mail) are edited on the Admin page and take effect at once, without a restart. |
 | | Optional HTTPS on its own port, with HTTP/2 and HTTP/3 (QUIC), using an uploaded or a self-signed certificate. See [Running behind a reverse proxy](docs/03-reverse-proxy.md#https-http2-and-http3). |
-| | Container image on a `scratch` base, for amd64 and arm64. |
+| | Container image on a `scratch` base, for amd64 and arm64, built by [ContainerForge](https://github.com/trueforge-org/containerforge/tree/main/apps/dexafix) as `ghcr.io/trueforge-org/dexafix`. |
 | | Signed images and checksums (cosign), published by the [release workflow](docs/12-ci-and-releases.md). |
 
 ## 🚀 Quick start

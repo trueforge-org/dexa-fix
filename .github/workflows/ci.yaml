@@ -1,6 +1,6 @@
 ---
 # CI for DexaFix. Third-party actions are pinned to a major version tag; they can be
-# pinned by commit SHA automatically through dependabot (.github/dependabot.yml) or renovate.
+# pinned by commit SHA automatically through Renovate (.renovaterc.json5).
 name: CI
 
 on: # yamllint disable-line rule:truthy
