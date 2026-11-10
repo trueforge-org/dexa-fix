@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
@@ -155,6 +156,38 @@ func TestLoginAndSync(t *testing.T) {
 	}
 	if f.entries["2026-11-06"]["bodyweight"] != 72.7 {
 		t.Fatal("existing entry was changed")
+	}
+}
+
+func TestSyncStopsAtOnceWhenCancelledDuringThePauseBetweenImports(t *testing.T) {
+	f, c := newFake(t)
+	c.Delay = time.Hour
+	if err := c.Login(context.Background(), "a@b.c", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { // cancel once the first day is on Strength Level, while the sync pauses
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			f.mu.Lock()
+			n := len(f.posted)
+			f.mu.Unlock()
+			if n >= 1 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		cancel()
+	}()
+	local := []workerapi.ExportEntry{{Day: "2026-11-08", WeightKg: 72}, {Day: "2026-11-07", WeightKg: 73}}
+	start := time.Now()
+	res, err := c.Sync(ctx, local, "2026-11-01", Options{})
+	if !errors.Is(err, context.Canceled) || res.Added != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if time.Since(start) > 30*time.Second {
+		t.Fatal("the sync waited for the pause")
 	}
 }
 
