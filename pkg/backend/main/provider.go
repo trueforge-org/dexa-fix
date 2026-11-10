@@ -179,9 +179,7 @@ func (s *Backend) exchangeCode(ctx context.Context, p models.AuthProvider, r *ht
 		return "", nil, errors.New("id_token nonce mismatch")
 	}
 	var claims map[string]any
-	if err := idt.Claims(&claims); err != nil {
-		return "", nil, err
-	}
+	must.Do(idt.Claims(&claims)) // cannot fail: the verified token's payload already parsed as an object
 	return idt.Subject, claims, nil
 }
 

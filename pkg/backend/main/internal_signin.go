@@ -6,6 +6,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -118,11 +119,7 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 		signInFail(w, msg, http.StatusUnprocessableEntity)
 		return
 	}
-	hash, err := hashPassword(in.Password)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	hash := must.Value(hashPassword(in.Password)) // cannot fail: validatePassword capped the length at bcrypt's limit
 	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
