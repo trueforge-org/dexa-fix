@@ -585,3 +585,41 @@ form.fields.card > * + * { margin-top: 0; }
 .recovery-codes { columns: 2; list-style: none; padding: 0; margin: .75rem 0; }
 .recovery-codes li { padding: .15rem 0; }
 @media (max-width: 30rem) { .recovery-codes { columns: 1; } }
+
+/* ---- the status page ---- */
+.status-hero {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 1.25rem 1.5rem; border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.status-hero h2 { font-size: 1.35rem; letter-spacing: -.015em; }
+.status-hero p { margin: .15rem 0 0; color: var(--muted); font-size: .9rem; }
+.hero-mark {
+  flex: none; width: 3rem; height: 3rem; border-radius: 50%;
+  display: grid; place-items: center; font-size: 1.5rem; font-weight: 700; line-height: 1;
+}
+.status-hero-up { border-color: var(--accent); }
+.status-hero-up .hero-mark { background: var(--accent-soft); color: var(--accent); }
+.status-hero-degraded { border-color: var(--warn); }
+.status-hero-degraded .hero-mark { background: var(--warn-soft); color: var(--warn); }
+.status-hero-down { border-color: var(--err); }
+.status-hero-down .hero-mark { background: var(--err-soft); color: var(--err); }
+
+.status-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.status-grid li {
+  display: grid; gap: .35rem; align-content: start;
+  padding: .85rem 1rem; background: var(--surface); border: 1px solid var(--line);
+  border-left: 4px solid var(--line); border-radius: var(--radius-sm);
+}
+.status-grid li.comp-up { border-left-color: var(--accent); }
+.status-grid li.comp-degraded { border-left-color: var(--warn); }
+.status-grid li.comp-down { border-left-color: var(--err); }
+.status-grid .comp-name { font-weight: 600; }
+.status-grid .state { justify-self: start; min-width: 0; }
+.status-grid small { color: var(--muted); }
+.state::before { margin-right: .4em; font-weight: 700; }
+.state-up::before { content: "✓"; }
+.state-degraded::before { content: "!"; }
+.state-down::before { content: "✕"; }
+.state-off::before { content: "–"; }
+.checked { color: var(--muted); font-size: .875rem; }

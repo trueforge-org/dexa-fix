@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var statusList = regexp.MustCompile(`(?s)<ul class="status-list">.*?</ul>`)
+var statusList = regexp.MustCompile(`(?s)<ul class="status-grid">.*?</ul>`)
 
 func noCache(t *testing.T) {
 	t.Helper()
@@ -89,7 +89,7 @@ func TestStatusPageDatabaseDown(t *testing.T) {
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("/status with the database closed: %d", code)
 	}
-	if !strings.Contains(page, "Some systems are down") || !strings.Contains(page, `state-down">Down</span> <span>Database`) {
+	if !strings.Contains(page, "Some systems are down") || !strings.Contains(page, `<span class="comp-name">Database</span><span class="state state-down">Down</span>`) {
 		t.Errorf("the database is not shown as down: %.600s", statusList.FindString(page))
 	}
 	if strings.Contains(page, "closed") {
