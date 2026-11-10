@@ -49,6 +49,7 @@ func TestTokenRefusals(t *testing.T) {
 		"tampered subject":           {tamper(t, good, `"sub":1`, `"sub":2`), now},
 		"tampered scope":             {tamper(t, good, `"scope":"read"`, `"scope":"admin"`), now},
 		"garbage":                    {"abc.def", now},
+		"signature not base64":       {strings.SplitN(good, ".", 2)[0] + ".!!!", now},
 		"signature of another token": {strings.SplitN(good, ".", 2)[0] + "." + strings.SplitN(s.Sign(2, ScopeRead, nil, now), ".", 2)[1], now},
 	} {
 		if _, err := v.Verify(tc.token, tc.at); err == nil {
