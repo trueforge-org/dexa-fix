@@ -30,7 +30,7 @@ func TestDBRekeyStopsWhenAValueCannotBeWritten(t *testing.T) {
 		if _, err := st.CreateUserWithIdentity(ctx, "alice", "alice@example.com", models.Identity{Provider: models.ProviderLocal, Secret: "h"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.ExecForTests(ctx, "CREATE TRIGGER keep_users BEFORE UPDATE ON users BEGIN SELECT RAISE(ABORT, 'kept'); END"); err != nil {
+		if err := st.ExecForTests(ctx, "CREATE TRIGGER keep_users BEFORE UPDATE ON users WHEN NEW.email <> OLD.email BEGIN SELECT RAISE(ABORT, 'kept'); END"); err != nil {
 			t.Fatal(err)
 		}
 		st.Close()

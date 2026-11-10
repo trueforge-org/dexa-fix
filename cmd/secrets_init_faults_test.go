@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -143,6 +144,69 @@ func TestSecretsInitAsRootStopsWhenItCannotGiveAFolderAway(t *testing.T) {
 	}
 	if err := o.adopt(""); err != nil {
 		t.Errorf("an empty name means: skip. %v", err)
+	}
+}
+
+func TestSecretsInitWithOnlyTheHostAndApiFolders(t *testing.T) {
+	o, dirs := testInit(t)
+	o.webDir, o.workerDir, o.bodyDir, o.dbDir, o.dbsetupDir, o.valkeyDir = "", "", "", "", "", ""
+	if err := o.run(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, dirs["api"], fileServiceSecret); got == "" {
+		t.Error("the api folder has no service secret")
+	}
+	if _, err := os.Stat(dirs["web"]); !os.IsNotExist(err) {
+		t.Errorf("a folder that was not asked for was made: %v", err)
+	}
+}
+
+func TestSecretsInitHostFolderAloneMakesNoProcessSecrets(t *testing.T) {
+	o, dirs := testInit(t)
+	o.apiDir, o.webDir, o.workerDir, o.bodyDir, o.dbDir, o.dbsetupDir, o.valkeyDir = "", "", "", "", "", "", ""
+	if err := o.run(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, dirs["host"], "encryption_key"); got == "" {
+		t.Error("no encryption key")
+	}
+	if _, err := os.Stat(dirs["api"]); !os.IsNotExist(err) {
+		t.Errorf("the api folder was made: %v", err)
+	}
+}
+
+func TestSecretsInitAsRootLeavesFoldersAndLinksInsideAFolderAlone(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("giving files away needs root")
+	}
+	asEuid(t, 0)
+	o, _ := testInit(t)
+	o.uid, o.gid = 12345, 12345
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "file"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.adopt(dir); err != nil {
+		t.Fatal(err)
+	}
+	owner := func(name string) int {
+		fi, err := os.Lstat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return int(fi.Sys().(*syscall.Stat_t).Uid)
+	}
+	if owner("file") != 12345 {
+		t.Error("the file was not given away")
+	}
+	if owner("sub") == 12345 || owner("link") == 12345 {
+		t.Error("a folder or a link inside was given away: only the files are")
 	}
 }
 

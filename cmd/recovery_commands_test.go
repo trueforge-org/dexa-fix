@@ -104,18 +104,18 @@ func TestUserReset2FAFailsClearly(t *testing.T) {
 			t.Fatalf("%v", err)
 		}
 	})
-	t.Run("an account whose e-mail address cannot be opened", func(t *testing.T) {
+	t.Run("an e-mail address sealed with a key that is not given", func(t *testing.T) {
 		d := newRecoveryDB(t)
 		if _, err := d.st.CreateUserWithIdentity(ctx, "bob", "bob@example.com", models.Identity{Provider: models.ProviderLocal, Secret: "h"}); err != nil {
 			t.Fatal(err)
 		}
-		// An address sealed with another key: well formed, so the database opens, but this key cannot open it.
+		// An address sealed with another key: well formed, but this key cannot open it, which the command reports.
 		if err := d.st.ExecForTests(ctx, "UPDATE users SET email = ?", emailSealedWithAnotherKey(t)); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err := run(t, d.with("user", "reset-2fa", "bob@example.com")...)
-		if err == nil || strings.Contains(err.Error(), "no account has") {
-			t.Fatalf("a failing lookup was reported as a missing account: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "which is not configured") {
+			t.Fatalf("want the error about the key that is missing: %v", err)
 		}
 	})
 	t.Run("a second step that cannot be deleted", func(t *testing.T) {
