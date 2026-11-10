@@ -459,7 +459,7 @@ func (r *Runner) report(id, token string, c workerapi.Completion) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	wait := time.Second
-	for try := 0; try < 5; try++ {
+	for try := 0; ; try++ {
 		err := r.client.Complete(ctx, id, token, c)
 		if err == nil || errors.Is(err, workerapi.ErrLeaseLost) {
 			return
@@ -469,7 +469,7 @@ func (r *Runner) report(id, token string, c workerapi.Completion) {
 			log.Error().Err(err).Str("job", id).Msg("the backend refused the report")
 			return
 		}
-		if !backoff(ctx, wait) {
+		if try == 4 || !backoff(ctx, wait) { // the fifth failure ends it without a last pause
 			break
 		}
 		wait *= 2
