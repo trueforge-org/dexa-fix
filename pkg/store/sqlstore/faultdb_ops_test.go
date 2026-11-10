@@ -96,6 +96,11 @@ func faultOps() []faultOp {
 		{"CreateUserWithIdentity", func(c context.Context, s *Store, f faultData) error {
 			return e1(s.CreateUserWithIdentity(c, "new", "new@example.com", models.Identity{Provider: models.ProviderLocal, Subject: "new", Secret: "h"}))
 		}},
+		{"CreateUser with a random id", func(c context.Context, s *Store, f faultData) error {
+			sequentialUserIDs.Store(false)
+			defer sequentialUserIDs.Store(true)
+			return e1(s.CreateUser(c, "new"))
+		}},
 		{"ListUsers", func(c context.Context, s *Store, f faultData) error { return e1(s.ListUsers(c)) }},
 		{"HasUsers", func(c context.Context, s *Store, f faultData) error { return e1(s.HasUsers(c)) }},
 		{"GetUser", func(c context.Context, s *Store, f faultData) error { return e1(s.GetUser(c, f.user)) }},
@@ -200,6 +205,10 @@ func faultOps() []faultOp {
 		{"AddAuditEvent", func(c context.Context, s *Store, f faultData) error {
 			return s.AddAuditEvent(c, &models.AuditEvent{ActorID: &f.user, Action: "y", At: f.at})
 		}},
+		{"AddAuditEvent about a user that is gone", func(c context.Context, s *Store, f faultData) error {
+			gone := int64(424242)
+			return s.AddAuditEvent(c, &models.AuditEvent{ActorID: &gone, Action: "y", At: f.at})
+		}},
 		{"ListAuditEvents", func(c context.Context, s *Store, f faultData) error {
 			return e1(s.ListAuditEvents(c, store.AuditFilter{UserID: f.user, BeforeID: 99, Limit: 5}))
 		}},
@@ -235,7 +244,7 @@ func faultOps() []faultOp {
 			return e1(s.LastFinishedStates(c, testKind, 3, f.at.Add(-time.Hour)))
 		}},
 		{"LeaseJob", func(c context.Context, s *Store, f faultData) error {
-			return e1(s.LeaseJob(c, models.LeaseRequest{Kinds: []string{testKind}, Owner: "w2", TokenHash: "tok-w2", LeaseFor: time.Minute, MaxRunning: map[string]int{testKind: 5}}, f.at))
+			return e1(s.LeaseJob(c, models.LeaseRequest{Kinds: []string{testKind}, Owner: "w2", TokenHash: "tok-w2", LeaseFor: time.Minute, MaxRunning: map[string]int{testKind: 5}}, f.at.Add(time.Hour)))
 		}},
 		{"HeartbeatJob", func(c context.Context, s *Store, f faultData) error {
 			p := "50%"
