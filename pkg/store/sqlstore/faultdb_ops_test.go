@@ -59,6 +59,14 @@ func seedFaultData(t *testing.T, s *Store) faultData {
 		t.Fatalf("seed: leased %v %v", j.PublicID, ok)
 	}
 	fx.runningJob = running.PublicID
+	// A finished job keeps its (encrypted) result.
+	done := enqueue(t, s, ctx, user.ID, testKind, false, "done")
+	j, ok = lease(t, s, ctx, time.Now().Add(time.Second), "w3", testKind)
+	if !ok || j.PublicID != done.PublicID {
+		t.Fatalf("seed: leased %v %v", j.PublicID, ok)
+	}
+	_, err = s.CompleteJob(ctx, done.PublicID, "tok-w3", models.Completion{Outcome: models.OutcomeOK, Result: "{}"}, time.Now())
+	must(err)
 	fx.queuedJob = enqueue(t, s, ctx, user.ID, testKind, false, "queued").PublicID
 	return fx
 }
@@ -72,7 +80,7 @@ type faultOp struct {
 // goose reads a failed "does the version table exist" as "no", so the schema version is 0, and CancelJob
 // reports a job it could not load as not found.
 var faultAbsorbed = map[string][]int{
-	"Stats": {1}, "SchemaVersion": {1}, "HasPending": {1, 3}, "MigrationStatus": {1},
+	"Stats": {1}, "Stats of a store with a key": {1}, "SchemaVersion": {1}, "HasPending": {1, 3}, "MigrationStatus": {1},
 	"CancelJob": {1}, "CancelJob running": {1},
 }
 
