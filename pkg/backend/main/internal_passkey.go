@@ -262,11 +262,7 @@ func (s *Backend) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.R
 		passkeyFail(w, http.StatusBadRequest, "The registration was already used. Start again.")
 		return
 	}
-	raw, err := json.Marshal(cred)
-	if err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	raw := must.Value(json.Marshal(cred)) // cannot fail: the library's own credential type
 	err = s.store.AddPasskey(ctx, models.Passkey{CredentialID: credentialID(cred.ID), UserID: u.ID, Name: c.Name,
 		Credential: string(raw), SignCount: cred.Authenticator.SignCount})
 	if errors.Is(err, store.ErrExists) {
@@ -365,12 +361,7 @@ func (s *Backend) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Reque
 		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
 		return
 	}
-	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))
-	if err != nil {
-		log.Error().Err(err).Msg("passkey sign-in could not start")
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	assertion, session := must.Value2(wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))) // cannot fail: it only draws a random challenge
 	s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session})
 	internalJSON(w, http.StatusOK, assertion)
 }
@@ -420,11 +411,8 @@ func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Requ
 		passkeyFail(w, http.StatusBadRequest, "The sign-in was already used. Try again.")
 		return
 	}
-	raw, err := json.Marshal(cred)
-	if err == nil {
-		err = s.store.UpdatePasskeyUse(ctx, credentialID(cred.ID), string(raw), cred.Authenticator.SignCount)
-	}
-	if err != nil {
+	raw := must.Value(json.Marshal(cred)) // cannot fail: the library's own credential type
+	if err := s.store.UpdatePasskeyUse(ctx, credentialID(cred.ID), string(raw), cred.Authenticator.SignCount); err != nil {
 		log.Error().Err(err).Msg("could not record the passkey use")
 	}
 	clearPasskeyCookie(w, r)
