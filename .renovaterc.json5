@@ -1,0 +1,20 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  // The same preset as trueforge-org/forgetool: Go modules, GitHub Actions and Docker images, with
+  // pinned digests, semantic commit messages and the organisation's labels and schedules.
+  extends: [
+    'github>trueforge-org/renovate-config',
+  ],
+  customManagers: [
+    {
+      // The govulncheck release that CI installs. An old one crashes at random on newer Go code, so it
+      // has to follow the releases (see the comment at GOVULNCHECK_VERSION in ci.yaml).
+      customType: 'regex',
+      description: ['Keep GOVULNCHECK_VERSION in the CI workflow current'],
+      managerFilePatterns: ['/^\\.github/workflows/ci\\.ya?ml$/'],
+      matchStrings: ['GOVULNCHECK_VERSION: (?<currentValue>v\\d+\\.\\d+\\.\\d+)'],
+      datasourceTemplate: 'go',
+      depNameTemplate: 'golang.org/x/vuln',
+    },
+  ],
+}

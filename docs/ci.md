@@ -42,6 +42,18 @@ release job holds write and signing permissions. Dependabot (github-actions and 
 the updates. The GoReleaser version is pinned in `.github/goreleaser/Dockerfile` (a file that is never built; it is there so
 Dependabot's docker ecosystem proposes updates, and `release.yaml` reads the tag from it).
 
+### Dependency updates
+
+`.renovaterc.json5` is the Renovate configuration, the same as in `trueforge-org/forgetool`: it
+extends the organisation preset `github>trueforge-org/renovate-config` (Go modules, GitHub Actions
+and Docker images, with pinned digests, semantic commit messages, labels and schedules). One thing is
+added here: a custom manager that keeps `GOVULNCHECK_VERSION` in `ci.yaml` current, because an old
+govulncheck crashes at random on newer Go code.
+
+Renovate only acts once the Renovate app is enabled for the repository. `.github/dependabot.yml` still
+exists and covers the same ecosystems, so while both are on, each update is proposed twice; remove
+the Dependabot file (and the Dependabot mentions above) when Renovate has taken over.
+
 ### Container
 
 The release builds and publishes no container image. `Dockerfile.ci` is for CI, tests and
