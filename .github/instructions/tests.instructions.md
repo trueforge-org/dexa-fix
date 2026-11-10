@@ -54,4 +54,4 @@ go tool covdata textfmt -i=$S/plain,$S/split -o=$S/merged.out
 go tool cover -func=$S/merged.out | grep -v '100.0%'
 ```
 
-`-coverpkg=./...` counts a line as covered when any package's test runs it. With a PostgreSQL DSN set, add a third directory for the run over `./pkg/store/sqlstore/` and merge it too. Use `go tool cover -html=$S/merged.out` to see the lines that are left.
+`-coverpkg=./...` counts a line as covered when any package's test runs it. With a PostgreSQL DSN set, add a third directory for `DEXAFIX_TEST_POSTGRES_DSN=... go test -count=1 -cover -coverpkg=./... ./pkg/store/sqlstore ./cmd -args -test.gocoverdir=$S/pg` (the store's tests and `db provision` need a real server) and merge it too. A test that makes the shared PostgreSQL roles and database holds the advisory lock `provisionLockKey`, because packages are tested in parallel. Use `go tool cover -html=$S/merged.out` to see the lines that are left.

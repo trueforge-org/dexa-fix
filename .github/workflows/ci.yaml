@@ -61,11 +61,13 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: go test
-        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+        # -coverpkg=./... counts a line as covered when a test of any package runs it, which is how
+        # the browser-level tests in pkg/backend/main cover the frontend and the shared packages.
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
       - name: go test (frontend and main backend as two processes)
         # Every browser-level test again, with a frontend that has no database talking over TCP to a
         # separate backend.
-        run: go test -race -count=1 ./pkg/backend/... ./pkg/frontend
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage-split.out ./pkg/backend/... ./pkg/frontend
         env:
           DEXAFIX_TEST_SPLIT: "1"
       - name: Coverage summary
@@ -84,6 +86,14 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           flags: unit
+          fail_ci_if_error: false
+      - name: Upload split coverage to Codecov
+        if: always() && hashFiles('coverage-split.out') != ''
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage-split.out
+          flags: split
           fail_ci_if_error: false
 
   test-postgres:
@@ -115,7 +125,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: go test
-        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage-postgres.out ./...
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage-postgres.out ./...
       - name: Coverage summary
         if: always() && hashFiles('coverage-postgres.out') != ''
         run: |
