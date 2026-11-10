@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // The body service checks every value again: it does not trust the main backend to have done it.

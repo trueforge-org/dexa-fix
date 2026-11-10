@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // tfRequest sends one request with the given cookies and returns the response and its body. A nil

@@ -16,10 +16,10 @@ to exactly one worker, so you can run as many workers as you like.
 
 ## Single process and split deployment
 
-- `dexa-fix serve` runs the built-in workers inside the same process. There is
+- `dexafix serve` runs the built-in workers inside the same process. There is
   nothing to set up.
 - In a [split deployment](15-split-deployment.md) you start workers yourself
-  with `dexa-fix serve worker`. Without one, jobs stay queued: imports and
+  with `dexafix serve worker`. Without one, jobs stay queued: imports and
   syncs do not start.
 
 ## Start a worker
@@ -28,14 +28,14 @@ Create a worker secret. It must differ from the service secret, because the two
 open different doors. `serve api` refuses to start when they are equal.
 
 ```bash
-dexa-fix secrets worker-secret > worker.secret && chmod 600 worker.secret
+dexafix secrets worker-secret > worker.secret && chmod 600 worker.secret
 ```
 
 Give the same file to the api process and to every worker:
 
 ```bash
-dexa-fix serve api --worker-secret-file worker.secret ...
-dexa-fix serve worker --backend-url http://api:8081 \
+dexafix serve api --worker-secret-file worker.secret ...
+dexafix serve worker --backend-url http://api:8081 \
   --worker-secret-file worker.secret --providers withings
 ```
 

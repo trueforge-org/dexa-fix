@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 func estDay(s string) time.Time { t, _ := time.Parse(dateLayout, s); return t }

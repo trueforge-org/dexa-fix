@@ -23,8 +23,8 @@ import (
 	"github.com/uptrace/bun/schema"
 	_ "modernc.org/sqlite" // pure-Go sqlite driver
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Supported database drivers.
@@ -159,7 +159,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		if err == nil {
 			var pending bool
 			if pending, err = s.HasPending(ctx); err == nil && pending {
-				err = errors.New("database has pending migrations: run `dexa-fix db migrate up` or enable --auto-migrate")
+				err = errors.New("database has pending migrations: run `dexafix db migrate up` or enable --auto-migrate")
 			}
 		}
 		if err != nil {

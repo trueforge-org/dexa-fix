@@ -13,11 +13,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
 )
 
-// `dexa-fix secrets init` makes everything the Compose deployment (deploy/docker-compose.yaml)
+// `dexafix secrets init` makes everything the Compose deployment (deploy/docker-compose.yaml)
 // needs: the database passwords and connection strings, the encryption keys, the shared secrets of
 // the three doors (web, workers, body), the token signing key pair and the mutual TLS certificates
 // of both internal links. It replaced the shell script that used to do this, and runs as the `init` container.
@@ -57,11 +57,15 @@ const (
 type initOptions struct {
 	hostDir                            string // persistent secrets, to back up
 	apiDir, webDir, workerDir, bodyDir string // one per process; empty skips that process
-	dbHost, valkeyHost                 string
-	apiNames, bodyNames                []string
-	validity                           time.Duration
-	uid, gid                           int // owner of the files in the process directories; -1 leaves them
-	log                                io.Writer
+	// The containers that are not DexaFix get a directory of their own too, with only what each needs:
+	// the database (its superuser's password), the one-shot db-setup (the administrator's connection
+	// string and the two role passwords) and Valkey (its password).
+	dbDir, dbsetupDir, valkeyDir string
+	dbHost, valkeyHost           string
+	apiNames, bodyNames          []string
+	validity                     time.Duration
+	uid, gid                     int // owner of the files in the process directories; -1 leaves them
+	log                          io.Writer
 }
 
 func (o initOptions) say(format string, a ...any) {
@@ -142,6 +146,33 @@ func (o initOptions) put(dir, name, content string) error {
 	return nil
 }
 
+// share puts value in dir/name unless it is already there, so a file that a process has open is not
+// replaced for nothing. An empty dir skips it.
+func (o initOptions) share(dir, name, value string) error {
+	if dir == "" {
+		return nil
+	}
+	if got, err := existing(dir, name); err != nil {
+		return err
+	} else if got == value {
+		o.say("kept      %s", filepath.Join(dir, name))
+		return nil
+	}
+	return o.put(dir, name, value)
+}
+
+// hostValue reads a value made in the host directory.
+func (o initOptions) hostValue(name string) (string, error) {
+	v, err := existing(o.hostDir, name)
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		return "", fmt.Errorf("%s is missing in %s", name, o.hostDir)
+	}
+	return v, nil
+}
+
 func (o initOptions) run() error {
 	if o.hostDir == "" {
 		return errors.New("--host-dir is required: the directory for the passwords and keys you must back up")
@@ -150,7 +181,7 @@ func (o initOptions) run() error {
 	if others && o.apiDir == "" {
 		return errors.New("--api-dir is required with the other process directories: it holds the secrets they share")
 	}
-	for _, d := range []string{o.hostDir, o.apiDir, o.webDir, o.workerDir, o.bodyDir} {
+	for _, d := range []string{o.hostDir, o.apiDir, o.webDir, o.workerDir, o.bodyDir, o.dbDir, o.dbsetupDir, o.valkeyDir} {
 		if d == "" {
 			continue
 		}
@@ -190,8 +221,59 @@ func (o initOptions) run() error {
 		return err
 	}
 
+	// ---- copies for the containers that are not DexaFix processes, and the database secrets of the two that are ----
+	// The password files are the source: a password put there by hand is what the others get.
+	adminPW, err := o.hostValue("db_admin_password")
+	if err != nil {
+		return err
+	}
+	if err := o.share(o.dbDir, "db_admin_password", adminPW); err != nil {
+		return err
+	}
+	if o.valkeyDir != "" {
+		if pw, err := o.hostValue("valkey_password"); err != nil {
+			return err
+		} else if err := o.share(o.valkeyDir, "valkey_password", pw); err != nil {
+			return err
+		}
+	}
+	if o.dbsetupDir != "" {
+		// The administrator is the image's default superuser, "postgres". db-setup connects to the
+		// maintenance database and makes the rest (sqlstore.Provision).
+		if err := o.share(o.dbsetupDir, "admin_dsn", fmt.Sprintf("postgres://postgres:%s@%s:5432/postgres?sslmode=disable", adminPW, o.dbHost)); err != nil {
+			return err
+		}
+		for _, name := range []string{"db_password", "body_db_password"} {
+			pw, err := o.hostValue(name)
+			if err != nil {
+				return err
+			}
+			if err := o.share(o.dbsetupDir, name, pw); err != nil {
+				return err
+			}
+		}
+	}
+
 	if o.apiDir == "" {
 		return nil
+	}
+
+	// The api and body processes read their connection string and encryption key from their own
+	// volume, so Compose needs no host file at all before the first `up`.
+	for _, c := range []struct{ dir, name string }{
+		{o.apiDir, "dsn"}, {o.apiDir, "encryption_key"},
+		{o.bodyDir, "body_dsn"}, {o.bodyDir, "body_encryption_key"},
+	} {
+		if c.dir == "" {
+			continue
+		}
+		v, err := o.hostValue(c.name)
+		if err != nil {
+			return err
+		}
+		if err := o.share(c.dir, c.name, v); err != nil {
+			return err
+		}
 	}
 
 	// ---- kept once: the secrets the processes share, with the api directory as the source ----
@@ -235,16 +317,7 @@ func (o initOptions) run() error {
 		{o.bodyDir, fileBodySecret, bodySecret},
 	}
 	for _, c := range copies {
-		if c.dir == "" {
-			continue
-		}
-		if got, err := existing(c.dir, c.name); err != nil {
-			return err
-		} else if got == c.value {
-			o.say("kept      %s", filepath.Join(c.dir, c.name))
-			continue
-		}
-		if err := o.put(c.dir, c.name, c.value); err != nil {
+		if err := o.share(c.dir, c.name, c.value); err != nil {
 			return err
 		}
 	}
@@ -260,7 +333,7 @@ func (o initOptions) run() error {
 	}
 
 	// ---- made again every time: the certificates of the two internal links ----
-	web, err := mtls.GenerateValid(o.apiNames, "dexa-fix api", "dexa-fix web", o.validity)
+	web, err := mtls.GenerateValid(o.apiNames, "DexaFix api", "DexaFix web", o.validity)
 	if err != nil {
 		return err
 	}
@@ -278,7 +351,7 @@ func (o initOptions) run() error {
 	if o.bodyDir != "" {
 		// The link to the body service has a CA of its own: a certificate of one link opens nothing
 		// of the other.
-		body, err := mtls.GenerateValid(o.bodyNames, "dexa-fix body", "dexa-fix api", o.validity)
+		body, err := mtls.GenerateValid(o.bodyNames, "DexaFix body", "DexaFix api", o.validity)
 		if err != nil {
 			return err
 		}
@@ -304,10 +377,10 @@ func parseOwner(s string) (uid, gid int, err error) {
 		g = u
 	}
 	if uid, err = strconv.Atoi(u); err != nil || uid < 0 {
-		return 0, 0, fmt.Errorf("--chown %q: use uid:gid, such as 65532:65532", s)
+		return 0, 0, fmt.Errorf("--chown %q: use uid:gid, such as 568:568", s)
 	}
 	if gid, err = strconv.Atoi(g); err != nil || gid < 0 {
-		return 0, 0, fmt.Errorf("--chown %q: use uid:gid, such as 65532:65532", s)
+		return 0, 0, fmt.Errorf("--chown %q: use uid:gid, such as 568:568", s)
 	}
 	return uid, gid, nil
 }
@@ -330,14 +403,20 @@ mutual TLS certificates.
   --worker-dir   worker_secret and the same client certificate
   --body-dir     body_secret, body_token_pub (the public half: it can check tokens, not make them)
                  and the body service's certificate
+  --db-dir       db_admin_password, for the database container
+  --dbsetup-dir  admin_dsn and the two role passwords, for dexafix db provision
+  --valkey-dir   valkey_password, for the optional Valkey container
+
+The api and body directories also get their connection string and encryption key (dsn and
+encryption_key, body_dsn and body_encryption_key), so a container needs no file from the host.
 
 The certificates are replaced atomically and are valid for --mtls-days days (397 by default, so
 run init at least once a year; the Compose file runs it at every start). The processes read changed
 certificate files again within 30 seconds, so they need no restart.`,
 	Example: `# on the host, for a deployment that is not Compose:
-dexa-fix secrets init --host-dir ./secrets/host --api-dir ./secrets/api --web-dir ./secrets/web \
+dexafix secrets init --host-dir ./secrets/host --api-dir ./secrets/api --web-dir ./secrets/web \
   --worker-dir ./secrets/worker --body-dir ./secrets/body
-# as the Compose init container: docker compose run --rm init`,
+# as the Compose init container: it starts by itself at every docker compose up`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		f := cmd.Flags()
@@ -347,6 +426,9 @@ dexa-fix secrets init --host-dir ./secrets/host --api-dir ./secrets/api --web-di
 		o.webDir, _ = f.GetString("web-dir")
 		o.workerDir, _ = f.GetString("worker-dir")
 		o.bodyDir, _ = f.GetString("body-dir")
+		o.dbDir, _ = f.GetString("db-dir")
+		o.dbsetupDir, _ = f.GetString("dbsetup-dir")
+		o.valkeyDir, _ = f.GetString("valkey-dir")
 		o.dbHost, _ = f.GetString("db-host")
 		o.valkeyHost, _ = f.GetString("valkey-host")
 		o.apiNames, _ = f.GetStringSlice("api-name")
@@ -372,11 +454,14 @@ func init() {
 	f.String("web-dir", "", "directory of the web process")
 	f.String("worker-dir", "", "directory of the workers")
 	f.String("body-dir", "", "directory of the body service")
+	f.String("db-dir", "", "directory of the database container (db_admin_password)")
+	f.String("dbsetup-dir", "", "directory of the db-setup container (admin_dsn and the two role passwords, for dexafix db provision)")
+	f.String("valkey-dir", "", "directory of the Valkey container (valkey_password)")
 	f.String("db-host", "db", "host name of the database in the connection strings")
 	f.String("valkey-host", "valkey", "host name of the optional Valkey server in its URL")
 	f.StringSlice("api-name", []string{"api"}, "host name the web process and workers reach the api process by (repeatable)")
 	f.StringSlice("body-name", []string{"body"}, "host name the api process reaches the body service by (repeatable)")
 	f.Int("mtls-days", 397, "days the mutual TLS certificates are valid")
-	f.String("chown", "", "give the files in the process directories to uid:gid, such as 65532:65532 (needs permission to)")
+	f.String("chown", "", "give the files in the process directories to uid:gid, such as 568:568 (needs permission to)")
 	secretsCmd.AddCommand(secretsInitCmd)
 }

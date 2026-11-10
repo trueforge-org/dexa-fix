@@ -1,5 +1,5 @@
 ---
-# CI for dexa-fix. Third-party actions are pinned to a major version tag; they can be
+# CI for DexaFix. Third-party actions are pinned to a major version tag; they can be
 # pinned by commit SHA automatically through dependabot (.github/dependabot.yml) or renovate.
 name: CI
 
@@ -182,8 +182,8 @@ jobs:
         with:
           version: "~> v2"
           args: check
-      # docker, sbom and signing are skipped: they need a registry, syft and an OIDC token
+      # sbom and signing are skipped: they need syft and an OIDC token
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
-          args: release --snapshot --clean --skip=publish,sign,sbom,docker
+          args: release --snapshot --clean --skip=publish,sign,sbom

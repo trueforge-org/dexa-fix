@@ -4,8 +4,8 @@ import (
 	"html/template"
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // Two-step verification with a one-time password from an authenticator app.
@@ -45,7 +45,7 @@ func (s *Frontend) twoFactorRoutes(mux *http.ServeMux) {
 // ---- second step of a sign-in ----
 
 func (s *Frontend) renderSecondStep(w http.ResponseWriter, v twoFactorView, status int) {
-	s.render(w, "twofactor.html", status, pageData{Title: "Two-step verification · dexa-fix", TwoFactor: &v})
+	s.render(w, "twofactor.html", status, pageData{Title: "Two-step verification · DexaFix", TwoFactor: &v})
 }
 
 // stepPage renders what the backend answered for a step of the second step of signing in, or

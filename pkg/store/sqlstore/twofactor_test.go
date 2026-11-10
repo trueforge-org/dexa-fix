@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // confirmedTOTP starts and confirms a two-step verification setup for userID with the code step.

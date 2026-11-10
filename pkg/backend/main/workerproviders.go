@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
 
 // Work for the workers is described by providers. A provider (Withings, Strength Level, a future

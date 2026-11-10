@@ -10,7 +10,7 @@ import (
 // backend, no frontend and no workers. A token from the main backend is all it needs. (Its tests
 // may use the store to build a service; test files do not count here.)
 func TestBodyServiceStaysSmall(t *testing.T) {
-	const module = "github.com/trueforge-org/dexa-fix/"
+	const module = "github.com/trueforge-org/dexafix/"
 	forbidden := []string{
 		module + "pkg/backend/main", module + "pkg/frontend", module + "pkg/workers", module + "pkg/app",
 		module + "pkg/mailer", module + "pkg/shared/apiclient", module + "pkg/shared/workerapi",

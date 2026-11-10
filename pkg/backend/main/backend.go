@@ -1,4 +1,4 @@
-// Package mainbackend is the main backend, the process behind `dexa-fix serve api`. It owns the
+// Package mainbackend is the main backend, the process behind `dexafix serve api`. It owns the
 // database, the keys and every security decision: the internal API that the frontend calls, the
 // public API (/api/v1), the importers and the maintenance jobs. It never renders a page, and it
 // does not import the frontend. (The directory is pkg/backend/main; a package cannot be named main
@@ -21,9 +21,9 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/jobs"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/jobs"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The backend half on its own: the process that owns the database, the keys and every security
@@ -98,6 +98,7 @@ type Backend struct {
 	proxy      edge.Proxy
 	limiter    *failureLimiter // failed sign-in attempts, counted in the database or in Valkey
 	nonces     nonceStore      // sealed values that were already used, recorded in the database
+	sessions   sessionStore    // the sessions: the database, or Valkey with WithState
 	noCertGen  bool            // do not generate or renew the self-signed certificate on our own
 
 	oidcMu    sync.Mutex
@@ -110,9 +111,9 @@ type Backend struct {
 // Option changes how NewBackend builds a backend.
 type Option func(*Backend)
 
-// WithState keeps the failed-attempt counters and the single-use nonces on a server of their own
-// (Valkey) instead of in the database, so that a flood of wrong passwords costs the database
-// nothing. It fails closed like the database does: when the server does not answer, every address
+// WithState keeps the failed-attempt counters, the single-use nonces and the sessions on a server of
+// their own (Valkey) instead of in the database, so that a flood of wrong passwords costs the
+// database nothing and a signed-in visitor costs it no session lookup. It fails closed like the database does: when the server does not answer, every address
 // counts as locked out and every nonce as spent. The server must not evict keys
 // (maxmemory-policy noeviction), or a counter or nonce could vanish and let an attacker try again or
 // replay a value. /status shows it, and Close of the backend does not close it: the caller owns it.
@@ -120,6 +121,7 @@ func WithState(v StateServer) Option {
 	return func(s *Backend) {
 		s.limiter = newFailureLimiter(v)
 		s.nonces = spentNonces{v}
+		s.sessions = valkeySessions{SessionState: v, users: s.store}
 		s.state = v
 	}
 }
@@ -141,6 +143,7 @@ func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 		store:       st,
 		httpClient:  &http.Client{Timeout: providerTimeout},
 		oidcCache:   map[string]*oidc.Provider{},
+		sessions:    st,
 		limiter:     newFailureLimiter(st),
 		nonces:      spentNonces{st},
 		leasePolls:  make(chan struct{}, maxLeasePolls),

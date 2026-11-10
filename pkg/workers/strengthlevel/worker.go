@@ -9,8 +9,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
 )
 
 // Provider is the provider's name: the first part of its kinds.

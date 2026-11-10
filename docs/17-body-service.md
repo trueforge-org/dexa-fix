@@ -6,7 +6,7 @@ stores. It knows nothing about people: no sign-in, no sessions, no e-mail. The
 api process authenticates people and calls the body service for the data of one
 user at a time.
 
-You can ignore this page if you run `dexa-fix serve`, or `serve api` without
+You can ignore this page if you run `dexafix serve`, or `serve api` without
 `--body-url`. Then the body service runs inside that process, on the same
 database, and nothing needs to be set up. Run it as a process of its own when you
 want a leak of one database or one host to give away only half of the data.
@@ -52,13 +52,13 @@ user's data. The two processes need clocks within a few seconds of each other.
 
 The recommended way is the
 [recommended deployment](15-split-deployment.md#the-recommended-deployment-deploy):
-its `init` container (`dexa-fix secrets init`) creates everything below, including the
-certificates, and `deploy/postgres/initdb/` creates the PostgreSQL roles and schema. To run it by hand, make the secrets first. All of them are files:
+its `init` container (`dexafix secrets init`) creates everything below, including the
+certificates, and its `db-setup` container (`dexafix db provision`) creates the PostgreSQL roles and schema. To run it by hand, make the secrets first. All of them are files:
 
 ```bash
-dexa-fix secrets body-secret > body.secret && chmod 600 body.secret
-dexa-fix secrets body-token-key > body-token.key && chmod 600 body-token.key
-dexa-fix secrets body-token-public --key-file body-token.key > body-token.pub
+dexafix secrets body-secret > body.secret && chmod 600 body.secret
+dexafix secrets body-token-key > body-token.key && chmod 600 body-token.key
+dexafix secrets body-token-public --key-file body-token.key > body-token.pub
 ```
 
 `body-token.key` goes to the api process only. `body-token.pub` and
@@ -71,7 +71,7 @@ where the public one belongs.
 Start the body service, with a database and an encryption key of its own:
 
 ```bash
-dexa-fix serve body --listen :8082 \
+dexafix serve body --listen :8082 \
   --db-driver postgres --dsn-file body.dsn \
   --encryption-key-file body.key \
   --body-secret-file body.secret \
@@ -81,7 +81,7 @@ dexa-fix serve body --listen :8082 \
 Then point the api process at it:
 
 ```bash
-dexa-fix serve api --internal-listen :8081 \
+dexafix serve api --internal-listen :8081 \
   --service-secret-file service.secret --worker-secret-file worker.secret \
   --db-driver postgres --dsn-file main.dsn --encryption-key-file main.key \
   --body-url http://body:8082 \
@@ -94,10 +94,10 @@ the api process can reach. All flags are in [Configuration](02-configuration.md)
 
 ### PostgreSQL role and schema
 
-The Compose example creates them when the database is first created
-(`deploy/postgres/initdb/01-roles.sh`, which needs `body_db_password`). For a
-database that already exists, run this once as the database owner, with your
-own password:
+The Compose example creates them with `dexafix db provision` (the `db-setup`
+container). For a database that already exists you can run that command with an
+administrator's connection string, or run this once as the database owner, with
+your own password:
 
 ```sql
 CREATE ROLE dexafix_body LOGIN PASSWORD '<password>';
@@ -112,7 +112,7 @@ The service migrates its own tables into that schema on start, and keeps its
 migration count in its own table (`goose_body_version`).
 
 With SQLite, give the body service a file of its own, for example
-`--dsn file:/data/body.db`.
+`--dsn file:/config/body.db`.
 
 ## Keys
 
@@ -133,7 +133,7 @@ the body service's database and key:
 
 ```bash
 DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> \
-  dexa-fix db rekey --body --dsn-file body.dsn --dry-run
+  dexafix db rekey --body --dsn-file body.dsn --dry-run
 ```
 
 Run it again without `--dry-run` to re-encrypt. It completes or changes nothing,
@@ -156,7 +156,7 @@ set for this link, with a CA of its own, so that a certificate of the link betwe
 web and api opens nothing here:
 
 ```bash
-dexa-fix secrets mtls --link body --dir ./mtls-body --name body
+dexafix secrets mtls --link body --dir ./mtls-body --name body
 ```
 
 It writes `ca.pem`, `body.pem`, `body.key`, `api-client.pem` and
@@ -219,4 +219,4 @@ each user's data first and import it afterwards (see
   body service: check `--body-url`, the network and that the service runs.
 - **`serve api` says the secrets must differ.** The service, worker and body
   secrets each open a different door. Create a new one with
-  `dexa-fix secrets body-secret`.
+  `dexafix secrets body-secret`.

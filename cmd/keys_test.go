@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 func TestKeyFileBesideDatabase(t *testing.T) {
@@ -35,7 +35,7 @@ func TestKeyFileBesideDatabase(t *testing.T) {
 
 	// Relative paths in the working directory, as with the defaults.
 	t.Chdir(dir)
-	if !keyFileBesideDatabase("sqlite", "file:dexa-fix.db", "dexa-fix.key") {
+	if !keyFileBesideDatabase("sqlite", "file:dexafix.db", "dexafix.key") {
 		t.Error("relative defaults not detected")
 	}
 }

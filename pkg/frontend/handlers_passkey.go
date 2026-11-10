@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // Passkeys (WebAuthn) are a way to sign in without a password. They replace the password rather

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
 
 // DefaultBase is the Strength Level web app.
@@ -28,7 +28,7 @@ const DefaultBase = "https://my.strengthlevel.com"
 
 const (
 	maxBody   = 16 << 20
-	userAgent = "dexa-fix"
+	userAgent = "DexaFix"
 )
 
 var (

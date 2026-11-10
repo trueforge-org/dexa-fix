@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/inproc"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/inproc"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // NewInProcess runs a body service over st inside this process and returns it with a client for

@@ -1,4 +1,4 @@
-// Package cmd implements the dexa-fix command line: `serve` runs the web app, `db` migrates and
+// Package cmd implements the DexaFix command line: `serve` runs the web app, `db` migrates and
 // copies the database, and `info` prints information about the binary.
 package cmd
 
@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RootCmd is the entrypoint of the dexa-fix CLI.
+// RootCmd is the entrypoint of the DexaFix CLI.
 var RootCmd = &cobra.Command{
-	Use:           "dexa-fix",
+	Use:           "dexafix",
 	Short:         "Correct smart-scale results using DEXA scan results",
 	SilenceUsage:  true,
 	SilenceErrors: true,

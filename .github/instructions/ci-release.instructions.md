@@ -14,7 +14,7 @@ description: "Rules for CI, release and dependency automation. Do not change the
 Do not change workflows, release configuration or dependency automation unless the task is specifically about them.
 
 - `ci.yaml` runs: format (`gofmt`), `go vet`, `go mod tidy` (no diff), tests with `-race` on SQLite, the **web/backend split run** (`DEXAFIX_TEST_SPLIT=1 go test -race -count=1 ./pkg/backend/... ./pkg/frontend`), tests against PostgreSQL 18, `govulncheck`, a build matrix, and a goreleaser check. A new package or test mode must be reachable from these jobs.
-- The release (`release.yaml`, on `v*` tags) runs goreleaser: one binary, one image per architecture, manifests (`latest`, `major.minor`, full version), signatures. There is deliberately **one image and one binary**; `serve web` and `serve api` are modes of it.
+- The release (`release.yaml`, on `v*` tags) runs goreleaser: one binary per platform, archives, checksums, SBOMs and signatures. It **builds and publishes no container image**: do not add `dockers`, `docker_manifests`, `docker_signs`, a registry login or `packages: write` back. `Dockerfile.ci` exists for CI, tests and automation only. There is deliberately **one binary**; `serve web` and `serve api` are modes of it.
 - Pin actions by commit SHA with a version comment, as the existing steps do. Do not widen `permissions:` beyond what a job needs.
 - `go.mod` tracks the Go version CI uses; `go mod tidy` must leave no diff.
 - Coverage settings are in `codecov.yml`.

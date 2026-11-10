@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 var userCmd = &cobra.Command{
@@ -27,7 +27,7 @@ example when the only administrator lost their authenticator app and their recov
 It works on the database directly, so it needs the same database and encryption key settings as the
 server. If an administrator requires two-step verification, the user sets it up again at the next
 sign-in. The change is not written to the audit log of a running server.`,
-	Example: `dexa-fix user reset-2fa admin@example.com`,
+	Example: `dexafix user reset-2fa admin@example.com`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		driver, dsn, err := dbFlags(cmd)

@@ -9,11 +9,11 @@ processes of a [split deployment](15-split-deployment.md). `serve body` is the
 | -------------------------- | -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
 | `--listen`                 | `DEXAFIX_LISTEN`                 | `:8080`                                                               | Address to listen on for plain HTTP. For `serve api`, the public API instead. |
 | `--db-driver`              | `DEXAFIX_DB_DRIVER`              | `sqlite`                                                              | `sqlite` or `postgres`.                                |
-| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexa-fix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
+| `--dsn`                    | `DEXAFIX_DSN`                    | `file:dexafix.db`                                                    | Database connection string. A string with a password is refused on the command line: use the variable or `--dsn-file`. |
 | `--dsn-file`               | `DEXAFIX_DSN_FILE`               | empty                                                                 | File holding the connection string. |
 | `--auto-migrate`            | `DEXAFIX_AUTO_MIGRATE`           | `true`                                                                | Apply pending migrations on startup; when `false`, `serve` fails if any are pending. |
 | `--force-password-login`   | `DEXAFIX_FORCE_PASSWORD_LOGIN`   | `false`                                                               | Keep password sign-in on, to recover from a lockout.   |
-| `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexa-fix.key`                                                        | Key file for encrypted values. Created if missing, but only for a database without encrypted values. |
+| `--encryption-key-file`    | `DEXAFIX_ENCRYPTION_KEY_FILE`    | `dexafix.key`                                                        | Key file for encrypted values. Created if missing, but only for a database without encrypted values. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY`         | unset                                                                 | Key itself, overrides the key file. No flag.           |
 | `--encryption-key-previous-file` | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE` | empty                                                     | File with earlier keys, one per line, for a key rotation. |
 | (none)                     | `DEXAFIX_ENCRYPTION_KEY_PREVIOUS` | unset                                                                | Earlier keys, comma separated, for a key rotation. No flag. |
@@ -39,7 +39,7 @@ processes of a [split deployment](15-split-deployment.md). `serve body` is the
 | `--body-server-name`       | `DEXAFIX_BODY_SERVER_NAME`       | empty                                                                 | `serve api` only. Name the body service's certificate must carry, if it is not the host of `--body-url`. |
 | `--listen` (`serve body`)  | `DEXAFIX_BODY_LISTEN`            | `:8082`                                                               | `serve body` only. Address of the body service; keep it on a private network. |
 | `--health-listen`          | `DEXAFIX_HEALTH_LISTEN`          | empty (off)                                                           | `serve api`, `serve body` and `serve worker`. A listener that answers `/healthz` and `/readyz` only, for a container health check, such as `127.0.0.1:8083`. See [Status and health checks](15-split-deployment.md#status-and-health-checks). |
-| `--valkey-url`             | `DEXAFIX_VALKEY_URL`             | empty (off)                                                           | `serve api` only. Keep the failed sign-in counters and single-use values in Valkey (`redis://host:6379/0`, `rediss://` for TLS) instead of the database. A password in the URL is refused on the command line: use the file. See [Valkey](15-split-deployment.md#valkey). |
+| `--valkey-url`             | `DEXAFIX_VALKEY_URL`             | empty (off)                                                           | `serve api` only. Keep the failed sign-in counters, single-use values and sessions in Valkey (`redis://host:6379/0`, `rediss://` for TLS) instead of the database. A password in the URL is refused on the command line: use the file. See [Valkey](15-split-deployment.md#valkey). |
 | `--valkey-url-file`        | `DEXAFIX_VALKEY_URL_FILE`        | empty                                                                 | `serve api` only. File with the Valkey URL, which may hold the password: `redis://:password@host:6379/0`. |
 | `--body-token-public-key-file` | `DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE` | empty                                                           | `serve body` only. Required. Public key(s) of the api process's token key, one per line (`secrets body-token-public`). |
 | `--body-tls-cert-file`     | `DEXAFIX_BODY_TLS_CERT_FILE`     | empty                                                                 | `serve body` only. Serve over mutual TLS: certificate of the service. Set it with `--body-tls-key-file` and `--body-tls-client-ca-file`, or none. |
@@ -99,10 +99,10 @@ go run . serve --db-driver postgres
 **Secrets are never accepted as command-line flags**, because other users of the
 machine can read them with `ps` and shells keep them in their history. A
 connection string with a password comes from the environment or from a file
-(`--dsn-file`, `--from-dsn-file`, `--to-dsn-file`, or the matching
+(`--dsn-file`, `--from-dsn-file`, `--to-dsn-file`, `--admin-dsn-file`, or the matching
 `DEXAFIX_*_FILE` variables), which works well with Docker and Kubernetes
 secrets. A plain `--dsn file:path.db` without a password is fine. Passing a
 password in a flag makes the command fail with a message that says so. The
 encryption key has no flag either (see [Encryption](08-encryption.md)).
 
-`dexa-fix info` prints information about the binary.
+`dexafix info` prints information about the binary.

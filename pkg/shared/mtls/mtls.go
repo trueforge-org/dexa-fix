@@ -42,7 +42,7 @@ const (
 // Generate makes a bundle. serverNames are the names and addresses the frontend uses to reach the
 // backend (host names and IP addresses, such as "api" or "10.0.0.5"); "localhost" is always added.
 func Generate(serverNames []string) (Bundle, error) {
-	return GenerateFor(serverNames, "dexa-fix api", "dexa-fix web")
+	return GenerateFor(serverNames, "DexaFix api", "DexaFix web")
 }
 
 // GenerateFor is Generate for any link between two processes: serverCN and clientCN only label the
@@ -66,7 +66,7 @@ func GenerateValid(serverNames []string, serverCN, clientCN string, validity tim
 	}
 	caTmpl := &x509.Certificate{
 		SerialNumber:          serial(),
-		Subject:               pkix.Name{CommonName: "dexa-fix internal CA"},
+		Subject:               pkix.Name{CommonName: "DexaFix internal CA"},
 		NotBefore:             now,
 		NotAfter:              now.Add(caValidity),
 		IsCA:                  true,

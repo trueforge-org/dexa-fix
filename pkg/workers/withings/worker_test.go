@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
 )
 
 // fakeWithings is a minimal Withings API: token endpoint and a paginated, date-filtered getmeas.

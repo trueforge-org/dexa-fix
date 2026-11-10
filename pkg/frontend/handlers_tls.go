@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // tlsView is the Admin page's section for secure connections: the backend's view plus whether this

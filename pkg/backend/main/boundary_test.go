@@ -11,7 +11,7 @@ import (
 // the scans, readings and estimates only through the contract in pkg/shared/bodyapi, so the two can
 // run as separate processes.
 func TestBackendDoesNotImportTheFrontend(t *testing.T) {
-	const module = "github.com/trueforge-org/dexa-fix/"
+	const module = "github.com/trueforge-org/dexafix/"
 	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", ".").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)

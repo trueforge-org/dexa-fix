@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // Client is what a worker uses to talk to the backend. It is safe for concurrent use.

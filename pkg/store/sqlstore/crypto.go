@@ -18,8 +18,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // encPrefix marks an encrypted value of any version; values without it are rows from before
@@ -55,6 +55,9 @@ type keyEntry struct {
 // The HKDF labels. Each domain derives its own key from a master key, so a value sealed for one
 // domain never opens in another, even when a context string happens to repeat.
 const (
+	// These labels (and the ones in derive below) keep the old spelling "dexa-fix" on purpose. They are
+	// inputs of the key derivation, not the product name: spelling them differently would derive
+	// different keys and make every encrypted value of an existing database unreadable.
 	mainInfo       = "dexa-fix aes-256-gcm v2"
 	bodyMasterInfo = "dexa-fix body master"
 	bodyInfo       = "dexa-fix body aes-256-gcm v2"
@@ -336,7 +339,7 @@ func (s *Store) userModel(r *userRow) (models.User, error) {
 // errWrongKey explains a key that does not match the database.
 const errWrongKey = "the encryption key does not match this database: the key file is missing, the wrong file, " +
 	"or DEXAFIX_ENCRYPTION_KEY differs from the key that created the database. Restore the original key; " +
-	"to switch to a new key keep the old one in DEXAFIX_ENCRYPTION_KEY_PREVIOUS and run `dexa-fix db rekey`"
+	"to switch to a new key keep the old one in DEXAFIX_ENCRYPTION_KEY_PREVIOUS and run `dexafix db rekey`"
 
 // queryer is what bun.DB and bun.Tx share.
 type queryer interface {
@@ -440,7 +443,7 @@ func (s *Store) verifyKey(ctx context.Context) (write func() error, err error) {
 			return nil, errors.New(errWrongKey)
 		}
 		if e != s.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
+			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexafix db rekey`")
 		}
 		return nil, nil
 	case !errors.Is(err, sql.ErrNoRows):
@@ -457,7 +460,7 @@ func (s *Store) verifyKey(ctx context.Context) (write func() error, err error) {
 			return nil, fmt.Errorf("%s (%w)", errWrongKey, err)
 		}
 		if e != s.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
+			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexafix db rekey`")
 			return nil, nil
 		}
 	}

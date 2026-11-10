@@ -66,7 +66,7 @@ Administrators add providers on the Admin page. There are three types:
 - **OpenID Connect**, for example Google, with the issuer
   `https://accounts.google.com`.
 - **Sign in with Apple**. Enter the Services ID as the client ID, then the team
-  ID, the key ID, and the contents of the `.p8` key file as the secret. dexa-fix
+  ID, the key ID, and the contents of the `.p8` key file as the secret. DexaFix
   generates Apple's short-lived client secret from these. Apple requires HTTPS.
 - **OAuth 2.0**, with the authorisation, token and userinfo URLs.
 

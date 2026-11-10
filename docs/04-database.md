@@ -5,7 +5,7 @@ query path. The schema is versioned with [goose](https://github.com/pressly/goos
 migrations, embedded per backend in `pkg/store/sqlstore/migrations/{sqlite,postgres}/`.
 
 `serve` applies pending migrations on startup. It refuses to start if the
-database schema is newer than the binary, so upgrade dexa-fix first.
+database schema is newer than the binary, so upgrade DexaFix first.
 
 A new SQLite database file is created readable by its owner only (mode 0600,
 and SQLite gives its `-wal` and `-shm` files the same mode), because it holds
@@ -14,7 +14,7 @@ warning is logged when other users can read it.
 
 SQLite connections always enforce foreign keys and wait up to 5 seconds for
 locks, and file databases run in WAL mode, so the DSN needs no pragmas. The
-default DSN is `file:dexa-fix.db`.
+default DSN is `file:dexafix.db`.
 
 The schema starts at a single `00001_init` migration for 1.0.0. Databases
 created by pre-1.0 builds carry a higher schema version, so 1.0 refuses them
@@ -29,7 +29,7 @@ Create an empty Postgres database, then copy and start the server:
 
 ```bash
 export DEXAFIX_TO_DSN=postgres://user:pass@localhost/dexafix
-go run . db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
+go run . db copy --from-driver sqlite --from-dsn file:dexafix.db --to-driver postgres
 
 export DEXAFIX_DSN=$DEXAFIX_TO_DSN
 go run . serve --db-driver postgres

@@ -23,17 +23,17 @@ description: "Rules for the command line and process wiring: flags and environme
 
 | Command | What runs |
 | --- | --- |
-| `dexa-fix serve` | Both halves and the workers in one process through `app.New` (in-process transport, random service and worker secrets). |
-| `dexa-fix serve web` | `frontend.NewFrontend`: needs `--backend-url` and a service secret file, waits up to 60 s for the backend, follows its settings. No database flags. |
-| `dexa-fix serve api` | `mainbackend.NewBackend`: public listener (`--listen`, may be empty), internal listener (`--internal-listen`, may be empty; requires the service secret), optional worker secret (`--worker-secret-file`), optional mutual TLS, `--maintenance`. The body service runs inside this process unless `--body-url` is set (then `--body-secret-file` and `--body-token-key-file` are required, the main database is opened `WithoutBody`, and an `https://` address needs the three `--body-*` mutual TLS files). The service, worker and body secrets must all differ (`distinctSecrets`); `--without-body` needs `--body-url`. |
-| `dexa-fix serve body` | `bodybackend.New` over `sqlstore.OpenBody`: its own database (`--dsn`, `--db-driver`), its own key (`--encryption-key-file`, checked by `body_meta`), `--body-secret-file`, `--body-token-public-key-file` (public keys only: a private key is refused), optional `--body-tls-*` mutual TLS. No maintenance loop. |
-| `dexa-fix serve worker` | `runner.Runner` with the built-in providers (`--providers`): needs `--backend-url` and a worker secret file, no database flags, the same mutual TLS client flags as `serve web`. |
+| `dexafix serve` | Both halves and the workers in one process through `app.New` (in-process transport, random service and worker secrets). |
+| `dexafix serve web` | `frontend.NewFrontend`: needs `--backend-url` and a service secret file, waits up to 60 s for the backend, follows its settings. No database flags. |
+| `dexafix serve api` | `mainbackend.NewBackend`: public listener (`--listen`, may be empty), internal listener (`--internal-listen`, may be empty; requires the service secret), optional worker secret (`--worker-secret-file`), optional mutual TLS, `--maintenance`. The body service runs inside this process unless `--body-url` is set (then `--body-secret-file` and `--body-token-key-file` are required, the main database is opened `WithoutBody`, and an `https://` address needs the three `--body-*` mutual TLS files). The service, worker and body secrets must all differ (`distinctSecrets`); `--without-body` needs `--body-url`. |
+| `dexafix serve body` | `bodybackend.New` over `sqlstore.OpenBody`: its own database (`--dsn`, `--db-driver`), its own key (`--encryption-key-file`, checked by `body_meta`), `--body-secret-file`, `--body-token-public-key-file` (public keys only: a private key is refused), optional `--body-tls-*` mutual TLS. No maintenance loop. |
+| `dexafix serve worker` | `runner.Runner` with the built-in providers (`--providers`): needs `--backend-url` and a worker secret file, no database flags, the same mutual TLS client flags as `serve web`. |
 
 `serveCmd` has `Args: cobra.NoArgs` so that a typo (`serve wbe`) cannot start the combined server.
 
 ## Health
 
-`serve api`, `serve body` and `serve worker` take `--health-listen` (`cmd/health.go`): a listener that answers `/healthz` and `/readyz` only, off unless set, for the container health check `dexa-fix healthcheck <url>` (the image has no shell). Its readiness is a function the command passes in (`srv.Ready`, the store's `Ping`, `runner.Ready`); a reason goes to the debug log, never to the answer. A new process type gets the flag and a test.
+`serve api`, `serve body` and `serve worker` take `--health-listen` (`cmd/health.go`): a listener that answers `/healthz` and `/readyz` only, off unless set, for the container health check `dexafix healthcheck <url>` (the image has no shell). Its readiness is a function the command passes in (`srv.Ready`, the store's `Ping`, `runner.Ready`); a reason goes to the debug log, never to the answer. A new process type gets the flag and a test.
 
 ## The body service flags
 
@@ -41,7 +41,7 @@ description: "Rules for the command line and process wiring: flags and environme
 
 ## When you change a flag
 
-Update the table in `docs/02-configuration.md`, the commands in `docs/05-commands.md`, `docs/15-split-deployment.md` if it affects the two-process setup, the flags table and section in `pkg/frontend/templates/docs.html`, and the `Dockerfile` or `deploy/` if a default changes. Add a test in `cmd/` for the validation rules.
+Update the table in `docs/02-configuration.md`, the commands in `docs/05-commands.md`, `docs/15-split-deployment.md` if it affects the two-process setup, the flags table and section in `pkg/frontend/templates/docs.html`, and `Dockerfile.ci` or `deploy/` if a default changes. Add a test in `cmd/` for the validation rules.
 
 ## `pkg/app`
 

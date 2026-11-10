@@ -45,7 +45,7 @@ func (s *Store) checkVersion(ctx context.Context, p *goose.Provider) error {
 		return err
 	}
 	if latest := latestVersion(p); cur > latest {
-		return fmt.Errorf("database schema version %d is newer than this binary supports (%d): upgrade dexa-fix", cur, latest)
+		return fmt.Errorf("database schema version %d is newer than this binary supports (%d): upgrade DexaFix", cur, latest)
 	}
 	return nil
 }

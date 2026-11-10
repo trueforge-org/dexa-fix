@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 var overviewStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

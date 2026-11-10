@@ -54,7 +54,7 @@ func Open(ctx context.Context, rawURL string) (*Client, error) {
 		return nil, errors.New("the Valkey URL is not valid: use redis://[:password@]host:port[/db] or rediss://")
 	}
 	opt.DisableCache = true // client-side caching would hide a counter that another process changed
-	opt.ClientName = "dexa-fix"
+	opt.ClientName = "dexafix"
 	c, err := valkey.NewClient(opt)
 	if err != nil {
 		return nil, fmt.Errorf("connect to Valkey: %w", redact(err))

@@ -12,14 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
 )
 
 // Mutual TLS between the web and api processes. It comes on top of the shared service secret, which
 // stays required: with both, a stolen secret is useless without a client certificate and the other
 // way round. The certificates are files; they are read again when they change, so rotating them
-// needs no restart. `dexa-fix secrets mtls` makes a set.
+// needs no restart. `dexafix secrets mtls` makes a set.
 
 func addInternalTLSFlags(c *cobra.Command) {
 	c.Flags().String("internal-tls-cert-file", envOr("DEXAFIX_INTERNAL_TLS_CERT_FILE", ""), "serve the internal API over mutual TLS: certificate of this process (PEM)")
@@ -81,7 +81,7 @@ func backendHTTPClient(cmd *cobra.Command, backendURL string) (*http.Client, boo
 	return apiclient.HTTPClient(cfg), true, nil
 }
 
-// ---- dexa-fix secrets mtls ----
+// ---- dexafix secrets mtls ----
 
 var secretsMTLSCmd = &cobra.Command{
 	Use:   "mtls",
@@ -104,10 +104,10 @@ is the server and the api process the client:
   ca.pem                          the CA, for both processes
   body.pem, body.key              the body service's certificate and key
   api-client.pem, api-client.key  the api process's client certificate and key`,
-	Example: `dexa-fix secrets mtls --dir ./mtls --name api
+	Example: `dexafix secrets mtls --dir ./mtls --name api
 # api:  --internal-tls-cert-file mtls/api.pem --internal-tls-key-file mtls/api.key --internal-tls-client-ca-file mtls/ca.pem
 # web:  --backend-url https://api:8081 --backend-ca-file mtls/ca.pem --backend-client-cert-file mtls/web.pem --backend-client-key-file mtls/web.key
-dexa-fix secrets mtls --link body --dir ./mtls-body --name body
+dexafix secrets mtls --link body --dir ./mtls-body --name body
 # body: --body-tls-cert-file mtls-body/body.pem --body-tls-key-file mtls-body/body.key --body-tls-client-ca-file mtls-body/ca.pem
 # api:  --body-url https://body:8082 --body-ca-file mtls-body/ca.pem --body-client-cert-file mtls-body/api-client.pem --body-client-key-file mtls-body/api-client.key`,
 	Args: cobra.NoArgs,
@@ -136,7 +136,7 @@ dexa-fix secrets mtls --link body --dir ./mtls-body --name body
 		var files []outFile
 		var summary string
 		if link == "body" {
-			if b, err = mtls.GenerateFor(names, "dexa-fix body", "dexa-fix api"); err != nil {
+			if b, err = mtls.GenerateFor(names, "DexaFix body", "DexaFix api"); err != nil {
 				return err
 			}
 			files = []outFile{

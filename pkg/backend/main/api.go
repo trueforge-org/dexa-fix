@@ -11,9 +11,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 const (
@@ -107,7 +107,7 @@ func (s *Backend) apiAdmin(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func apiUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Bearer realm="dexa-fix"`)
+	w.Header().Set("WWW-Authenticate", `Bearer realm="DexaFix"`)
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 }
 

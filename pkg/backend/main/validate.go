@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 const dateLayout = "2006-01-02"

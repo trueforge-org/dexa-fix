@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 func noRedirectClient() *http.Client {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // A backend needs a body service. The tests run one in the same process, over the same store, the

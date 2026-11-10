@@ -11,10 +11,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/mailer"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/mailer"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Server settings are kept in the database and edited on the Admin page, not given as command line
@@ -231,7 +231,7 @@ func (s *Backend) selfServiceReset(ctx context.Context) bool {
 }
 
 // NetworkSettingNames are the settings that can make the Admin page unreachable when they are
-// wrong (the base URL, the trusted proxies, the PROXY protocol). `dexa-fix settings reset-network`
+// wrong (the base URL, the trusted proxies, the PROXY protocol). `dexafix settings reset-network`
 // clears them.
 var NetworkSettingNames = []string{settingBaseURL, settingTrustedProxies, settingProxyProtocol}
 

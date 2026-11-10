@@ -1,4 +1,4 @@
-module github.com/trueforge-org/dexa-fix
+module github.com/trueforge-org/dexafix
 
 go 1.27.3
 

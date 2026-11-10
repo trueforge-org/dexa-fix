@@ -1,56 +1,69 @@
-# dexa-fix as separate containers and PostgreSQL: the recommended way to run it when it faces the
-# internet. A flood of requests on the web container cannot take down the api container, and the
-# database is reachable from the api and body containers only. The workers are the only containers
-# that talk to Withings and Strength Level; they have no database and the api container needs no
-# internet. Every link between the containers is protected twice: by a secret and by mutual TLS.
+# DexaFix as separate containers with PostgreSQL and Valkey: the recommended way to run it when it
+# faces the internet. A flood of requests on the web container cannot take down the api container, a
+# flood of wrong passwords costs the database nothing, and the database is reachable from the api and
+# body containers only. The workers are the only containers that talk to Withings and Strength Level;
+# they have no database and the api container needs no internet. Every link between the containers is
+# protected twice: by a secret and by mutual TLS.
 #
 #   internet --> web (pages, HTTP/HTTPS/HTTP3, no database)
 #                  |  internal network "link": service secret + mutual TLS
 #                  v
-#                api ("main backend": database, keys, every security decision, the job queue)
-#                  |  internal network "data"    |  internal network "bodylink"   ^  internal network "link":
-#                  |                             |  body secret + signed tokens   |  worker secret + mutual TLS
-#                  |                             |  + mutual TLS                  |
-#                  |                             v                                |
-#                  |                          body (scale readings, DEXA scans,   worker-withings, worker-strengthlevel
-#                  |                          estimates; own role, schema, key)   (no database)
-#                  v                             |                                |  network "egress" (outbound only)
-#                db (PostgreSQL) <---------------+  internal network "data"        v
-#                                                                       Withings, Strength Level
+#                api ("main backend": keys, every security decision, the job queue)
+#                  |  "data"          |  "state"           |  "bodylink"                  ^  "link":
+#                  |                  |                    |  body secret + signed tokens |  worker secret + mutual TLS
+#                  |                  |                    |  + mutual TLS                |
+#                  |                  v                    v                              |
+#                  |               valkey (failed sign-ins,  body (scale readings, DEXA   worker-withings, worker-strengthlevel
+#                  |               single-use values,        scans, estimates; own role,  (no database)
+#                  |               sessions)                 schema, key)                 |  network "egress" (outbound only)
+#                  v                                         |                            v
+#                db (PostgreSQL) <---------------------------+  "data"          Withings, Strength Level
 #
 # Start:
-#   docker compose run --rm init   # once: creates ./secrets (see below). Compose needs those files to exist.
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
-# The "init" container makes every secret and certificate (it is `dexa-fix secrets init`) and runs
-# again at every `docker compose up`:
-#   ./secrets/               passwords, connection strings and the two encryption keys, created only
-#                            when missing and never replaced. BACK UP encryption_key and
-#                            body_encryption_key together with the database: without them the encrypted
-#                            values (stored passwords, keys, tokens, the readings and scans) cannot be
-#                            read. The directory is private to root; read it with sudo.
-#   volumes secrets-api, -web, -worker, -body
-#                            what each container needs and nothing more: the shared secrets (kept once)
-#                            and the mutual TLS certificates (new at every run, valid 397 days). The
-#                            containers read changed certificates again within 30 seconds.
+# Nothing has to be made by hand first. Two short-lived containers run at every `docker compose up`:
+#
+#   init       is `dexafix secrets init`. It makes every secret and certificate:
+#                ./secrets/   passwords, connection strings and the two encryption keys, created only
+#                             when missing and never replaced. BACK UP encryption_key and
+#                             body_encryption_key together with the database: without them the encrypted
+#                             values (stored passwords, keys, tokens, the readings and scans) cannot be
+#                             read. The directory is private to root; read it with sudo.
+#                volumes secrets-api, -web, -worker, -body, -db, -dbsetup, -valkey
+#                             what each container needs and nothing more: its connection string and key,
+#                             the shared secrets (kept once) and the mutual TLS certificates (new at
+#                             every run, valid 397 days). The containers read changed certificates
+#                             again within 30 seconds.
+#   db-setup   is `dexafix db provision`. It makes the PostgreSQL roles (dexafix, dexafix_body), the
+#              database and the schema "body", and sets the passwords again from the files init made.
+#              It can be repeated, so a failed start is mended by the next one.
 #
 # The scale readings and DEXA scans are held by the body container, in the PostgreSQL schema "body"
 # with a role and an encryption key of their own: the api cannot read them except by asking the body
-# container, and the body container cannot read the users or the sessions. ./postgres/initdb creates
-# the roles and the schema when the database is first created; see docs/17-body-service.md for a
-# database that already exists.
+# container, and the body container cannot read the users or the sessions. See docs/17-body-service.md
+# for a database that already exists.
 #
-# The database image is ghcr.io/trueforge-org/postgresql (ContainerForge). It runs as uid 568, keeps
-# its data in /config/18 and upgrades the data of the previous major version by itself.
+# The database image is ghcr.io/trueforge-org/postgresql (ContainerForge) and the Valkey image is
+# ghcr.io/trueforge-org/valkey. Both run as uid 568, like DexaFix here. PostgreSQL keeps its data in
+# /config/18 and upgrades the data of the previous major version by itself.
+#
+# Valkey holds the failed sign-in counters, the single-use values and the sessions, and runs with
+# --maxmemory-policy noeviction: a counter that was evicted would let an attacker try again, a nonce
+# that was evicted would let a one-time value be used twice, and a session that was evicted would sign
+# somebody out. A full server refuses writes instead, which fails closed. It fails closed too when it
+# does not answer: nobody can sign in, and /status shows it as down. The data is on a volume
+# (append-only file), so a restart keeps it. To run without Valkey, remove the valkey service, the
+# DEXAFIX_VALKEY_URL_FILE line and the "state" network: the same things are then rows in PostgreSQL.
 #
 # Pin the version for production, for example DEXAFIX_VERSION=1.2.3 in a .env file next to this file.
 # All containers must run the same version.
 # Documentation: docs/15-split-deployment.md, docs/16-workers.md and docs/17-body-service.md
 
-name: dexa-fix
+name: dexafix
 
-x-image: &image ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+x-image: &image ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexafix}:${DEXAFIX_VERSION:-latest}
 
 x-hardened: &hardened
   restart: unless-stopped
@@ -58,7 +71,7 @@ x-hardened: &hardened
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
 
-# The images are `scratch` (no shell, no curl), so the checks run `dexa-fix healthcheck` in the
+# The images are `scratch` (no shell, no curl), so the checks run `dexafix healthcheck` in the
 # container itself. api, body and the workers answer on a small listener of their own on the
 # loopback address (--health-listen): their real listeners need a secret or a client certificate.
 # /readyz means "can do its work": the database answers (api, body), or the api answers (workers).
@@ -76,7 +89,7 @@ x-after-init: &after-init
 services:
   # Makes the secrets and certificates, then exits. It needs no network. It runs as root with two
   # capabilities only: to write ./secrets (owned by root) and to hand the files in the volumes to the
-  # unprivileged user (65532) of the other containers.
+  # unprivileged user (568) of the other containers.
   init:
     image: *image
     restart: "no"
@@ -94,13 +107,19 @@ services:
       - --web-dir=/secrets/web
       - --worker-dir=/secrets/worker
       - --body-dir=/secrets/body
-      - --chown=65532:65532
+      - --db-dir=/secrets/db
+      - --dbsetup-dir=/secrets/dbsetup
+      - --valkey-dir=/secrets/valkey
+      - --chown=568:568
     volumes:
       - ./secrets:/secrets/host
       - secrets-api:/secrets/api
       - secrets-web:/secrets/web
       - secrets-worker:/secrets/worker
       - secrets-body:/secrets/body
+      - secrets-db:/secrets/db
+      - secrets-dbsetup:/secrets/dbsetup
+      - secrets-valkey:/secrets/valkey
 
   db:
     image: ghcr.io/trueforge-org/postgresql:18@sha256:ebc55059b971628b4db5105c28558e53693709eb65879015701848052c0c2106
@@ -112,19 +131,72 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - export POSTGRES_PASSWORD="$$(cat /run/secrets/db_admin_password)"; exec /usr/bin/tini -- /entrypoint.sh "$$@"
+      - export POSTGRES_PASSWORD="$$(cat /secrets/db/db_admin_password)"; exec /usr/bin/tini -- /entrypoint.sh "$$@"
       - entrypoint
     command: ["postgres", "-c", "unix_socket_directories=/tmp"]
-    secrets: [db_admin_password, db_password, body_db_password]
     volumes:
       - db-data:/config # the data directory is /config/18
-      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro # the roles and the schema, on first start
+      - secrets-db:/secrets/db:ro
     networks: [data]
+    depends_on:
+      <<: *after-init
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U dexafix -d dexafix"]
+      # The roles of the application do not exist yet when this first passes: db-setup makes them.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
+
+  # Makes the roles, the database and the schema "body" (dexafix db provision), as the superuser, and
+  # exits. It runs again at every `up`: what exists is kept and the passwords are set again from the
+  # files init made, so it also mends a start that failed half way. Only this container and the
+  # database see the superuser's password.
+  db-setup:
+    image: *image
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: ["db", "provision"]
+    environment:
+      DEXAFIX_ADMIN_DSN_FILE: /secrets/dbsetup/admin_dsn
+      DEXAFIX_APP_PASSWORD_FILE: /secrets/dbsetup/db_password
+      DEXAFIX_BODY_PASSWORD_FILE: /secrets/dbsetup/body_db_password
+    volumes:
+      - secrets-dbsetup:/secrets/dbsetup:ro
+    networks: [data]
+    depends_on:
+      <<: *after-init
+      db:
+        condition: service_healthy
+
+  # The failed sign-in counters, the single-use values and the sessions (see the top of this file).
+  valkey:
+    image: ghcr.io/trueforge-org/valkey:9@sha256:bc2f4df96ee1e33d95b44fc0ca1ab8d1c561e4f3e0c58eebbb108e939662a561
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # The image takes the password from the environment only; reading it from the secret file here
+    # keeps it out of this file and out of `docker inspect`.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - export VALKEY_PASSWORD="$$(cat /secrets/valkey/valkey_password)"; exec /usr/bin/tini -- /entrypoint.sh "$$@"
+      - entrypoint
+    # 256mb holds some millions of counters; raise it if /status shows Valkey down with "OOM" in the api log.
+    command: ["/start.sh", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - valkey-data:/config
+      - secrets-valkey:/secrets/valkey:ro
+    networks: [state]
+    depends_on:
+      <<: *after-init
+    healthcheck:
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=\"$$(cat /secrets/valkey/valkey_password)\" valkey-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   api:
     <<: *hardened
@@ -135,8 +207,9 @@ services:
     command: ["serve", "api", "--listen="]
     environment:
       DEXAFIX_DB_DRIVER: postgres
-      DEXAFIX_DSN_FILE: /run/secrets/dsn
-      DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      DEXAFIX_DSN_FILE: /secrets/api/dsn
+      DEXAFIX_ENCRYPTION_KEY_FILE: /secrets/api/encryption_key
+      DEXAFIX_VALKEY_URL_FILE: /secrets/api/valkey_url
       DEXAFIX_SERVICE_SECRET_FILE: /secrets/api/service_secret
       DEXAFIX_WORKER_SECRET_FILE: /secrets/api/worker_secret
       DEXAFIX_INTERNAL_LISTEN: ":8081"
@@ -156,19 +229,20 @@ services:
       # With several api containers on the same database run the maintenance loop (audit log
       # purge, certificate renewal, the job sweeps and the scheduler) in one of them only:
       # DEXAFIX_MAINTENANCE: "false" on the rest.
-    secrets: [dsn, encryption_key]
     volumes:
       - secrets-api:/secrets/api:ro
     healthcheck:
       <<: *health
-      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+      test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
       <<: *after-init
-      db:
+      db-setup:
+        condition: service_completed_successfully
+      valkey:
         condition: service_healthy
       body:
         condition: service_healthy
-    networks: [data, link, bodylink]
+    networks: [data, state, link, bodylink]
 
   # The body service: scale readings, DEXA scans (encrypted with a key of its own) and the
   # estimates computed from them. It knows nothing about people: it trusts the signed tokens of the
@@ -181,8 +255,8 @@ services:
     command: ["serve", "body"]
     environment:
       DEXAFIX_DB_DRIVER: postgres
-      DEXAFIX_DSN_FILE: /run/secrets/body_dsn
-      DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/body_encryption_key
+      DEXAFIX_DSN_FILE: /secrets/body/body_dsn
+      DEXAFIX_ENCRYPTION_KEY_FILE: /secrets/body/body_encryption_key
       DEXAFIX_BODY_SECRET_FILE: /secrets/body/body_secret
       DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE: /secrets/body/body_token_pub
       DEXAFIX_BODY_LISTEN: ":8082"
@@ -190,16 +264,15 @@ services:
       DEXAFIX_BODY_TLS_CERT_FILE: /secrets/body/mtls_cert
       DEXAFIX_BODY_TLS_KEY_FILE: /secrets/body/mtls_key
       DEXAFIX_BODY_TLS_CLIENT_CA_FILE: /secrets/body/mtls_ca
-    secrets: [body_dsn, body_encryption_key]
     volumes:
       - secrets-body:/secrets/body:ro
     healthcheck:
       <<: *health
-      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+      test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
       <<: *after-init
-      db:
-        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
     networks: [data, bodylink]
 
   web:
@@ -220,7 +293,7 @@ services:
     healthcheck:
       <<: *health
       # /readyz asks the api process through the mutual TLS link, so it also proves the link works.
-      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8080/readyz"]
+      test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8080/readyz"]
     depends_on:
       <<: *after-init
       api:
@@ -254,7 +327,7 @@ services:
       - secrets-worker:/secrets/worker:ro
     healthcheck:
       <<: *health
-      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+      test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
       <<: *after-init
       api:
@@ -270,7 +343,7 @@ services:
       - secrets-worker:/secrets/worker:ro
     healthcheck:
       <<: *health
-      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+      test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
       <<: *after-init
       api:
@@ -279,7 +352,9 @@ services:
 
 networks:
   data:
-    internal: true # the database has no way out and no way in except through api and body
+    internal: true # the database has no way out and no way in except through api, body and db-setup
+  state:
+    internal: true # the api and Valkey only
   link:
     internal: true # web, workers and api talk here; nothing else can reach api's internal port
   bodylink:
@@ -289,27 +364,12 @@ networks:
 
 volumes:
   db-data: {}
+  valkey-data: {}
   # Filled by init, one per container, so a container can read only its own secrets.
   secrets-api: {}
   secrets-web: {}
   secrets-worker: {}
   secrets-body: {}
-
-# Files that init keeps in ./secrets. They are mounted read-only, file by file, into the containers
-# that need them. `docker compose run --rm init` once before the first `up`: Compose creates every
-# container before it starts any, so these files must exist by then.
-secrets:
-  db_admin_password:
-    file: ./secrets/db_admin_password
-  db_password:
-    file: ./secrets/db_password
-  dsn:
-    file: ./secrets/dsn
-  encryption_key:
-    file: ./secrets/encryption_key
-  body_db_password:
-    file: ./secrets/body_db_password
-  body_dsn:
-    file: ./secrets/body_dsn
-  body_encryption_key:
-    file: ./secrets/body_encryption_key
+  secrets-db: {}
+  secrets-dbsetup: {}
+  secrets-valkey: {}

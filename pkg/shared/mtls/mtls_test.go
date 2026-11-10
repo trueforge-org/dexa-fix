@@ -70,7 +70,7 @@ func TestMutualTLSWorksBetweenTheTwoSides(t *testing.T) {
 	f := write(t, t.TempDir(), b)
 	ts := serve(t, f)
 	got, err := get(client(t, f.ca, f.cliCert, f.cliKey, ""), ts.URL) // 127.0.0.1 is among the names
-	if err != nil || got != "dexa-fix web" {
+	if err != nil || got != "DexaFix web" {
 		t.Fatalf("%q %v", got, err)
 	}
 	// A name that is not in the certificate is refused.
@@ -137,7 +137,7 @@ func TestRotatedFilesAreUsedWithoutRestart(t *testing.T) {
 	b2, _ := Generate(nil)
 	write(t, f.dir, b2)
 	c.CloseIdleConnections()
-	if got, err := get(c, ts.URL); err != nil || got != "dexa-fix web" {
+	if got, err := get(c, ts.URL); err != nil || got != "DexaFix web" {
 		t.Fatalf("after the rotation: %q %v", got, err)
 	}
 	// Half-written files do not break the link: the last good ones stay in use.

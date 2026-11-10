@@ -35,7 +35,7 @@
   process over it. The service secret says which web process may call, but it
   does not encrypt the link. Keep the link on a private network: a Docker or
   Compose internal network, or the Kubernetes cluster network. Across hosts, use
-  TLS through a service mesh or a tunnel. dexa-fix warns at start when the
+  TLS through a service mesh or a tunnel. DexaFix warns at start when the
   backend URL is plain HTTP to an address that is not private. The api process
   never trusts `X-Dexafix-*` headers on the public listener. Personal access
   tokens and Basic authentication work only on the public API. Sealed cookies

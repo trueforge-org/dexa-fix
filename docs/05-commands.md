@@ -15,7 +15,7 @@
 | `secrets body-secret`     | Print a new body secret of 64 hexadecimal characters for `serve api` and `serve body`. It must differ from the service and worker secrets. |
 | `secrets body-token-key`  | Print a new private key for the api process to sign body service tokens with. Keep it to that process. |
 | `secrets body-token-public --key-file FILE` | Print the public key of that private key, for `serve body`. |
-| `secrets init`            | Create every secret and the mutual TLS certificates of the [Compose deployment](15-split-deployment.md#the-recommended-deployment-deploy) in directories you name (`--host-dir`, `--api-dir`, `--web-dir`, `--worker-dir`, `--body-dir`). It never replaces a password, key or shared secret that exists, and makes new certificates at every run (`--mtls-days`, default 397). `--chown uid:gid` hands the files to the containers' user. It also makes the password and URL of the optional [Valkey](15-split-deployment.md#valkey) server (`--valkey-host`). This is what the `init` container runs. |
+| `secrets init`            | Create every secret and the mutual TLS certificates of the [Compose deployment](15-split-deployment.md#the-recommended-deployment-deploy) in directories you name (`--host-dir`, `--api-dir`, `--web-dir`, `--worker-dir`, `--body-dir`, and `--db-dir`, `--dbsetup-dir`, `--valkey-dir` for the database, `db-setup` and Valkey containers). The api and body directories also get their connection string and encryption key. It never replaces a password, key or shared secret that exists, and makes new certificates at every run (`--mtls-days`, default 397). `--chown uid:gid` hands the files to the containers' user. It also makes the password and URL of the optional [Valkey](15-split-deployment.md#valkey) server (`--valkey-host`). This is what the `init` container runs. |
 | `secrets mtls`            | Create certificates for [mTLS](15-split-deployment.md#mutual-tls-between-web-and-api). With `--link body`, for the link between the api process and the [body service](17-body-service.md#mutual-tls). |
 
 Create the service secret file and keep it private:
@@ -37,6 +37,7 @@ A group- or world-readable file only logs a warning. See
 | `db migrate status`      | List every migration and whether it is applied.               |
 | `db migrate version`     | Print the current schema version.                             |
 | `db copy`                | Copy all data to another database. See below.                 |
+| `db provision`           | Make the PostgreSQL roles `dexafix` and `dexafix_body`, the database `dexafix` and the schema `body` that the [Compose deployment](15-split-deployment.md#the-recommended-deployment-deploy) runs on, as the administrator (`--admin-dsn-file`, `--app-password-file`, `--body-password-file`). It can be repeated: what exists is kept, the passwords are set again, nothing is dropped. PostgreSQL only. This is what the `db-setup` container runs. |
 | `db rekey [--dry-run] [--body]` | Re-encrypt all encrypted values with the current key. With `--body`, the readings and scans of a body service's own database. See [Encryption](08-encryption.md). |
 
 `db migrate` takes `--db-driver` and `--dsn`, with the same environment

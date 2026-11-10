@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // The status of the deployment as the backend sees it: itself, the database, the body service and

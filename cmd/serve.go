@@ -19,8 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/app"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/app"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // Version is the application version, set by main.
@@ -149,7 +149,7 @@ func sameDir(a, b string) bool {
 // addKeyFlags registers the encryption key flags shared by the commands that open the database
 // with a cipher. The keys themselves are never accepted as flag values.
 func addKeyFlags(c *cobra.Command) {
-	c.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing for a new database, unused when "+encryptionKeyEnv+" is set")
+	c.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexafix.key"), "file holding the key that encrypts secrets in the database; created if missing for a new database, unused when "+encryptionKeyEnv+" is set")
 	c.Flags().String("encryption-key-previous-file", envOr("DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE", ""), "file with earlier encryption keys, one per line, that may still open values written before a rotation (see also "+encryptionKeyPreviousEnv+")")
 }
 
@@ -209,9 +209,9 @@ Secrets are never accepted as flags: a connection string with a password goes in
 file (--dsn-file).
 
 The Withings import is set up on the Admin page (client id, secret and redirect URL), not here.`,
-	Example: `dexa-fix serve --listen :8080
-DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix serve --db-driver postgres
-dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
+	Example: `dexafix serve --listen :8080
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexafix serve --db-driver postgres
+dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if without, _ := cmd.Flags().GetBool("without-body"); without {
 			return errors.New("--without-body does not apply to the combined `serve`: it runs the body service too (use `serve api --body-url ...` with `serve body`)")

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Internal endpoints for signing in. A step answers with a SignInOutcome; the cookies it sets

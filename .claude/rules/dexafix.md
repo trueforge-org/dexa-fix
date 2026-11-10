@@ -1,6 +1,6 @@
-# dexa-fix instructions for Claude Code
+# DexaFix instructions for Claude Code
 
-These are the dexa-fix-specific parts of the shared `CLAUDE.md`, which is managed in `trueforge-org/.github`. The canonical, tool-agnostic rules are in `AGENTS.md`, which `CLAUDE.md` imports.
+These are the dexafix-specific parts of the shared `CLAUDE.md`, which is managed in `trueforge-org/.github`. The canonical, tool-agnostic rules are in `AGENTS.md`, which `CLAUDE.md` imports.
 
 - The area-specific rules live in `.github/instructions/` and are symlinked into `.claude/rules/`, so Claude Code loads each one only when it works on files matching its `paths:` frontmatter. Update those files (and `AGENTS.md`), not the shared `CLAUDE.md`. When you add one, add the symlink too; `guidance_test.go` fails otherwise.
 - Test, lint and validation runs go to `haiku-triage`: `go test` (all three modes in `AGENTS.md`: plain, `DEXAFIX_TEST_SPLIT=1`, PostgreSQL), `go vet`, `gofmt -l`, `govulncheck`, `markdownlint`. Test output is noisy JSON log lines, so ask the agent to report only `FAIL`/`panic` lines and the first error.

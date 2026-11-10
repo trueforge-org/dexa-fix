@@ -7,8 +7,8 @@ import (
 
 var infoCmd = &cobra.Command{
 	Use:     "info",
-	Short:   "Prints information about the dexa-fix binary",
-	Example: "dexa-fix info",
+	Short:   "Prints information about the DexaFix binary",
+	Example: "dexafix info",
 	Run: func(cmd *cobra.Command, args []string) {
 		info.NewInfo().Print()
 	},

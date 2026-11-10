@@ -16,12 +16,12 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/store/valkeystate"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
+	"github.com/trueforge-org/dexafix/pkg/frontend"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/valkeystate"
 )
 
 // `serve web` and `serve api` run the two halves of the application as separate processes, so that
@@ -82,11 +82,11 @@ var serveWebCmd = &cobra.Command{
 	Short: "Run the web frontend: the pages and the public listeners, without a database",
 	Long: `Run the web frontend. It renders the pages, serves the static files and owns the public HTTP,
 HTTPS and HTTP/3 listeners. It has no database: everything else is asked of the api process
-(dexa-fix serve api) over its internal address, authenticated with the shared service secret.
+(dexafix serve api) over its internal address, authenticated with the shared service secret.
 
 The administrator settings it acts on (public address, trusted proxies, PROXY protocol, TLS) come
 from the api process and apply without a restart.`,
-	Example: `dexa-fix serve web --backend-url http://api:8081 --service-secret-file /run/secrets/dexafix_service`,
+	Example: `dexafix serve web --backend-url http://api:8081 --service-secret-file /run/secrets/dexafix_service`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		listen, _ := cmd.Flags().GetString("listen")
@@ -115,7 +115,7 @@ from the api process and apply without a restart.`,
 		}
 		if u, perr := url.Parse(backend); perr == nil && !secured && !privateHost(u.Hostname()) {
 			log.Warn().Str("backend", backend).Msg("the backend is reached over plain HTTP at an address that is not private: " +
-				"the link carries sessions, passwords and the TLS private key; use a private network or mutual TLS (dexa-fix secrets mtls)")
+				"the link carries sessions, passwords and the TLS private key; use a private network or mutual TLS (dexafix secrets mtls)")
 		}
 
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -177,13 +177,13 @@ var serveAPICmd = &cobra.Command{
 	Long: `Run the backend. It owns the database, the encryption keys and every security decision.
 
   --listen           the public API (/api/v1), for scripts and apps; put it behind the reverse proxy.
-  --internal-listen  the internal API, for the web frontend (dexa-fix serve web). Keep it on a
+  --internal-listen  the internal API, for the web frontend (dexafix serve web). Keep it on a
                      private network: it carries sessions and passwords, and is protected by the
                      shared service secret only.
 
 Either address may be empty to turn that listener off, so that one api process can serve the public
 API and another the internal one on the same database.`,
-	Example: `dexa-fix serve api --internal-listen :8081 --service-secret-file /run/secrets/dexafix_service`,
+	Example: `dexafix serve api --internal-listen :8081 --service-secret-file /run/secrets/dexafix_service`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		listen, _ := cmd.Flags().GetString("listen")
@@ -273,7 +273,7 @@ API and another the internal one on the same database.`,
 			return err
 		}
 		if valkeyURL != "" {
-			// The failed-attempt counters and the single-use nonces live in Valkey, so that a flood of
+			// The failed-attempt counters, the single-use nonces and the sessions live in Valkey, so that a flood of
 			// wrong passwords costs the database nothing.
 			vs, err := valkeystate.Open(ctx, valkeyURL)
 			if err != nil {
@@ -281,7 +281,7 @@ API and another the internal one on the same database.`,
 			}
 			defer vs.Close()
 			backendOpts = append(backendOpts, mainbackend.WithState(vs))
-			log.Info().Msg("the sign-in counters and single-use values are kept in Valkey")
+			log.Info().Msg("the sign-in counters, single-use values and sessions are kept in Valkey")
 		}
 		if !maintenance {
 			// Only the process that runs the maintenance loop creates and renews the self-signed
@@ -350,12 +350,12 @@ func init() {
 
 	serveAPICmd.Flags().String("listen", envOr("DEXAFIX_LISTEN", ":8080"), "address of the public API (empty: off)")
 	addHealthFlag(serveAPICmd)
-	serveAPICmd.Flags().String("valkey-url", envOr("DEXAFIX_VALKEY_URL", ""), "keep the failed sign-in counters and single-use values in Valkey (redis://host:6379/0, rediss:// for TLS) instead of the database; a password goes in --valkey-url-file, not here")
+	serveAPICmd.Flags().String("valkey-url", envOr("DEXAFIX_VALKEY_URL", ""), "keep the failed sign-in counters, single-use values and sessions in Valkey (redis://host:6379/0, rediss:// for TLS) instead of the database; a password goes in --valkey-url-file, not here")
 	serveAPICmd.Flags().String("valkey-url-file", envOr("DEXAFIX_VALKEY_URL_FILE", ""), "file with the Valkey URL, which may hold the password: redis://:password@host:6379/0")
 	serveAPICmd.Flags().String("internal-listen", envOr("DEXAFIX_INTERNAL_LISTEN", ":8081"), "address of the internal API for the web frontend (empty: off); keep it on a private network")
 	serveAPICmd.Flags().Bool("maintenance", envOr("DEXAFIX_MAINTENANCE", "true") != "false", "run the maintenance loop (audit log purge, self-signed certificate renewal); turn it off on all but one api process")
 	addServiceSecretFlag(serveAPICmd)
-	addWorkerSecretFlag(serveAPICmd, "file with the secret the api process and its workers share, one per line (the first is the one workers send); create one with `dexa-fix secrets worker-secret`; it must differ from the service secret")
+	addWorkerSecretFlag(serveAPICmd, "file with the secret the api process and its workers share, one per line (the first is the one workers send); create one with `dexafix secrets worker-secret`; it must differ from the service secret")
 	addInternalTLSFlags(serveAPICmd)
 	addBodyClientFlags(serveAPICmd)
 	addDBFlags(serveAPICmd)

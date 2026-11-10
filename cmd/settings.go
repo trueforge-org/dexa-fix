@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 var settingsCmd = &cobra.Command{
@@ -25,7 +25,7 @@ base URL that does not match the address you open, so that sign-in cookies are n
 It works on the database directly, so it needs the same database and encryption key settings as the
 server. A running server reads the settings at start and when they are saved on the Admin page, so
 restart it afterwards.`,
-	Example: `dexa-fix settings reset-network`,
+	Example: `dexafix settings reset-network`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		driver, dsn, err := dbFlags(cmd)

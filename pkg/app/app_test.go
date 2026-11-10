@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 func newApp(t *testing.T) (*Server, *httptest.Server) {

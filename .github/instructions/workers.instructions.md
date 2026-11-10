@@ -7,7 +7,7 @@ description: "Rules for the workers: processes without a database that talk to o
 
 # Worker instructions
 
-`pkg/workers/` holds the code of `dexa-fix serve worker` (and of the workers the single-process mode runs inside itself): one package per provider (`withings`, `strengthlevel`) next to the generic loop (`runner`) and the list of built-in providers (`builtin`). A worker talks to an outside service for the backend. The backend owns the queue, the credentials and every decision about what is stored; its half of each provider is `pkg/backend/main/workerprovider_<name>.go`. The contract between the two is `pkg/shared/workerapi`.
+`pkg/workers/` holds the code of `dexafix serve worker` (and of the workers the single-process mode runs inside itself): one package per provider (`withings`, `strengthlevel`) next to the generic loop (`runner`) and the list of built-in providers (`builtin`). A worker talks to an outside service for the backend. The backend owns the queue, the credentials and every decision about what is stored; its half of each provider is `pkg/backend/main/workerprovider_<name>.go`. The contract between the two is `pkg/shared/workerapi`.
 
 ## Hard rules
 

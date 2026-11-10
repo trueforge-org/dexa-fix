@@ -124,11 +124,11 @@ func TestLooksLikeTOTP(t *testing.T) {
 }
 
 func TestOtpauthURI(t *testing.T) {
-	uri := otpauthURI("dexa-fix", "alice@example.com", rfcSecret)
+	uri := otpauthURI("DexaFix", "alice@example.com", rfcSecret)
 	if !strings.HasPrefix(uri, "otpauth://totp/") {
 		t.Errorf("uri %q does not start with otpauth://totp/", uri)
 	}
-	for _, want := range []string{"secret=" + rfcSecret, "issuer=dexa-fix"} {
+	for _, want := range []string{"secret=" + rfcSecret, "issuer=DexaFix"} {
 		if !strings.Contains(uri, want) {
 			t.Errorf("uri %q lacks %q", uri, want)
 		}
@@ -136,7 +136,7 @@ func TestOtpauthURI(t *testing.T) {
 }
 
 func TestQRSVG(t *testing.T) {
-	svg, err := qrSVG(otpauthURI("dexa-fix", "alice@example.com", rfcSecret))
+	svg, err := qrSVG(otpauthURI("DexaFix", "alice@example.com", rfcSecret))
 	if err != nil {
 		t.Fatal(err)
 	}

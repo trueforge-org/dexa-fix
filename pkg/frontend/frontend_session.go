@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // withVisitor attaches the visitor's request to the context, so calls to the backend carry the
@@ -60,5 +60,5 @@ func (s *Frontend) backendDown(w http.ResponseWriter, r *http.Request, err error
 	}
 	log.Error().Err(err).Msg("backend request failed")
 	w.Header().Set("Retry-After", "5")
-	http.Error(w, "dexa-fix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
+	http.Error(w, "DexaFix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
 }

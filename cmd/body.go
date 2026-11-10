@@ -14,24 +14,24 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/mtls"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // The body service holds the scale readings, the DEXA scans and the estimates. It can run inside the
 // api process (the default), or as a process of its own, with a database, a key and a secret of its
 // own:
 //
-//	dexa-fix serve body     the service. Knows nothing about people; trusts only the tokens of the api.
-//	dexa-fix serve api --body-url ...   calls it, with a short-lived signed token for every call.
+//	dexafix serve body     the service. Knows nothing about people; trusts only the tokens of the api.
+//	dexafix serve api --body-url ...   calls it, with a short-lived signed token for every call.
 //
 // Three things tie the two together, and each is a file: the body secret (the same file in both, like
 // the service and worker secrets), the signing key (private for the api, public for the body service)
 // and, optionally, mutual TLS on top.
 
-var bodySecretFile = secretFile{"body secret", "--body-secret-file", "DEXAFIX_BODY_SECRET_FILE", "dexa-fix secrets body-secret"}
+var bodySecretFile = secretFile{"body secret", "--body-secret-file", "DEXAFIX_BODY_SECRET_FILE", "dexafix secrets body-secret"}
 
 func addBodySecretFlag(c *cobra.Command, help string) {
 	c.Flags().String("body-secret-file", envOr("DEXAFIX_BODY_SECRET_FILE", ""), help)
@@ -40,8 +40,8 @@ func addBodySecretFlag(c *cobra.Command, help string) {
 // addBodyClientFlags registers the flags with which the api process reaches a body service of its own.
 func addBodyClientFlags(c *cobra.Command) {
 	c.Flags().String("body-url", envOr("DEXAFIX_BODY_URL", ""), "address of the body service, such as http://body:8082 (empty: run the body service inside this process)")
-	addBodySecretFlag(c, "file with the secret the api process and the body service share, one per line (the first is the one sent); create one with `dexa-fix secrets body-secret`; it must differ from the service and worker secrets")
-	c.Flags().String("body-token-key-file", envOr("DEXAFIX_BODY_TOKEN_KEY_FILE", ""), "file with the private key that signs the tokens for the body service; create one with `dexa-fix secrets body-token-key`")
+	addBodySecretFlag(c, "file with the secret the api process and the body service share, one per line (the first is the one sent); create one with `dexafix secrets body-secret`; it must differ from the service and worker secrets")
+	c.Flags().String("body-token-key-file", envOr("DEXAFIX_BODY_TOKEN_KEY_FILE", ""), "file with the private key that signs the tokens for the body service; create one with `dexafix secrets body-token-key`")
 	c.Flags().String("body-ca-file", envOr("DEXAFIX_BODY_CA_FILE", ""), "mutual TLS to the body service: CA that issued its certificate (PEM)")
 	c.Flags().String("body-client-cert-file", envOr("DEXAFIX_BODY_CLIENT_CERT_FILE", ""), "mutual TLS to the body service: client certificate of this process (PEM)")
 	c.Flags().String("body-client-key-file", envOr("DEXAFIX_BODY_CLIENT_KEY_FILE", ""), "mutual TLS to the body service: private key of the client certificate (PEM)")
@@ -83,7 +83,7 @@ func bodyClient(cmd *cobra.Command) (c *bodyapi.Client, secrets []string, remote
 		return nil, nil, false, err
 	}
 	if keyPath == "" {
-		return nil, nil, false, errors.New("--body-token-key-file (DEXAFIX_BODY_TOKEN_KEY_FILE) is required with --body-url: create one with `dexa-fix secrets body-token-key`")
+		return nil, nil, false, errors.New("--body-token-key-file (DEXAFIX_BODY_TOKEN_KEY_FILE) is required with --body-url: create one with `dexafix secrets body-token-key`")
 	}
 	priv, err := readSigningKey(keyPath)
 	if err != nil {
@@ -96,7 +96,7 @@ func bodyClient(cmd *cobra.Command) (c *bodyapi.Client, secrets []string, remote
 		}
 	} else if !privateHost(u.Hostname()) {
 		log.Warn().Str("body", rawURL).Msg("the body service is reached over plain HTTP at an address that is not private: " +
-			"the link carries every reading and scan; use a private network or mutual TLS (dexa-fix secrets mtls --link body)")
+			"the link carries every reading and scan; use a private network or mutual TLS (dexafix secrets mtls --link body)")
 	}
 	c, err = bodyapi.New(rawURL, bodyapi.HTTPClient(tlsConfig), secrets[0], bodyapi.NewSigner(priv))
 	if err != nil {
@@ -172,21 +172,21 @@ var serveBodyCmd = &cobra.Command{
 	Use:   "body",
 	Short: "Run the body service: scale readings, DEXA scans and estimates, in a database of its own",
 	Long: `Run the body service. It holds the scale readings and DEXA scans (encrypted with a key of its own)
-and computes the estimates. It knows nothing about people: the api process (dexa-fix serve api
+and computes the estimates. It knows nothing about people: the api process (dexafix serve api
 --body-url ...) authenticates them and calls this service with a short-lived token signed for one user
 and one scope. The service holds only the public key, so it can check tokens but never make one.
 
 Three files tie it to the api process:
-  --body-secret-file             the shared secret (dexa-fix secrets body-secret); every call carries it
+  --body-secret-file             the shared secret (dexafix secrets body-secret); every call carries it
   --body-token-public-key-file   the public key of the api process's signing key
-                                 (dexa-fix secrets body-token-key, then body-token-public)
+                                 (dexafix secrets body-token-key, then body-token-public)
   --encryption-key-file          this service's own encryption key. The same file as the api process's
                                  gives the same key; a different one keeps a leak of one from opening the other.
 
 Keep the listener on a private network that only the api process can reach.`,
-	Example: `dexa-fix secrets body-token-key > body-token.key && chmod 600 body-token.key
-dexa-fix secrets body-token-public --key-file body-token.key > body-token.pub
-dexa-fix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/body_dsn \
+	Example: `dexafix secrets body-token-key > body-token.key && chmod 600 body-token.key
+dexafix secrets body-token-public --key-file body-token.key > body-token.pub
+dexafix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/body_dsn \
   --body-secret-file /run/secrets/body_secret --body-token-public-key-file /run/secrets/body_token_pub`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -201,7 +201,7 @@ dexa-fix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/
 		}
 		pubPath, _ := cmd.Flags().GetString("body-token-public-key-file")
 		if pubPath == "" {
-			return errors.New("--body-token-public-key-file (DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE) is required: create the key pair with `dexa-fix secrets body-token-key` and `dexa-fix secrets body-token-public`")
+			return errors.New("--body-token-public-key-file (DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE) is required: create the key pair with `dexafix secrets body-token-key` and `dexafix secrets body-token-public`")
 		}
 		raw, err := os.ReadFile(pubPath)
 		if err != nil {
@@ -268,14 +268,14 @@ dexa-fix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/
 	},
 }
 
-// ---- dexa-fix secrets body-secret, body-token-key, body-token-public ----
+// ---- dexafix secrets body-secret, body-token-key, body-token-public ----
 
 var secretsBodySecretCmd = &cobra.Command{
 	Use:   "body-secret",
 	Short: "Print a new secret for the api process and the body service to share",
 	Long: "Prints a new random secret. Save it in a file readable only by the api process and the body service and give the path " +
 		"to both with --body-secret-file. It must differ from the service and worker secrets: each opens a different door.\n\n" +
-		"  dexa-fix secrets body-secret > body.secret && chmod 600 body.secret",
+		"  dexafix secrets body-secret > body.secret && chmod 600 body.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := newServiceSecret()
@@ -292,7 +292,7 @@ var secretsBodyTokenKeyCmd = &cobra.Command{
 	Short: "Print a new private key for the api process to sign body service tokens with",
 	Long: "Prints a new private key. Only the api process holds it (--body-token-key-file): with it a token can be made for any user, " +
 		"so keep it to that one process. The body service gets the public key (body-token-public) and can check tokens but not make them.\n\n" +
-		"  dexa-fix secrets body-token-key > body-token.key && chmod 600 body-token.key",
+		"  dexafix secrets body-token-key > body-token.key && chmod 600 body-token.key",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, _, priv, err := bodyapi.GenerateKey()
@@ -309,12 +309,12 @@ var secretsBodyTokenPublicCmd = &cobra.Command{
 	Short: "Print the public key that belongs to a body token signing key",
 	Long: "Prints the public key of the private key in --key-file, for the body service (--body-token-public-key-file). " +
 		"A public key is no secret. During a key change the body service's file may hold several keys, one per line.\n\n" +
-		"  dexa-fix secrets body-token-public --key-file body-token.key > body-token.pub",
+		"  dexafix secrets body-token-public --key-file body-token.key > body-token.pub",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("key-file")
 		if path == "" {
-			return errors.New("--key-file is required: the file made by `dexa-fix secrets body-token-key`")
+			return errors.New("--key-file is required: the file made by `dexafix secrets body-token-key`")
 		}
 		priv, err := readSigningKey(path)
 		if err != nil {
@@ -327,15 +327,15 @@ var secretsBodyTokenPublicCmd = &cobra.Command{
 
 func init() {
 	serveBodyCmd.Flags().String("listen", envOr("DEXAFIX_BODY_LISTEN", ":8082"), "address of the body service; keep it on a private network")
-	addBodySecretFlag(serveBodyCmd, "file with the secret the api process and this service share, one per line (every line is accepted); create one with `dexa-fix secrets body-secret`")
-	serveBodyCmd.Flags().String("body-token-public-key-file", envOr("DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE", ""), "file with the public key(s) of the api process's token signing key, one per line; create one with `dexa-fix secrets body-token-public`")
+	addBodySecretFlag(serveBodyCmd, "file with the secret the api process and this service share, one per line (every line is accepted); create one with `dexafix secrets body-secret`")
+	serveBodyCmd.Flags().String("body-token-public-key-file", envOr("DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE", ""), "file with the public key(s) of the api process's token signing key, one per line; create one with `dexafix secrets body-token-public`")
 	addBodyServerTLSFlags(serveBodyCmd)
 	addHealthFlag(serveBodyCmd)
 	addDBFlags(serveBodyCmd)
 	serveBodyCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	addKeyFlags(serveBodyCmd)
 
-	secretsBodyTokenPublicCmd.Flags().String("key-file", "", "file with the private key made by `dexa-fix secrets body-token-key`")
+	secretsBodyTokenPublicCmd.Flags().String("key-file", "", "file with the private key made by `dexafix secrets body-token-key`")
 	secretsCmd.AddCommand(secretsBodySecretCmd, secretsBodyTokenKeyCmd, secretsBodyTokenPublicCmd)
 	serveCmd.AddCommand(serveBodyCmd)
 }

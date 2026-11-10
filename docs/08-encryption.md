@@ -35,10 +35,10 @@ The key comes from one of these, in this order:
 1. The environment variable `DEXAFIX_ENCRYPTION_KEY`: 32 bytes as 64
    hexadecimal characters or as base64. There is no command-line flag for it.
 2. The key file set with `--encryption-key-file` or
-   `DEXAFIX_ENCRYPTION_KEY_FILE`. The default is `dexa-fix.key` in the working
+   `DEXAFIX_ENCRYPTION_KEY_FILE`. The default is `dexafix.key` in the working
    directory.
 
-If the variable is not set and the key file does not exist, dexa-fix creates
+If the variable is not set and the key file does not exist, DexaFix creates
 the file with a new random key and mode 0600, but only for a new database or one
 that holds no encrypted values yet. If the database already holds encrypted
 values, a missing key file is an error and no file is created, so a key file
@@ -56,7 +56,7 @@ random value.
 
 For SQLite, `serve` logs a warning when the key file is in the same directory as
 the database file, which is the case for the container image defaults
-(`/data/dexa-fix.db` and `/data/dexa-fix.key`). A leak of that directory (a
+(`/config/dexafix.db` and `/config/dexafix.key`). A leak of that directory (a
 backup, a volume snapshot) then exposes both the encrypted values and the key.
 Prefer `DEXAFIX_ENCRYPTION_KEY` from a secret store, or a key file on a separate
 secret mount.
@@ -78,9 +78,9 @@ the key:
    `DEXAFIX_ENCRYPTION_KEY=<new>` and `DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old>`, or
    a new `--encryption-key-file` plus `--encryption-key-previous-file` with the
    old key on a line of its own. Several previous keys are allowed.
-4. Run `dexa-fix db rekey --dry-run` to see how many values would change. It
+4. Run `dexafix db rekey --dry-run` to see how many values would change. It
    fails if any value cannot be opened by one of the keys.
-5. Run `dexa-fix db rekey`. In a single transaction it re-encrypts the e-mail
+5. Run `dexafix db rekey`. In a single transaction it re-encrypts the e-mail
    addresses, integrations, server settings (including the cookie key),
    sign-in provider secrets, two-step verification secrets, and the scale
    readings and DEXA scans with the current key, recomputes the e-mail lookup hashes (they derive from the key) and

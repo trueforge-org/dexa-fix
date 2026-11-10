@@ -18,14 +18,14 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
+	"github.com/trueforge-org/dexafix/pkg/frontend"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
 )
 
 // Server is the application as one process. Names that both halves have are defined here, so they

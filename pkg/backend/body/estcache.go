@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 // The body service owns this cache: it computes the estimates and sees every write to the data.

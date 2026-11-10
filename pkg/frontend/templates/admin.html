@@ -26,7 +26,7 @@
     <div><dt>Workers</dt><dd><a href="/admin/workers">Settings, queue and priorities</a></dd></div>
     <div><dt>Health</dt><dd><a href="/admin/status">Status of every part</a></dd></div>
   </dl>
-  {{if .Key.Rekey}}<p class="notice" role="status">The database is still encrypted with a previous key. Stop the server and run <code>dexa-fix db rekey</code>; see <a href="/docs#encryption">Rotating the key</a>.</p>
+  {{if .Key.Rekey}}<p class="notice" role="status">The database is still encrypted with a previous key. Stop the server and run <code>dexafix db rekey</code>; see <a href="/docs#encryption">Rotating the key</a>.</p>
   {{else if .Key.Due}}<p class="notice" role="status">The encryption key is {{.Key.AgeDays}} days old, past your reminder. Rotation is manual: see <a href="/docs#encryption">Rotating the key</a>.</p>{{end}}
 </section>
 
@@ -107,7 +107,7 @@
     <label>User name <input type="text" name="username" value="{{.SMTP.Username}}" autocomplete="off"><small>Empty sends without logging in.</small></label>
     <label>Password <input type="password" name="password" autocomplete="new-password" placeholder="{{if .SMTP.PasswordSaved}}saved: leave empty to keep it{{end}}"></label>
     {{if .SMTP.PasswordSaved}}<label class="check"><input type="checkbox" name="remove_password" value="1"> Remove the saved password</label>{{end}}
-    <label>Sender address <input type="text" name="from" value="{{.SMTP.From}}" placeholder="dexa-fix &lt;noreply@example.com&gt;" autocomplete="off" spellcheck="false"></label>
+    <label>Sender address <input type="text" name="from" value="{{.SMTP.From}}" placeholder="DexaFix &lt;noreply@example.com&gt;" autocomplete="off" spellcheck="false"></label>
     <div class="form-actions"><button type="submit">Save</button></div>
   </form>
   {{if .SMTP.Host}}<form method="post" action="/admin/smtp/test"><button type="submit" class="secondary">Send a test e-mail to me</button></form>{{end}}

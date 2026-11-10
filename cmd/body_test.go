@@ -14,11 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/mtls"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 func bodyFlags(t *testing.T, kv ...string) *cobra.Command {

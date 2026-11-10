@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 // The body service as a process of its own: the main backend on a database that has no scans or

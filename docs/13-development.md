@@ -37,13 +37,13 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/backend/... ./pkg/frontend
   files, the page handlers (`handlers_*.go`), the public listeners (plain, HTTPS
   and HTTP/3), the config poller and the request limiter. It has no database
   and asks the main backend for everything through `apiclient.Client`.
-- `pkg/backend/main/`: package `mainbackend`, the main backend (`dexa-fix serve
+- `pkg/backend/main/`: package `mainbackend`, the main backend (`dexafix serve
   api`). The store, the keys and every security decision: the internal API under
   `/internal/v1` (`internal*.go`), the public API (`api.go`), importers,
   and maintenance. It reaches the scale readings, DEXA scans and estimates only
   through `body.go`, a wrapper of the `bodyapi` client. `pkg/backend` is a plain
   parent folder with a service in each subfolder.
-- `pkg/backend/body/`: package `bodybackend`, the body service (`dexa-fix serve
+- `pkg/backend/body/`: package `bodybackend`, the body service (`dexafix serve
   body`, or inside the api process through `NewInProcess`): the readings and
   scans, the estimates and their cache (`estcache.go`) and the rules for
   importing readings. It knows nothing about people and trusts only the signed
@@ -76,7 +76,7 @@ the mailer or a sign-in library.
 - `pkg/store/`: the `Store` interface. `sqlstore/` implements it with bun for
   SQLite and Postgres. Its goose migrations live under `migrations/`.
 
-The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
+The layout and conventions follow trueforge-org/forgetool. `dexafix info`
 reuses its `pkg/info`.
 
 ## Guidance for AI coding agents
@@ -85,7 +85,7 @@ reuses its `pkg/info`.
 area of the code are in `.github/instructions/<area>.instructions.md`, with
 `applyTo:` (read by GitHub Copilot) and `paths:` (read by Claude Code)
 frontmatter. `.claude/rules/` holds a symlink to each of them, plus
-`dexa-fix.md` with the Claude-only rules, and `.github/copilot-instructions.md`
+`dexafix.md` with the Claude-only rules, and `.github/copilot-instructions.md`
 is a short summary. When you add an area, add its file, the symlink
 (`ln -s ../../.github/instructions/<area>.instructions.md .claude/rules/`) and
 a row in the table of `AGENTS.md`. `guidance_test.go` fails when the two path

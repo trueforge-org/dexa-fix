@@ -3,7 +3,7 @@ package apiclient
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/inproc"
+	"github.com/trueforge-org/dexafix/pkg/shared/inproc"
 )
 
 // InProcess returns a transport that runs requests against h in the same process, on a goroutine of

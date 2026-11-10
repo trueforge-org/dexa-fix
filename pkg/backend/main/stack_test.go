@@ -15,12 +15,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
+	"github.com/trueforge-org/dexafix/pkg/frontend"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
 )
 
 // The tests of the backend drive it through the pages too, so they need a whole stack: a Backend

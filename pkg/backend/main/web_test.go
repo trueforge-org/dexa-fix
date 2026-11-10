@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 func mustGet(t *testing.T, c *http.Client, u string) []byte {

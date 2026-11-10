@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // The generic HTTP hardening (security headers, body limits, compression, the failure limiter)
@@ -33,9 +35,22 @@ type StateStore interface {
 	NonceSeen(ctx context.Context, nonce string) (bool, error)
 }
 
-// StateServer is a StateStore on a server of its own, which can also be asked whether it answers.
+// SessionState holds the sessions on a server of its own (Valkey), in place of the sessions table.
+// It is what store.Store offers for sessions, except that it knows nothing about users: the backend
+// reads the user (name, role, whether they exist) from the database on every request.
+type SessionState interface {
+	CreateSession(ctx context.Context, tokenHash string, userID int64, method string, expires time.Time) error
+	GetSession(ctx context.Context, tokenHash string) (models.Session, error)
+	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteUserSessions(ctx context.Context, userID int64) error
+	CountSessions(ctx context.Context) (int64, error)
+}
+
+// StateServer is a StateStore and a SessionState on a server of its own, which can also be asked
+// whether it answers.
 type StateServer interface {
 	StateStore
+	SessionState
 	Ping(ctx context.Context) error
 }
 

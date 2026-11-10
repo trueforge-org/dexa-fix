@@ -1,5 +1,5 @@
 // Package builtin lists the workers that ship with the program, so the processes that run them
-// (dexa-fix serve worker, and the single-process mode) choose providers by name without knowing
+// (dexafix serve worker, and the single-process mode) choose providers by name without knowing
 // any of them. A new provider is one more line in providers.
 package builtin
 
@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/strengthlevel"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/withings"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
+	"github.com/trueforge-org/dexafix/pkg/workers/strengthlevel"
+	"github.com/trueforge-org/dexafix/pkg/workers/withings"
 )
 
 // Options are what tests change; production uses the zero value.

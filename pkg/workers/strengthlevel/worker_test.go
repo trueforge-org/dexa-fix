@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/runner"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/workers/runner"
 )
 
 var goodLogin = workerapi.Login{Email: "a@b.c", Password: "pw"}

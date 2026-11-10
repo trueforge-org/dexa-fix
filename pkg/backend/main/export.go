@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // exportFormatVersion is bumped when the shape of an export changes incompatibly.
@@ -155,7 +155,7 @@ func sendExport(w http.ResponseWriter, kind string, userID int64, v any) {
 	// The encoder marshals once and writes that buffer, so the file is not held twice (as
 	// MarshalIndent plus an appended newline would). Nothing is written if marshalling fails, so
 	// the error response below still goes out cleanly.
-	name := "dexa-fix-" + kind + "-user" + strconv.FormatInt(userID, 10) + "-" + time.Now().UTC().Format("2006-01-02") + ".json"
+	name := "dexafix-" + kind + "-user" + strconv.FormatInt(userID, 10) + "-" + time.Now().UTC().Format("2006-01-02") + ".json"
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Content-Disposition", `attachment; filename="`+name+`"`)

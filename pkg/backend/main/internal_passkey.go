@@ -15,9 +15,9 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The backend half of passkeys (WebAuthn). The ceremony state lives in a sealed cookie that is
@@ -59,7 +59,7 @@ func (s *Backend) relyingParty(r *http.Request) (*webauthn.WebAuthn, error) {
 		return nil, err
 	}
 	return webauthn.New(&webauthn.Config{
-		RPDisplayName: "dexa-fix", RPID: u.Hostname(), RPOrigins: []string{origin},
+		RPDisplayName: "DexaFix", RPID: u.Hostname(), RPOrigins: []string{origin},
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:        protocol.ResidentKeyRequirementRequired, // the passkey holds the account, so no e-mail is typed
 			RequireResidentKey: protocol.ResidentKeyRequired(),

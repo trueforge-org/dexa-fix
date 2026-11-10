@@ -14,7 +14,7 @@ import (
 
 // The health listener: a small extra listener that answers /healthz and /readyz and nothing else,
 // for a container health check. The images are `scratch` (no shell, no curl), so the check runs
-// `dexa-fix healthcheck <url>` in the same container. The listener is separate because the real
+// `dexafix healthcheck <url>` in the same container. The listener is separate because the real
 // listeners need a secret or a client certificate, and a health check should need neither.
 //
 //	/healthz  the process is up and answering
@@ -76,11 +76,11 @@ var healthcheckCmd = &cobra.Command{
 	Long: `Makes one GET request to URL and exits 0 if the answer is 2xx, and 1 otherwise. It is for the
 container health check, because the image has no shell and no curl:
 
-  healthcheck: {test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]}
+  healthcheck: {test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]}
 
 Start the process with --health-listen 127.0.0.1:8083. The web process needs no extra listener:
 check http://127.0.0.1:8080/readyz.`,
-	Example: `dexa-fix healthcheck http://127.0.0.1:8083/readyz`,
+	Example: `dexafix healthcheck http://127.0.0.1:8083/readyz`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		timeout, _ := cmd.Flags().GetDuration("timeout")

@@ -3,7 +3,7 @@ package bodybackend
 import (
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 func TestEstimateCacheEvictsAndKeepsNewerVersions(t *testing.T) {

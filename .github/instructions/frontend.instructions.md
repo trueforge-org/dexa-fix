@@ -7,7 +7,7 @@ description: "Rules for the web frontend process: no database access, everything
 
 # Frontend instructions
 
-These rules apply to `pkg/frontend/` (package `frontend`), the process started by `dexa-fix serve web`. They add to the general rules in [`AGENTS.md`](../../AGENTS.md). Templates and static files: [`frontend-templates.instructions.md`](frontend-templates.instructions.md).
+These rules apply to `pkg/frontend/` (package `frontend`), the process started by `dexafix serve web`. They add to the general rules in [`AGENTS.md`](../../AGENTS.md). Templates and static files: [`frontend-templates.instructions.md`](frontend-templates.instructions.md).
 
 ## What the frontend is
 

@@ -112,7 +112,7 @@ func TestEveryRuleIsLinkedForClaudeCode(t *testing.T) {
 	entries, _ := os.ReadDir(rulesDir)
 	for _, e := range entries {
 		if e.Type()&fs.ModeSymlink == 0 {
-			continue // a Claude-only rule such as dexa-fix.md
+			continue // a Claude-only rule such as dexafix.md
 		}
 		if _, err := os.Stat(filepath.Join(instructionsDir, e.Name())); err != nil {
 			t.Errorf("%s/%s links to a rule that does not exist", rulesDir, e.Name())
@@ -216,7 +216,7 @@ var mdLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
 // Relative links in the guidance must point to files that exist.
 func TestGuidanceLinksResolve(t *testing.T) {
-	docs := []string{"AGENTS.md", ".github/copilot-instructions.md", ".claude/rules/dexa-fix.md"}
+	docs := []string{"AGENTS.md", ".github/copilot-instructions.md", ".claude/rules/dexafix.md"}
 	rs, _ := filepath.Glob(filepath.Join(instructionsDir, "*.instructions.md"))
 	docs = append(docs, rs...)
 	for _, d := range docs {

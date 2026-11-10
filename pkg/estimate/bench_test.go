@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // syntheticHistory is n days of scale readings (weight, body fat %, bone mass, fat and fat-free

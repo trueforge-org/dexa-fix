@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	// HeaderToken carries the signed token for the user and scope of one call.
 	HeaderToken = "X-Dexafix-Body-Token"
 	// Audience is what a token must name, so a token made for another service is not accepted.
-	Audience = "dexa-fix body"
+	Audience = "DexaFix body"
 	// MaxTokenAge is the longest a token may live. The signer sets it; the verifier refuses more.
 	MaxTokenAge = 60 * time.Second
 )

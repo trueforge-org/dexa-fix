@@ -12,9 +12,9 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Internal endpoints for the rest of signing in: the second step, password reset and external
@@ -333,6 +333,12 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := hashPassword(in.Password)
 	if err != nil {
+		internalError(w, err)
+		return
+	}
+	// The reset signs the user out everywhere. The sessions table is emptied by CompletePasswordReset
+	// itself; in Valkey it is done here first, and the reset fails if it cannot be.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
 		internalError(w, err)
 		return
 	}

@@ -22,8 +22,8 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The tests drive the passkey endpoints with a software authenticator: an ES256 key on the P-256

@@ -11,9 +11,9 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
-	"github.com/trueforge-org/dexa-fix/pkg/store/valkeystate"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/valkeystate"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 // newValkeyServer builds the combined stack with the failed-attempt counters and the nonces in a

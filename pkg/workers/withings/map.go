@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // attribUnsure is Withings' "measurement may belong to someone else" attribution (e.g. a guest on the scale).

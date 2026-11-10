@@ -39,7 +39,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		return stats, fmt.Errorf("target: %w", err)
 	}
 	if sv != dv {
-		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexa-fix db migrate up` on both", sv, dv)
+		return stats, fmt.Errorf("schema versions differ (source %d, target %d): run `dexafix db migrate up` on both", sv, dv)
 	}
 	// The body domain goes along when both stores have it; a store opened WithoutBody has none.
 	withBody := src.BodyStore != nil && dst.BodyStore != nil

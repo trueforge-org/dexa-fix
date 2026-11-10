@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 )
 
 const dateLayout = "2006-01-02"

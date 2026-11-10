@@ -1,14 +1,14 @@
 # Running behind a reverse proxy
 
-dexa-fix speaks plain HTTP. For HTTPS, put a reverse proxy such as nginx, Caddy
-or Traefik in front of it, and bind dexa-fix to a private address so that
-nobody can bypass the proxy: `--listen 127.0.0.1:8080`. dexa-fix can also serve
+DexaFix speaks plain HTTP. For HTTPS, put a reverse proxy such as nginx, Caddy
+or Traefik in front of it, and bind DexaFix to a private address so that
+nobody can bypass the proxy: `--listen 127.0.0.1:8080`. DexaFix can also serve
 HTTPS itself, see [HTTPS, HTTP/2 and HTTP/3](#https-http2-and-http3).
 
 A proxy hides two things from the app: who the visitor is (every connection
 comes from the proxy) and whether they used HTTPS. The proxy passes both on in
 the `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers. Any
-visitor can send those headers too, so dexa-fix only believes them on
+visitor can send those headers too, so DexaFix only believes them on
 connections from the trusted proxies. From everyone else they are ignored, and
 a warning is logged once.
 
@@ -48,7 +48,7 @@ Without `X-Forwarded-For`, `X-Real-IP` is used.
 
 ## Examples
 
-Examples, assuming dexa-fix listens on `127.0.0.1:8080` on the same machine:
+Examples, assuming DexaFix listens on `127.0.0.1:8080` on the same machine:
 
 ```text
 # nginx
@@ -71,17 +71,17 @@ traefik.http.services.dexa.loadbalancer.server.port=8080
 ```
 
 On the Admin page, set **Trusted proxies** to `loopback` and **Base URL** to
-`https://dexa.example.com`, then start dexa-fix with:
+`https://dexa.example.com`, then start DexaFix with:
 
 ```sh
-dexa-fix serve --listen 127.0.0.1:8080
+dexafix serve --listen 127.0.0.1:8080
 ```
 
 In Docker, the proxy reaches the app from the network's bridge address, so use
 the network's range, or `private`. Only trust ranges that nothing but your
 proxies can send from.
 
-dexa-fix must be served from the root of its host. A sub-path such as
+DexaFix must be served from the root of its host. A sub-path such as
 `example.com/dexa/` is not supported. If you use Withings, the redirect URL on the Admin page
 has to be the public callback address, for example
 `https://dexa.example.com/integrations/withings/callback`.
@@ -123,7 +123,7 @@ backend dexa
 
 An AWS Network Load Balancer works at TCP level and adds no headers. Use a TCP
 listener on port 443, forward it to a target group on port 8443 (the HTTPS port
-of dexa-fix, with a certificate you upload on the Admin page), and turn on
+of DexaFix, with a certificate you upload on the Admin page), and turn on
 **Proxy protocol v2** for the target group. Trusted proxies must cover the
 addresses the load balancer connects from, for example your VPC range.
 
@@ -141,11 +141,11 @@ stream {
 }
 ```
 
-Here dexa-fix serves HTTPS on port 8443 and trusts `loopback`.
+Here DexaFix serves HTTPS on port 8443 and trusts `loopback`.
 
 ## HTTPS, HTTP/2 and HTTP/3
 
-dexa-fix can serve HTTPS itself. Behind a reverse proxy you usually leave this
+DexaFix can serve HTTPS itself. Behind a reverse proxy you usually leave this
 off and let the proxy terminate TLS. Plain HTTP stays on the `--listen` port,
 with HTTP/1.1 and cleartext HTTP/2 (h2c, with prior knowledge) for proxies that
 speak it to the backend.
@@ -153,7 +153,7 @@ speak it to the backend.
 Set it on the Admin page, under **HTTPS, HTTP/2 and HTTP/3**:
 
 - **Certificate**: either upload a PEM certificate chain and a PEM private key,
-  or let dexa-fix generate a self-signed certificate. An uploaded key is stored
+  or let DexaFix generate a self-signed certificate. An uploaded key is stored
   encrypted and is never shown again. Leave both fields empty to keep the saved
   certificate.
 - A **self-signed** certificate is ECDSA P-256, valid 365 days, and renewed
@@ -172,7 +172,7 @@ bind error.
 With Docker, publish both ports, and the UDP one for HTTP/3:
 
 ```bash
-docker run -p 8080:8080 -p 8443:8443 -p 8443:8443/udp -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:latest
+docker run -p 8080:8080 -p 8443:8443 -p 8443:8443/udp -v dexafix-data:/config ghcr.io/trueforge-org/dexafix:latest
 ```
 
 Browsers and apps trust a self-signed certificate only once you add it to their
@@ -184,7 +184,7 @@ for them, such as `https://dexa.example.com:8443`, and not the plain HTTP one.
 
 ## Behind a CDN or caching proxy
 
-Everything dexa-fix serves except `/static/` is personal: pages, exports, the JSON API and error pages. Every
+Everything DexaFix serves except `/static/` is personal: pages, exports, the JSON API and error pages. Every
 such response carries `Cache-Control: no-store`, `CDN-Cache-Control: no-store` and `Surrogate-Control: no-store`.
 The last two speak to CDNs such as Cloudflare, Fastly and Akamai directly. The one exception is the estimates
 endpoint of the API, which sends `Cache-Control: private, no-cache` with an ETag, so a browser may keep a copy
@@ -203,7 +203,7 @@ TTL* that overrides the origin would serve one visitor's page to another. To be 
 I have not tested this against a real CDN account; the headers and the test above are what the code does.
 
 For the visitor's address, add the CDN's address ranges to **Trusted proxies** (Cloudflare publishes its list at
-`https://www.cloudflare.com/ips/`). dexa-fix then walks `X-Forwarded-For` from the right, past every trusted proxy,
+`https://www.cloudflare.com/ips/`). DexaFix then walks `X-Forwarded-For` from the right, past every trusted proxy,
 and takes the first address nobody trusted. A visitor cannot make up their address that way, and a request that
 reaches the origin directly, not through the CDN, has its `X-Forwarded-*` headers ignored. Without the CDN's
 ranges in the list every visitor looks like the CDN, and the limit on failed sign-ins per address (60 in 15

@@ -6,10 +6,11 @@ cross-compile for linux/amd64, linux/arm64, darwin/arm64 and windows/amd64. It
 runs on pushes to `main`, on pull requests, when started by hand, and weekly on
 Monday. Coverage is reported to Codecov. Pushing a tag such as `v1.0.0` publishes
 a GitHub release (archives, checksums, a cosign signature, SBOMs, build
-provenance, a grouped changelog) and a multi-arch container image at
-`ghcr.io/trueforge-org/dexa-fix`. See [ci.md](ci.md) for the details,
-the secrets to configure and how to cut a release.
+provenance, a grouped changelog). The release does not build or publish a
+container image; `Dockerfile.ci` is for CI and automation. See [ci.md](ci.md)
+for the details, the secrets to configure and how to cut a release.
 
 ```bash
-docker run -p 8080:8080 -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:latest
+CGO_ENABLED=0 go build -trimpath -o dexafix . && docker build -f Dockerfile.ci -t dexafix .
+docker run -p 8080:8080 -v dexafix-data:/config DexaFix
 ```

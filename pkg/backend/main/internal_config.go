@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // frontendConfig describes the settings the frontend acts on. The private key is included because

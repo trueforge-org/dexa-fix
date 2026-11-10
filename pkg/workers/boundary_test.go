@@ -10,7 +10,7 @@ import (
 // through pkg/shared/workerapi. So they must not depend on the backend, the frontend, the store or
 // any database library. Test files do not count.
 func TestWorkersDoNotDependOnTheDatabaseOrEitherSide(t *testing.T) {
-	const module = "github.com/trueforge-org/dexa-fix/"
+	const module = "github.com/trueforge-org/dexafix/"
 	forbidden := []string{
 		module + "pkg/frontend", module + "pkg/backend", module + "pkg/app", module + "pkg/store",
 		"database/sql", "github.com/uptrace/bun", "github.com/jackc/pgx", "modernc.org/sqlite", "github.com/pressly/goose", "github.com/valkey-io",

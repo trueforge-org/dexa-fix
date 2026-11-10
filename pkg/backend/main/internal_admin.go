@@ -12,12 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/mailer"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/bodyapi"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/rs/zerolog/log"
+
+	"github.com/trueforge-org/dexafix/pkg/mailer"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The backend half of the Admin pages. Every endpoint is behind internalAdmin: an administrator who
@@ -122,7 +124,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		Status: apiclient.AdminStatus{
 			Driver: stats.Driver, Encrypted: stats.Encrypted, SchemaVersion: stats.SchemaVersion, Users: stats.Users,
 			Admins: stats.Admins, DexaScans: body.DexaScans, ScaleReadings: body.ScaleReadings, BodyUnavailable: bodyDown,
-			Sessions: stats.Sessions, AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
+			Sessions: s.liveSessions(ctx, stats.Sessions), AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
 		},
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
 		Withings: s.adminWithingsView(r), Key: s.keyView(stats), Require2FA: s.twoFactorPolicy(ctx),
@@ -330,11 +332,12 @@ func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ctx := r.Context()
-	if err := s.setPassword(ctx, t.ID, in.Password); err != nil {
+	// The sessions end first, so the password is never set while the old sessions could be used.
+	if err := s.sessions.DeleteUserSessions(ctx, t.ID); err != nil {
 		internalError(w, err)
 		return
 	}
-	if err := s.store.DeleteUserSessions(ctx, t.ID); err != nil {
+	if err := s.setPassword(ctx, t.ID, in.Password); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -361,6 +364,11 @@ func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request
 	case err != nil:
 		internalError(w, err)
 	default:
+		// With the sessions table the foreign key ended them already. In Valkey they are ended here; if
+		// that fails they are dead anyway, because the user row they point to is gone.
+		if err := s.sessions.DeleteUserSessions(r.Context(), t.ID); err != nil {
+			log.Warn().Err(err).Int64("user", t.ID).Msg("could not end the sessions of a deleted user")
+		}
 		s.deleteBodyData(r.Context(), t.ID)
 		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
 		adminMsg(w, t.Name+" and their data were deleted.")
@@ -872,7 +880,7 @@ func (s *Backend) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
-	if err := m.Send(ctx, u.Email, "dexa-fix test e-mail", "This is a test e-mail from dexa-fix. E-mail is working.\n"); err != nil {
+	if err := m.Send(ctx, u.Email, "DexaFix test e-mail", "This is a test e-mail from DexaFix. E-mail is working.\n"); err != nil {
 		adminMsg(w, "Could not send the test e-mail: "+err.Error())
 		return
 	}

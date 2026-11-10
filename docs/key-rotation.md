@@ -6,7 +6,7 @@ implementing it. User-facing instructions are in [Encryption](08-encryption.md).
 ## Where we were
 
 Secrets in the database are encrypted with AES-256-GCM (see `pkg/store/sqlstore/crypto.go`). The key
-comes from `DEXAFIX_ENCRYPTION_KEY`, or from a file (`--encryption-key-file`, default `dexa-fix.key`
+comes from `DEXAFIX_ENCRYPTION_KEY`, or from a file (`--encryption-key-file`, default `dexafix.key`
 in the working directory) that `serve` creates with mode 0600 when it is missing.
 
 Encrypted: user e-mail addresses, integration data (provider tokens, the Strength Level login),
@@ -14,7 +14,7 @@ server settings (the cookie key and other secrets), the client secrets of sign-i
 two-step verification secrets (context `totp:<user id>`) and, since the body data was split off, the
 values and notes of scale readings and DEXA scans (context `scale:<user id>:<row_uid>` or
 `dexa:<user id>:<row_uid>`, under a body key derived from the master key with HKDF info
-`dexa-fix body master`). Recovery codes are hashed, not encrypted.
+`dexafix body master`). Recovery codes are hashed, not encrypted.
 The associated data ties a value to its row, so ciphertext copied to another row fails to open. A key
 derived from the master key (HKDF) produces the HMAC used to look users up by e-mail
 (`email_lookup`).
@@ -29,8 +29,8 @@ Problems this design solved:
 
 ## Key check
 
-- `app_settings` row `crypto.check` holds the HMAC-SHA256 of the label `dexa-fix key check v1` under
-  a key derived from the master key with HKDF (info `dexa-fix key check`), hex encoded. It reveals
+- `app_settings` row `crypto.check` holds the HMAC-SHA256 of the label `dexafix key check v1` under
+  a key derived from the master key with HKDF (info `dexafix key check`), hex encoded. It reveals
   nothing about the key and is not a ciphertext, so encryption and `rekey` skip that row.
 - On `Open` with a cipher (not with `WithoutMigrate`), `verifyKey` runs before existing values are
   encrypted:
@@ -53,7 +53,7 @@ Problems this design solved:
 ### Stored format
 
 `enc:v2:<kid>:<payload>`, with `kid` the first 8 hex characters of `SHA-256(master key)`. The AES
-key for v2 values is derived from the master key with HKDF-SHA256 (info `dexa-fix aes-256-gcm v2`),
+key for v2 values is derived from the master key with HKDF-SHA256 (info `dexafix aes-256-gcm v2`),
 so the master key is never used directly as a cipher key. `enc:v1:<payload>` (AES under the master
 key itself) stays readable: it carries no key id, so the current key is tried first, then each
 previous one. New values are always written as v2 under the current key. The cipher holds one
@@ -67,7 +67,7 @@ current key and any number of previous keys, looked up by id.
   supply keys that may still open old values. Like the current key they are never accepted as flag
   values. Both `serve` and `db rekey` take them.
 
-### `dexa-fix db rekey`
+### `dexafix db rekey`
 
 Stop the server, back up the database and key, make the new key current and list the old one as
 previous, then run `db rekey`. In one transaction (SQLite and Postgres alike) it

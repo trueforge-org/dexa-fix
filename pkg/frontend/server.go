@@ -13,10 +13,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 //go:embed templates static
@@ -147,7 +147,7 @@ func (s *Frontend) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, apiclient.ErrUnavailable):
 		log.Error().Err(err).Msg("backend request failed")
 		w.Header().Set("Retry-After", "5")
-		http.Error(w, "dexa-fix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
+		http.Error(w, "DexaFix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
 	case errors.As(err, &apiErr):
 		switch apiErr.Status {
 		case http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:

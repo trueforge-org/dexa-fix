@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
 
 const (

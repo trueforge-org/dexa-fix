@@ -12,7 +12,7 @@ import (
 // files do not count) may be a backend, the store, a worker, or a library for databases, OIDC or
 // WebAuthn.
 
-const module = "github.com/trueforge-org/dexa-fix/"
+const module = "github.com/trueforge-org/dexafix/"
 
 var forbidden = []string{
 	module + "pkg/backend", // every backend, including pkg/backend/main

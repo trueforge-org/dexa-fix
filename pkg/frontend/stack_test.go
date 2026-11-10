@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	bodybackend "github.com/trueforge-org/dexa-fix/pkg/backend/body"
-	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // The frontend has no database, so its tests that need a backend build one next to it: this is

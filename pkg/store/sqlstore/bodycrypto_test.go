@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // fillBody stores one reading and one scan, both with values and a note worth hiding.

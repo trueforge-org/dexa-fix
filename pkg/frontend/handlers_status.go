@@ -5,8 +5,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // The status page: the health of each part of the deployment. /status is the same for everybody
@@ -81,7 +81,7 @@ func (s *Frontend) statusPage(w http.ResponseWriter, r *http.Request) {
 	v := newStatusView(st, nil)
 	u := currentUser(r)
 	v.AdminLink = u != nil && u.IsAdmin()
-	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · dexa-fix", Tab: "status", User: u, Status: v})
+	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · DexaFix", Tab: "status", User: u, Status: v})
 }
 
 func (s *Frontend) adminStatusPage(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -92,5 +92,5 @@ func (s *Frontend) adminStatusPage(w http.ResponseWriter, r *http.Request, u mod
 	}
 	v := newStatusView(&d.Status, d.Notes)
 	v.Workers, v.Detail = d.Workers, true
-	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · dexa-fix", Tab: "admin", User: &u, Status: v})
+	s.render(w, "status.html", statusCode(v), pageData{Title: "Status · DexaFix", Tab: "admin", User: &u, Status: v})
 }

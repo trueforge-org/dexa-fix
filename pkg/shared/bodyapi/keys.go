@@ -46,11 +46,11 @@ func ParsePrivateKey(text string) (ed25519.PrivateKey, error) {
 	}
 	text, ok := strings.CutPrefix(lines[0], privateLabel)
 	if !ok {
-		return nil, errors.New("this is not a signing key (it should start with " + privateLabel + "): create one with `dexa-fix secrets body-token-key`")
+		return nil, errors.New("this is not a signing key (it should start with " + privateLabel + "): create one with `dexafix secrets body-token-key`")
 	}
 	seed, err := base64.StdEncoding.DecodeString(text)
 	if err != nil || len(seed) != ed25519.SeedSize {
-		return nil, errors.New("the signing key is damaged: create a new one with `dexa-fix secrets body-token-key`")
+		return nil, errors.New("the signing key is damaged: create a new one with `dexafix secrets body-token-key`")
 	}
 	return ed25519.NewKeyFromSeed(seed), nil
 }
@@ -60,15 +60,15 @@ func ParsePublicKeys(text string) ([]ed25519.PublicKey, error) {
 	var out []ed25519.PublicKey
 	for _, line := range keyLines(text) {
 		if strings.HasPrefix(line, privateLabel) {
-			return nil, errors.New("this is a PRIVATE key: the body service must hold the public key only, so it can check tokens but never make one (create it with `dexa-fix secrets body-token-public`)")
+			return nil, errors.New("this is a PRIVATE key: the body service must hold the public key only, so it can check tokens but never make one (create it with `dexafix secrets body-token-public`)")
 		}
 		rest, ok := strings.CutPrefix(line, publicLabel)
 		if !ok {
-			return nil, errors.New("this is not a public key (it should start with " + publicLabel + "): create one with `dexa-fix secrets body-token-public`")
+			return nil, errors.New("this is not a public key (it should start with " + publicLabel + "): create one with `dexafix secrets body-token-public`")
 		}
 		b, err := base64.StdEncoding.DecodeString(rest)
 		if err != nil || len(b) != ed25519.PublicKeySize {
-			return nil, errors.New("the public key is damaged: create a new one with `dexa-fix secrets body-token-public`")
+			return nil, errors.New("the public key is damaged: create a new one with `dexafix secrets body-token-public`")
 		}
 		out = append(out, ed25519.PublicKey(b))
 	}

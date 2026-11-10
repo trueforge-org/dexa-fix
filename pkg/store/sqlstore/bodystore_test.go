@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 func openBodyFile(t *testing.T, path string, opts ...Option) *BodyStore {

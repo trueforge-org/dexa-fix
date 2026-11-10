@@ -40,7 +40,7 @@ Sensitive columns (settings values, secrets, TOTP seeds, tokens) go through the 
 
 ## Settings and counters
 
-`PutSetting` and `DeleteSetting` bump the settings generation in the same transaction; processes compare `SettingsGeneration` to know when to reload. Shared state tables (`used_nonces`, `auth_failures`) are purged by the backend's maintenance loop (they stay empty when Valkey holds that state: `pkg/store/valkeystate` has the same methods with the same meaning, sliding-window counters as sorted sets and nonces as `SET NX PX`, and must keep them in step; the server needs `maxmemory-policy noeviction`); so are finished jobs (`worker_jobs`, after the retention an administrator set) and workers not seen for a day (`worker_instances`).
+`PutSetting` and `DeleteSetting` bump the settings generation in the same transaction; processes compare `SettingsGeneration` to know when to reload. Shared state tables (`used_nonces`, `auth_failures`) are purged by the backend's maintenance loop (they stay empty when Valkey holds that state, and so does `sessions`: `pkg/store/valkeystate` has the same methods with the same meaning, sliding-window counters as sorted sets, nonces as `SET NX PX` and sessions as a key with the session's life plus a per-user index, and must keep them in step; the server needs `maxmemory-policy noeviction`); so are finished jobs (`worker_jobs`, after the retention an administrator set) and workers not seen for a day (`worker_instances`).
 
 ## The job queue
 

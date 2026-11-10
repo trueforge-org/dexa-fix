@@ -3,7 +3,7 @@ package mainbackend
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // withingsView reports the Withings state for a user. Unlike oauthProvider it also returns a view

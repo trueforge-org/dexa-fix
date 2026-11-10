@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -93,7 +93,7 @@ func (s *Backend) checkReauth(r *http.Request, u models.User, recent bool) (ok b
 		if cerr != nil {
 			return false, http.StatusUnauthorized, "Sign in again to make this change.", nil
 		}
-		sess, serr := s.store.GetSession(ctx, hashToken(c.Value))
+		sess, serr := s.sessions.GetSession(ctx, hashToken(c.Value))
 		if errors.Is(serr, store.ErrNotFound) || (serr == nil && (sess.UserID != u.ID || time.Since(sess.CreatedAt) > reauthWindow)) {
 			return false, http.StatusUnauthorized, "Sign in again to make this change.", nil
 		}

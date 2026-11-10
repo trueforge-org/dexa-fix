@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/workers/builtin"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 // integrationBackend starts a backend with a configured Withings provider on a real connection and

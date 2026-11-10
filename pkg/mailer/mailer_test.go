@@ -229,7 +229,7 @@ func TestSendDelivers(t *testing.T) {
 	f := newFakeSMTP(t, false)
 	m := newLocalSender(t, f, Config{})
 
-	const subject = "Passwort zurücksetzen – dexa-fix"
+	const subject = "Passwort zurücksetzen – DexaFix"
 	const text = "Hallo Zoë,\n\nbitte zahle 5 € bis Montag. Der Kaffee im café ist gut.\n.Ein Punkt am Zeilenanfang\n\nBis bald.\n"
 	if err := m.Send(context.Background(), "alice@example.com", subject, text); err != nil {
 		t.Fatal(err)

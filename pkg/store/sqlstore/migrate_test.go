@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 func names(t *testing.T, dir string) []string {

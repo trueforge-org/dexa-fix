@@ -20,11 +20,11 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/jobs"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/timezones"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/jobs"
+	"github.com/trueforge-org/dexafix/pkg/shared/timezones"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
 
 // The frontend half on its own: a process with no database that renders pages from what the

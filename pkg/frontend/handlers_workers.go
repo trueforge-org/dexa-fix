@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // The workers section of the Admin page: the workers that are running, the settings of each kind
@@ -30,7 +30,7 @@ func (s *Frontend) adminWorkersHome(w http.ResponseWriter, r *http.Request, u mo
 		s.fail(w, err)
 		return
 	}
-	s.render(w, "adminworkers.html", http.StatusOK, pageData{Title: "Workers · dexa-fix", Tab: "admin", User: &u, Msg: flashParam(r), Workers: page})
+	s.render(w, "adminworkers.html", http.StatusOK, pageData{Title: "Workers · DexaFix", Tab: "admin", User: &u, Msg: flashParam(r), Workers: page})
 }
 
 // workersDone shows the backend's message on the workers page.

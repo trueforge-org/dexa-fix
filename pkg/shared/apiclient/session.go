@@ -3,7 +3,7 @@ package apiclient
 import (
 	"context"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // SessionCookie is the name of the cookie that holds the session. The browser sends it to the

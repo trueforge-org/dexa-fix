@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // BodyStore is the body domain: a user's scale readings and DEXA scans, and the counter of their
@@ -129,7 +129,7 @@ func (b *BodyStore) Migrate(ctx context.Context) ([]*goose.MigrationResult, erro
 		return nil, err
 	}
 	if latest := latestVersion(p); cur > latest {
-		return nil, fmt.Errorf("the body database schema version %d is newer than this binary supports (%d): upgrade dexa-fix", cur, latest)
+		return nil, fmt.Errorf("the body database schema version %d is newer than this binary supports (%d): upgrade DexaFix", cur, latest)
 	}
 	return p.Up(ctx)
 }
@@ -178,7 +178,7 @@ func firstEncryptedBody(ctx context.Context, db queryer) (value, sealCtx string,
 // errWrongBodyKey explains a body key that does not match the body data.
 const errWrongBodyKey = "the body encryption key does not match this database: the key file is missing, the wrong file, " +
 	"or a different key created the readings and scans. Restore the original key; to switch to a new key keep the " +
-	"old one as a previous key and run `dexa-fix db rekey` for the body data"
+	"old one as a previous key and run `dexafix db rekey` for the body data"
 
 // verifyKey makes sure the configured key belongs to this body data: it compares the check value in
 // body_meta, writes it on first use (only when no encrypted row exists that could belong to another
@@ -194,7 +194,7 @@ func (b *BodyStore) verifyKey(ctx context.Context) (write func() error, err erro
 			return nil, errors.New(errWrongBodyKey)
 		}
 		if e != b.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the readings and scans are still encrypted with a previous key: run `dexa-fix db rekey`")
+			log.Warn().Str("key", e.id).Msg("the readings and scans are still encrypted with a previous key: run `dexafix db rekey`")
 		}
 		return nil, nil
 	case !errors.Is(err, sql.ErrNoRows):
@@ -210,7 +210,7 @@ func (b *BodyStore) verifyKey(ctx context.Context) (write func() error, err erro
 			return nil, fmt.Errorf("%s (%w)", errWrongBodyKey, err)
 		}
 		if e != b.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the readings and scans are still encrypted with a previous key: run `dexa-fix db rekey`")
+			log.Warn().Str("key", e.id).Msg("the readings and scans are still encrypted with a previous key: run `dexafix db rekey`")
 			return nil, nil
 		}
 	}

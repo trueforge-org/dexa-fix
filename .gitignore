@@ -3,7 +3,7 @@
 *.db-wal
 *.db-shm
 *.key
-/dexa-fix
+/dexafix
 /dist/
 
 # browser captures can hold passwords and session cookies

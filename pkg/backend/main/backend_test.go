@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // slowStore blocks a page of DEXA scans (a public API call) until released.
@@ -157,7 +157,7 @@ func TestBackendPicksUpSettingsChangedByAnotherProcess(t *testing.T) {
 	b.StartSettingsPoll()
 	time.Sleep(50 * time.Millisecond)
 
-	// Another process (here: the store directly, like `dexa-fix settings reset-network`).
+	// Another process (here: the store directly, like `dexafix settings reset-network`).
 	if err := slow.Store.PutSetting(context.Background(), settingBaseURL, "https://other.example.com"); err != nil {
 		t.Fatal(err)
 	}

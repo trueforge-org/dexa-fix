@@ -30,7 +30,7 @@ const (
 	sealMFA             = "mfa"
 	mfaTTL              = 5 * time.Minute
 	maxMFAFail          = 5 // wrong codes per account within the failure window
-	defaultTOTPIssuer   = "dexa-fix"
+	defaultTOTPIssuer   = "DexaFix"
 	secondFactorMessage = "That code is not right. Try the next code, or use a recovery code."
 
 	passkeyCookie       = "dexafix_webauthn"

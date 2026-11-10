@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // With random user ids nothing may assume that the first user is 1: every page and API route is

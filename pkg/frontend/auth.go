@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 const sessionCookie = apiclient.SessionCookie
@@ -73,7 +73,7 @@ func (s *Frontend) renderLogin(w http.ResponseWriter, r *http.Request, errMsg st
 		s.fail(w, err)
 		return
 	}
-	s.render(w, "index.html", status, pageData{Title: "Sign in · dexa-fix", Error: errMsg, Login: &view})
+	s.render(w, "index.html", status, pageData{Title: "Sign in · DexaFix", Error: errMsg, Login: &view})
 }
 
 // signInOutcome continues after a step of signing in: to the page the backend named, or back to the
