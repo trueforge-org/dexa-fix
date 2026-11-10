@@ -87,8 +87,24 @@ database: the listen address, the database, the encryption key and
 
 - `LOGLEVEL` sets the log level: `trace`, `debug`, `info`, `warn`, `error`,
   `fatal` or `panic`. The default is `info`.
-- `DEBUG` turns off coloured console output when set to any value. It does not
-  change the log level.
+- `LOGFORMAT` sets the format of the log on stdout: `console` (the default,
+  readable lines) or `json` (one JSON object per line, for a log collector, with
+  `time`, `level`, `message` and, for `serve`, `service` and the fields of the
+  event).
+- Colour and the short time of day are used only when stdout is a terminal, so
+  `docker logs` and files stay plain. `NO_COLOR` (any value) or `DEBUG` (any
+  value) turns the colour off on a terminal too; neither changes the log level.
+
+Every process says which one it is. A line of `serve api` looks like this, and
+the combined `dexafix serve` has no prefix:
+
+```text
+2026-11-10T11:39:12Z INF api │ serving the backend db=postgres internal=:8081 public=
+```
+
+The banner (`DexaFix 1.2.3 · api`) goes to stderr, in the console format only, and
+a process logs `shutting down` and `stopped` when it is stopped by a signal. In
+the Compose file Docker keeps at most three files of 10 MB per container.
 
 Postgres example:
 

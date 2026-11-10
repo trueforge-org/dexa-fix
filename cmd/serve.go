@@ -286,6 +286,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
+			log.Info().Msg("shutting down")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			err := httpSrv.Shutdown(shutdownCtx)
@@ -293,6 +294,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
+			log.Info().Msg("stopped")
 			return nil
 		}
 	},

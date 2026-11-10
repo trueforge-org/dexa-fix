@@ -108,6 +108,14 @@ x-health: &health
 #   body    the estimates: CPU heavy, and it keeps up to 32 users' results in memory (about 160 MB at most)
 #   db      PostgreSQL, with up to 20 connections each from api and body
 #   valkey  holds at most 256 MB of data (--maxmemory), more while it rewrites its file
+# Logs go to stdout and Docker keeps them in a file per container, which by default is never rotated.
+# This keeps at most 3 files of 10 MB for each container (`docker compose logs` shows the last ones).
+# Set LOGFORMAT=json in a container's environment for one JSON object per line, for a log collector.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
 x-limits-oneshot: &limits-oneshot
   deploy:
     resources:
@@ -151,7 +159,7 @@ services:
   # cap_add is for that one run only: a process that is not root has no capabilities, so as 568:568
   # the two are of no use, and as root they are all it has (no other capability, no network).
   init:
-    <<: *limits-oneshot
+    <<: [*limits-oneshot, *logging]
     image: *image
     restart: "no"
     read_only: true
@@ -183,7 +191,7 @@ services:
       - secrets-valkey:/secrets/valkey
 
   db:
-    <<: *limits-db
+    <<: [*limits-db, *logging]
     image: ghcr.io/trueforge-org/postgresql:18@sha256:ebc55059b971628b4db5105c28558e53693709eb65879015701848052c0c2106
     restart: unless-stopped
     cap_drop: [ALL]
@@ -214,7 +222,7 @@ services:
   # files init made, so it also mends a start that failed half way. Only this container and the
   # database see the superuser's password.
   db-setup:
-    <<: *limits-oneshot
+    <<: [*limits-oneshot, *logging]
     image: *image
     restart: "no"
     read_only: true
@@ -235,7 +243,7 @@ services:
 
   # The failed sign-in counters, the single-use values and the sessions (see the top of this file).
   valkey:
-    <<: *limits-valkey
+    <<: [*limits-valkey, *logging]
     image: ghcr.io/trueforge-org/valkey:9@sha256:bc2f4df96ee1e33d95b44fc0ca1ab8d1c561e4f3e0c58eebbb108e939662a561
     restart: unless-stopped
     cap_drop: [ALL]
@@ -263,7 +271,7 @@ services:
       start_period: 10s
 
   api:
-    <<: [*hardened, *limits-api]
+    <<: [*hardened, *limits-api, *logging]
     image: *image
     # --listen= turns the public JSON API (/api/v1) off: the pages do not use it, and the less is
     # exposed the better. To offer it to scripts and apps, remove the flag, publish port 8080 of
@@ -315,7 +323,7 @@ services:
   # sees the schema "body" and nothing else. Only the api can reach it (network "bodylink"), and only
   # with the api's client certificate.
   body:
-    <<: [*hardened, *limits-body]
+    <<: [*hardened, *limits-body, *logging]
     image: *image
     command: ["serve", "body"]
     environment:
@@ -342,7 +350,7 @@ services:
     networks: [data, bodylink]
 
   web:
-    <<: [*hardened, *limits-web]
+    <<: [*hardened, *limits-web, *logging]
     image: *image
     command: ["serve", "web"]
     environment:
@@ -380,7 +388,7 @@ services:
   # Admin page, under Workers. The workers use the web container's client certificate: it proves the
   # link, and the worker secret proves the role.
   worker-withings:
-    <<: [*hardened, *limits-worker]
+    <<: [*hardened, *limits-worker, *logging]
     image: *image
     command: ["serve", "worker", "--providers", "withings"]
     environment: &worker-env
@@ -403,7 +411,7 @@ services:
     networks: [link, egress]
 
   worker-strengthlevel:
-    <<: [*hardened, *limits-worker]
+    <<: [*hardened, *limits-worker, *logging]
     image: *image
     command: ["serve", "worker", "--providers", "strengthlevel"]
     environment: *worker-env

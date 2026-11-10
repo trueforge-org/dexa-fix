@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -168,6 +169,7 @@ func (r *Runner) kinds() []string {
 	for k := range r.handlers {
 		out = append(out, k)
 	}
+	slices.Sort(out) // the same order every start: it is logged and sent to the backend
 	return out
 }
 

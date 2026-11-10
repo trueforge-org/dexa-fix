@@ -152,7 +152,10 @@ from the api process and apply without a restart.`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
-			return shutdown(httpSrv)
+			log.Info().Msg("shutting down")
+			err := shutdown(httpSrv)
+			log.Info().Msg("stopped")
+			return err
 		}
 	},
 }
@@ -334,8 +337,10 @@ API and another the internal one on the same database.`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
+			log.Info().Msg("shutting down")
 			err := shutdown(servers...)
 			srv.Close()
+			log.Info().Msg("stopped")
 			return err
 		}
 	},

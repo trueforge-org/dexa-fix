@@ -263,7 +263,10 @@ dexafix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/b
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
-			return shutdown(srv, health)
+			log.Info().Msg("shutting down")
+			err := shutdown(srv, health)
+			log.Info().Msg("stopped")
+			return err
 		}
 	},
 }

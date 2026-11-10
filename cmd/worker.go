@@ -58,10 +58,8 @@ job to exactly one.`,
 		if v, _ := cmd.Flags().GetString("providers"); v != "" {
 			names = strings.Split(v, ",")
 		}
-		for _, name := range []string{"DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY", "DEXAFIX_ENCRYPTION_KEY_FILE", "DEXAFIX_SERVICE_SECRET_FILE", "DEXAFIX_VALKEY_URL", "DEXAFIX_VALKEY_URL_FILE"} {
-			if os.Getenv(name) != "" {
-				log.Warn().Str("variable", name).Msg("ignored: a worker has no database, no keys and no service secret")
-			}
+		for _, name := range ignoredWorkerEnv(os.Getenv) {
+			log.Warn().Str("variable", name).Msg("ignored: a worker has no database, no keys and no service secret")
 		}
 		hc, secured, err := backendHTTPClient(cmd, backend)
 		if err != nil {
@@ -94,11 +92,34 @@ job to exactly one.`,
 			}
 		}()
 		log.Info().Str("backend", backend).Str("id", r.ID()).Int("concurrency", concurrency).Msg("running the worker")
+		go func() { // the worker stops by itself when ctx ends; this only says so as it begins
+			<-ctx.Done()
+			log.Info().Msg("shutting down")
+		}()
 		if err := r.Run(ctx); err != nil {
 			return fmt.Errorf("worker: %w", err)
 		}
+		log.Info().Msg("stopped")
 		return nil
 	},
+}
+
+// imageKeyFile is the key file the image (Dockerfile.ci) names by default, for the combined server. In
+// a worker container it is set too and points at nothing, so it is not worth a warning on every start.
+const imageKeyFile = "/config/dexafix.key"
+
+// ignoredWorkerEnv lists the variables that are set although a worker has no use for them: they hint
+// at a secret given to the wrong container.
+func ignoredWorkerEnv(getenv func(string) string) []string {
+	var out []string
+	for _, name := range []string{"DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY", "DEXAFIX_ENCRYPTION_KEY_FILE", "DEXAFIX_SERVICE_SECRET_FILE", "DEXAFIX_VALKEY_URL", "DEXAFIX_VALKEY_URL_FILE"} {
+		v := getenv(name)
+		if v == "" || (name == "DEXAFIX_ENCRYPTION_KEY_FILE" && v == imageKeyFile) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // workerReadyAge is how long a worker may go without an answer from the api process and still be

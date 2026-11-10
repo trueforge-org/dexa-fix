@@ -194,8 +194,10 @@ func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
 // WaitForBackend fetches the first configuration, retrying until the backend answers or timeout
 // passes, so a frontend started together with its backend does not give up too early.
 func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	started := time.Now()
+	deadline := started.Add(timeout)
 	delay := 250 * time.Millisecond
+	var lastSaid time.Time
 	for {
 		err := s.RefreshConfig(ctx)
 		if err == nil {
@@ -207,7 +209,11 @@ func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) er
 		if time.Now().Add(delay).After(deadline) {
 			return fmt.Errorf("the backend is not available: %w", err)
 		}
-		log.Info().Err(err).Msg("waiting for the backend")
+		// Say it once, then every ten seconds: the retries are quick at first and would fill the log.
+		if lastSaid.IsZero() || time.Since(lastSaid) >= waitingLogEvery {
+			log.Info().Err(err).Dur("waited", time.Since(started).Round(time.Second)).Msg("waiting for the backend")
+			lastSaid = time.Now()
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -216,6 +222,9 @@ func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) er
 		delay = min(delay*2, 5*time.Second)
 	}
 }
+
+// waitingLogEvery is how often WaitForBackend repeats that it is still waiting.
+const waitingLogEvery = 10 * time.Second
 
 // configPollInterval is how often the frontend asks whether the settings changed. The answer is a
 // cheap "not modified" in the normal case.
