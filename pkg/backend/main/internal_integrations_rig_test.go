@@ -42,17 +42,18 @@ func (f *flakyStore) DeleteIntegration(ctx context.Context, userID int64, provid
 // administrator ("root", id 1), reached the way the web process reaches it. A test plays the
 // worker itself, so that it decides how a job ends and when.
 type jobRig struct {
-	t      *testing.T
-	st     *sqlstore.Store
-	flaky  *flakyStore
-	b      *Backend
-	api    *apiclient.Client
-	worker *workerapi.Client
-	alice  context.Context // a request of alice's, for the apiclient
-	root   context.Context // a request of the administrator's
-	cookie string          // alice's session cookie, as "name=value"
-	pub    *httptest.Server
-	token  string // alice's access token for the public API
+	t       *testing.T
+	st      *sqlstore.Store
+	flaky   *flakyStore
+	b       *Backend
+	api     *apiclient.Client
+	worker  *workerapi.Client
+	alice   context.Context // a request of alice's, for the apiclient
+	root    context.Context // a request of the administrator's
+	cookie  string          // alice's session cookie, as "name=value"
+	pub     *httptest.Server
+	token   string // alice's access token for the public API
+	rootTok string // the administrator's, once asked for
 }
 
 func newJobRig(t *testing.T) *jobRig {
