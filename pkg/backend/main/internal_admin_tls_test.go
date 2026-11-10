@@ -1,6 +1,7 @@
 package mainbackend
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +12,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // certAndKey makes a certificate for localhost and its private key, both as PEM.
@@ -46,6 +49,11 @@ func TestAdminTLSChangesTellTheAdministratorWhatHappenedOrFailCleanly(t *testing
 		{name: "an uploaded certificate whose storing fails", setup: failing("PutSetting:" + settingTLSCert), path: "/admin/tls", form: upload},
 		{name: "an uploaded key whose storing fails", setup: failing("PutSetting:" + settingTLSKey), path: "/admin/tls", form: upload},
 		{name: "an uploaded certificate", path: "/admin/tls", form: upload, wantFlash: "HTTPS is on"},
+		{name: "keeping a stored certificate that is gone", setup: func(t *testing.T, e *adminEnv) {
+			if err := e.st.PutSetting(context.Background(), settingTLSMode, apiclient.TLSUpload); err != nil {
+				t.Fatal(err)
+			}
+		}, path: "/admin/tls", form: url.Values{"mode": {"upload"}}, wantFlash: "could not be used"},
 		{name: "a self-signed certificate with a name that has a space", path: "/admin/tls", form: formWith(self, "names", "bad name"), wantFlash: "host name or an IP address"},
 		{name: "a self-signed certificate when an old certificate cannot be removed", setup: failing("DeleteSetting:" + settingTLSCert), path: "/admin/tls", form: self},
 		{name: "a self-signed certificate when the key cannot be removed", setup: failing("DeleteSetting:" + settingTLSKey), path: "/admin/tls", form: self},

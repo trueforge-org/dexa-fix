@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -71,7 +72,11 @@ func (f *flakyStore) ListUsers(ctx context.Context) ([]models.User, error) {
 	if f.fails("ListUsers") {
 		return nil, errFlaky
 	}
-	return f.Store.ListUsers(ctx)
+	users, err := f.Store.ListUsers(ctx)
+	if f.fails("ListUsers:without-bob") { // bob was deleted a moment after the list was read
+		users = slices.DeleteFunc(users, func(u models.User) bool { return u.Name == "bob" })
+	}
+	return users, err
 }
 
 func (f *flakyStore) TwoFactorUsers(ctx context.Context) (map[int64]bool, error) {
