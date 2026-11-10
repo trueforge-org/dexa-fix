@@ -18,7 +18,7 @@
 - **Test (sqlite)** and **Test (postgres)**: `go test -race` with coverage. The Postgres run uses a
   service container and `DEXAFIX_TEST_POSTGRES_DSN`, so the Postgres migrations are exercised.
   Coverage goes to Codecov with the flags `unit` and `postgres`.
-- **govulncheck**: known vulnerabilities in dependencies and the standard library.
+- **govulncheck**: known vulnerabilities in dependencies and the standard library. The version is pinned in `GOVULNCHECK_VERSION` at the top of the workflow and must be kept current: an old release analyses newer Go code with an old copy of `golang.org/x/tools` and can crash at random (exit status 2, `panic: unexpected expr`) instead of reporting. A real finding exits with status 3.
 - **Build**: cross-compile for linux/amd64, linux/arm64, darwin/arm64, windows/amd64, plus
   `goreleaser check` and a snapshot release.
 
