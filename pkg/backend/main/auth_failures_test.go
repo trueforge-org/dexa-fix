@@ -81,9 +81,10 @@ func TestBasicCredentialsWaitForASlotAndGiveUpWhenTheClientDoes(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	rec := g.publicGet(ctx, path, basic("alice@example.com", testPassword))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("a client that gave up got %d", rec.Code)
+	req := httptest.NewRequest("GET", path, nil).WithContext(ctx)
+	req.SetBasicAuth("alice@example.com", testPassword)
+	if u, ok, err := g.b.authBasic(req); ok || err != nil || u.ID != 0 {
+		t.Fatalf("a client that gave up was authenticated: %+v %v %v", u, ok, err)
 	}
 }
 
