@@ -76,6 +76,7 @@ func TestBasicCredentialsWaitForASlotAndGiveUpWhenTheClientDoes(t *testing.T) {
 	old := bcryptWait
 	bcryptWait = time.Hour // the client must be what ends the wait
 	t.Cleanup(func() { bcryptWait = old })
+	g.b.ForcePasswordLogin = true // the setting is read with the request's context, which is cancelled below
 	for i := 0; i < cap(g.b.bcryptSlots); i++ {
 		g.b.bcryptSlots <- struct{}{}
 	}
