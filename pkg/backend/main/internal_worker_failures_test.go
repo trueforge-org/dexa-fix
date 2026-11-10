@@ -92,12 +92,43 @@ type flakyStore struct {
 	expireQueued   atomic.Bool
 	release        atomic.Bool
 	generation     atomic.Bool
+	userMissing    atomic.Bool
+	userBroken     atomic.Bool
+	jobBroken      atomic.Bool
+	completeLost   atomic.Bool
 	failedCalls    atomic.Int64
 	enqueueErr     error
 	lastFinishedEr error
 }
 
 func (f *flakyStore) Unwrap() store.Store { return f.Store }
+
+// CompleteJob reports a lost lease, as when the lease ran out between two calls, when a test asks for it.
+func (f *flakyStore) CompleteJob(ctx context.Context, id, hash string, c models.Completion, now time.Time) (models.Job, error) {
+	if f.completeLost.Load() {
+		return models.Job{}, store.ErrLeaseLost
+	}
+	return f.Store.CompleteJob(ctx, id, hash, c, now)
+}
+
+// GetJob fails when a test asks for it.
+func (f *flakyStore) GetJob(ctx context.Context, id string) (models.Job, error) {
+	if f.jobBroken.Load() {
+		return models.Job{}, errFlaky
+	}
+	return f.Store.GetJob(ctx, id)
+}
+
+// GetUser answers "no such user" or fails, when a test asks for it.
+func (f *flakyStore) GetUser(ctx context.Context, id int64) (models.User, error) {
+	if f.userMissing.Load() {
+		return models.User{}, store.ErrNotFound
+	}
+	if f.userBroken.Load() {
+		return models.User{}, errFlaky
+	}
+	return f.Store.GetUser(ctx, id)
+}
 
 var errFlaky = errors.New("the store failed on purpose")
 
