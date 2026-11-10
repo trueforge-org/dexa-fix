@@ -17,7 +17,7 @@ These are the instructions for AI coding agents working in the DexaFix repositor
 | `cmd/**`, `main.go`, `pkg/app/**` (flags, processes) | [`process-wiring.instructions.md`](.github/instructions/process-wiring.instructions.md) |
 | `pkg/estimate`, `pkg/mailer`, `pkg/models` | [`domain-libraries.instructions.md`](.github/instructions/domain-libraries.instructions.md) |
 | `pkg/workers/**` (workers for Withings, Strength Level, ...) | [`workers.instructions.md`](.github/instructions/workers.instructions.md), and [`shared.instructions.md`](.github/instructions/shared.instructions.md) for the contract `pkg/shared/workerapi` |
-| any `*_test.go` | [`tests.instructions.md`](.github/instructions/tests.instructions.md) |
+| any `*.go` (coverage) and every `*_test.go` | [`tests.instructions.md`](.github/instructions/tests.instructions.md) |
 | `docs/**`, `README.md` | [`docs.instructions.md`](.github/instructions/docs.instructions.md) |
 | `deploy/**`, `Dockerfile.ci` | [`deploy.instructions.md`](.github/instructions/deploy.instructions.md) |
 | `.github/workflows/**`, `.goreleaser.yaml`, `codecov.yml` | [`ci-release.instructions.md`](.github/instructions/ci-release.instructions.md) |
@@ -101,6 +101,6 @@ DEXAFIX_TEST_SPLIT=1 go test -race -count=1 ./pkg/backend/... ./pkg/frontend   #
 
 1. `gofmt -l .` is empty; `go build ./... && go vet ./...` pass.
 2. `go test -race -count=1 ./...` passes, and the split mode and PostgreSQL runs pass when you touched the store, the internal API or the frontend.
-3. New behaviour has tests next to it, at the level where it can fail: unit test, backend flow test, and a split test when it crosses the process boundary.
+3. New and changed code has tests next to it, at the level where it can fail: unit test, backend flow test, and a split test when it crosses the process boundary. The merged coverage of the test modes stays at 100% of statements; [`tests.instructions.md`](.github/instructions/tests.instructions.md) says how to measure it and how to cover an error branch.
 4. Docs and the in-app docs are updated; user-visible strings are unchanged unless the task changes them.
 5. No new dependency from the frontend or `pkg/shared` on forbidden packages (the boundary tests say so).

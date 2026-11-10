@@ -25,6 +25,7 @@ DexaFix is one Go binary that corrects smart-scale readings with DEXA scans. It 
 - No migration files before 1.0: edit `00001_init.sql` for both SQLite and PostgreSQL, in step.
 - Keep user-visible strings and status codes. Keep `docs/` and the in-app `docs.html` true.
 - Do not weaken a test to make it pass.
+- Keep the merged coverage of the test modes at 100% of statements: new and changed code comes with tests in the same commit, and error branches are covered by making the real thing fail (see `tests.instructions.md`).
 
 ## Validate
 
