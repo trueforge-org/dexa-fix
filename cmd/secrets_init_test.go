@@ -353,22 +353,37 @@ func TestSecretsInitExplainsWhenRootIsNeeded(t *testing.T) {
 	}
 }
 
-// For real, where the file system can say no: a folder that init may not write to.
+// For real, where the file system can say no: a folder init has to make inside one it may not write
+// to. (A folder it owns it can always make writable again, so that is not a case for root.)
 func TestSecretsInitStopsWithAdviceInAFolderItMayNotWrite(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root may write anywhere")
 	}
-	o, dirs := testInit(t)
-	if err := os.MkdirAll(dirs["host"], 0o700); err != nil {
+	o, _ := testInit(t)
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o500); err != nil { // there, but nobody can make anything in it
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dirs["host"], 0o500); err != nil { // present, but not writable
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+	o.hostDir = filepath.Join(locked, "host")
+	err := o.run()
+	if err == nil || !strings.Contains(err.Error(), "--user 0:0") || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("want the permission error with the advice, got %v", err)
+	}
+}
+
+// A folder it owns, init makes writable again by itself: no root needed for that.
+func TestSecretsInitRepairsTheModeOfAFolderItOwns(t *testing.T) {
+	o, dirs := testInit(t)
+	if err := os.MkdirAll(dirs["host"], 0o500); err != nil { // read-only, but ours
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(dirs["host"], 0o700) })
-	err := o.run()
-	if err == nil || !strings.Contains(err.Error(), "--user 0:0") {
-		t.Fatalf("want the advice, got %v", err)
+	if err := o.run(); err != nil {
+		t.Fatalf("the owner of the folder can make it writable: %v", err)
+	}
+	if fi, _ := os.Stat(dirs["host"]); fi.Mode().Perm() != 0o700 {
+		t.Errorf("host directory mode %v", fi.Mode().Perm())
 	}
 }
 
