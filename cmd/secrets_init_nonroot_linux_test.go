@@ -26,6 +26,16 @@ func becomeUser(t *testing.T, uid int) {
 	})
 }
 
+// reachable lets every user walk down to dir.
+func reachable(t *testing.T, dir string) {
+	t.Helper()
+	for p := filepath.Dir(dir); strings.HasPrefix(p, os.TempDir()) && p != os.TempDir(); p = filepath.Dir(p) {
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // Init as the ordinary user of the containers, in a folder that belongs to root: it may not change
 // the mode of it, and says what to do instead of "operation not permitted".
 func TestSecretsInitAsAnotherUserStopsWithAdviceInAFolderOfRoot(t *testing.T) {
@@ -33,9 +43,10 @@ func TestSecretsInitAsAnotherUserStopsWithAdviceInAFolderOfRoot(t *testing.T) {
 	if err := os.MkdirAll(dirs["host"], 0o755); err != nil {
 		t.Fatal(err)
 	}
+	reachable(t, dirs["host"])
 	becomeUser(t, 65534)
 	err := o.run()
-	if err == nil || !strings.Contains(err.Error(), "--user 0:0") {
+	if err == nil || !strings.Contains(err.Error(), "--user 0:0") || !strings.Contains(err.Error(), "chmod") {
 		t.Fatalf("want the advice to run init as root once, got %v", err)
 	}
 }
@@ -51,10 +62,11 @@ func TestSecretsInitAsAnotherUserCannotGiveFilesAway(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	reachable(t, dirs["host"])
 	o.uid, o.gid = 12345, 12345
 	becomeUser(t, 65534)
 	err := o.run()
-	if err == nil || !strings.Contains(err.Error(), "give") || !strings.Contains(err.Error(), "--user 0:0") {
+	if err == nil || !strings.Contains(err.Error(), "give db_admin_password to 12345:12345") || !strings.Contains(err.Error(), "--user 0:0") {
 		t.Fatalf("want the failure to give a file away, with the advice: %v", err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(dirs["host"])); len(entries) != 0 {
