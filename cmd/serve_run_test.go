@@ -40,6 +40,8 @@ func TestServeStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 			append([]string{"--db-driver", "oracle"}, sqliteArgs(t)[2:]...), "oracle"},
 		"a database that was not migrated and may not be": {
 			append([]string{"--auto-migrate=false"}, sqliteArgs(t)...), "migrat"},
+		"a database whose settings table is gone": {
+			databaseWithoutSettings(t), "settings"},
 		"an address that is taken": {
 			append([]string{"--listen", takeAddr(t)}, sqliteArgs(t)...), "address already in use"},
 	}
@@ -59,8 +61,11 @@ func TestServeAPIRunsUntilItIsStopped(t *testing.T) {
 	service := writeSecretFile(t, strings.Repeat("s", 40)+"\n")
 	worker := writeSecretFile(t, strings.Repeat("w", 40)+"\n")
 	health := freeAddr(t)
+	mtlsDir := makeSet(t)
 	args := append([]string{"serve", "api", "--listen", freeAddr(t), "--internal-listen", freeAddr(t),
 		"--service-secret-file", service, "--worker-secret-file", worker, "--health-listen", health,
+		"--internal-tls-cert-file", filepath.Join(mtlsDir, "api.pem"), "--internal-tls-key-file", filepath.Join(mtlsDir, "api.key"),
+		"--internal-tls-client-ca-file", filepath.Join(mtlsDir, "ca.pem"),
 		"--maintenance=false", "--force-password-login"}, sqliteArgs(t)...)
 	if err := runUntilServing(t, "http://"+health+"/readyz", args...); err != nil {
 		t.Fatalf("a stopped api process must end without an error: %v", err)
@@ -102,6 +107,11 @@ func TestServeAPIStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 			[]string{"--service-secret-file", service, "--worker-secret-file", service}, "service"},
 		"a body url without its secret": {
 			[]string{"--service-secret-file", service, "--body-url", "http://127.0.0.1:1"}, "body-secret-file"},
+		"internal TLS files that cannot be read": {
+			[]string{"--service-secret-file", service, "--internal-tls-cert-file", missing, "--internal-tls-key-file", missing, "--internal-tls-client-ca-file", missing},
+			"internal TLS"},
+		"a database whose settings table is gone": {
+			append([]string{"--service-secret-file", service}, databaseWithoutSettings(t)...), "settings"},
 		"a password in the connection string": {
 			[]string{"--service-secret-file", service, "--dsn", "postgres://u:hunter2hunter2@localhost/x"}, "contains a password"},
 		"an encryption key file in a folder that does not exist": {
@@ -150,6 +160,7 @@ func TestServeWebRunsUntilItIsStopped(t *testing.T) {
 func TestServeWebStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 	backend, service, worker := testBackend(t)
 	secret := writeSecretFile(t, service+"\n")
+	missing := filepath.Join(t.TempDir(), "missing")
 	cases := map[string]struct {
 		args []string
 		want string
@@ -158,6 +169,11 @@ func TestServeWebStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 			[]string{"--backend-url", "api", "--service-secret-file", secret}, "--backend-url"},
 		"an https backend without mutual TLS": {
 			[]string{"--backend-url", "https://api:8081", "--service-secret-file", secret}, "mutual TLS"},
+		"a backend address with a scheme nobody serves": {
+			[]string{"--backend-url", "ftp://api:8081", "--service-secret-file", secret}, "backend URL"},
+		"mutual TLS files that cannot be read": {
+			[]string{"--backend-url", "https://api:8081", "--service-secret-file", secret, "--backend-ca-file", missing,
+				"--backend-client-cert-file", missing, "--backend-client-key-file", missing}, "mutual TLS to the backend"},
 		"an upstream that is not an address": {
 			[]string{"--backend-url", backend.URL, "--service-secret-file", secret, "--api-upstream", "api:8080"}, "--api-upstream"},
 		"the secret of the workers instead of the service secret": {
@@ -195,7 +211,7 @@ func TestServeWorkerRunsUntilItIsStopped(t *testing.T) {
 	backend, _, worker := testBackend(t)
 	secret := writeSecretFile(t, worker+"\n")
 	health := freeAddr(t)
-	err := runUntilServing(t, "http://"+health+"/healthz", "serve", "worker", "--backend-url", backend.URL,
+	err := runUntilServing(t, "http://"+health+"/readyz", "serve", "worker", "--backend-url", backend.URL,
 		"--worker-secret-file", secret, "--providers", "withings", "--worker-id", "test-worker", "--health-listen", health)
 	if err != nil {
 		t.Fatalf("a stopped worker must end without an error: %v", err)
@@ -216,6 +232,16 @@ func TestServeWorkerStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 	}{
 		"a backend address that is not an address": {
 			[]string{"--backend-url", "api", "--worker-secret-file", secret}, "--backend-url"},
+		"no backend address": {
+			[]string{"--worker-secret-file", secret}, "--backend-url"},
+		"a worker secret file that does not exist": {
+			[]string{"--backend-url", backend.URL, "--worker-secret-file", filepath.Join(t.TempDir(), "missing")}, "worker secret"},
+		"no jobs at once": {
+			[]string{"--backend-url", backend.URL, "--worker-secret-file", secret, "--concurrency", "0"}, "--concurrency"},
+		"too many jobs at once": {
+			[]string{"--backend-url", backend.URL, "--worker-secret-file", secret, "--concurrency", "65"}, "--concurrency"},
+		"a backend address with a scheme nobody serves": {
+			[]string{"--backend-url", "ftp://api:8081", "--worker-secret-file", secret}, "backend URL"},
 		"a provider that does not exist": {
 			[]string{"--backend-url", backend.URL, "--worker-secret-file", secret, "--providers", "nosuch"}, "nosuch"},
 		"a pprof listener that is not on loopback": {

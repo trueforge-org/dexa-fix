@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trueforge-org/dexafix/pkg/app"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
@@ -178,7 +179,7 @@ func loadCipherFor(ctx context.Context, cmd *cobra.Command, driver, dsn string, 
 	if err != nil {
 		return nil, err
 	}
-	return sqlstore.NewCipher(key, previous...)
+	return must.Value(sqlstore.NewCipher(key, previous...)), nil // cannot fail: every key was parsed above
 }
 
 func envOr(key, def string) string {

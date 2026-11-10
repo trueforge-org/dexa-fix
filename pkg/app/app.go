@@ -22,6 +22,7 @@ import (
 	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
 	"github.com/trueforge-org/dexafix/pkg/frontend"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 	"github.com/trueforge-org/dexafix/pkg/store"
 	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
@@ -55,10 +56,7 @@ func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 	if !ok {
 		return nil, errors.New("the combined server needs a store that holds the scans and readings too")
 	}
-	bodyClient, bodySvc, err := bodybackend.NewInProcess(bodyStore)
-	if err != nil {
-		return nil, err
-	}
+	bodyClient, bodySvc := must.Value2(bodybackend.NewInProcess(bodyStore)) // cannot fail: a store, a secret and a key of its own
 	b, err := mainbackend.NewBackend(st, mainbackend.WithBody(bodyClient))
 	if err != nil {
 		return nil, err
@@ -68,16 +66,9 @@ func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 	b.SetServiceSecrets(secret)
 	workerSecret := randomHex(32)
 	b.SetWorkerSecrets(workerSecret)
-	client, err := apiclient.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret)
-	if err != nil {
-		b.Close()
-		return nil, err
-	}
-	f, err := frontend.NewFrontend(client)
-	if err != nil {
-		b.Close()
-		return nil, err
-	}
+	// Neither call can fail: the address is fixed and valid, and the templates are built into the binary.
+	client := must.Value(apiclient.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret))
+	f := must.Value(frontend.NewFrontend(client))
 	f.DisableLimits()
 	f.SetAPIHandler(b.APIHandler())
 	if err := f.RefreshConfig(context.Background()); err != nil {
@@ -91,35 +82,24 @@ func NewWithWorkers(st store.Store, wo builtin.Options) (*Server, error) {
 			log.Error().Err(err).Msg("could not pass the changed settings to the frontend")
 		}
 	})
-	stop, err := startEmbeddedWorkers(b, workerSecret, wo)
-	if err != nil {
-		f.Close()
-		b.Close()
-		return nil, err
-	}
+	stop := startEmbeddedWorkers(b, workerSecret, wo)
 	return &Server{Frontend: f, Backend: b, body: bodySvc, stopWorkers: stop}, nil
 }
 
 // startEmbeddedWorkers runs the built-in workers inside this process, talking to the backend over
 // the in-process transport. It returns a function that stops them and waits.
-func startEmbeddedWorkers(b *mainbackend.Backend, secret string, wo builtin.Options) (stop func(), err error) {
-	wc, err := workerapi.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret)
-	if err != nil {
-		return nil, err
-	}
+func startEmbeddedWorkers(b *mainbackend.Backend, secret string, wo builtin.Options) (stop func()) {
+	// None of this can fail: the address is fixed and valid, and every built-in provider is known.
+	wc := must.Value(workerapi.New("http://backend.internal", &http.Client{Transport: apiclient.InProcess(b.InternalHandler())}, secret))
 	r := runner.New(wc, runner.Options{ID: "embedded", Concurrency: 2, ConfigEvery: 5 * time.Second})
-	if err := builtin.Register(r, nil, wo); err != nil {
-		return nil, err
-	}
+	must.Do(builtin.Register(r, nil, wo))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := r.Run(ctx); err != nil {
-			log.Error().Err(err).Msg("the embedded workers stopped")
-		}
+		must.Do(r.Run(ctx)) // fails only for no handlers or a refused secret, and neither is possible here
 	}()
-	return func() { cancel(); <-done }, nil
+	return func() { cancel(); <-done }
 }
 
 // SetVersion sets the version both halves report.

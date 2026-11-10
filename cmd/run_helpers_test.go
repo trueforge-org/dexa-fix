@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -134,21 +135,21 @@ func captureLog(t *testing.T) *lockedBuffer {
 	return buf
 }
 
-// runUntilServing runs a serving command until url answers 200, then cancels it, as a signal would,
-// and returns how the command ended.
-func runUntilServing(t *testing.T, url string, args ...string) error {
+// serveInBackground starts a serving command and waits until url answers 200. It returns a function
+// that ends the command as a signal would, and the channel that receives how the command ended.
+func serveInBackground(t *testing.T, url string, args ...string) (stop context.CancelFunc, done <-chan error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
+	t.Cleanup(cancel)
+	ended := make(chan error, 1)
 	go func() {
 		_, _, err := execute(t, ctx, args...)
-		done <- err
+		ended <- err
 	}()
 	deadline := time.Now().Add(20 * time.Second)
 	for served := false; !served; {
 		select {
-		case err := <-done:
+		case err := <-ended:
 			t.Fatalf("%v stopped before it served: %v", args[:2], err)
 		default:
 		}
@@ -164,14 +165,56 @@ func runUntilServing(t *testing.T, url string, args ...string) error {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	cancel()
+	return cancel, ended
+}
+
+// getStatus returns the status code and the body of a GET.
+func getStatus(t *testing.T, url string) (int, string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// waitEnded returns how a command ended, or fails the test when it does not end.
+func waitEnded(t *testing.T, done <-chan error) error {
+	t.Helper()
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(20 * time.Second):
-		t.Fatal("the command did not stop after its context ended")
+	case <-time.After(30 * time.Second):
+		t.Fatal("the command did not stop")
 		return nil
 	}
+}
+
+// runUntilServing runs a serving command until url answers 200, then cancels it, as a signal would,
+// and returns how the command ended.
+func runUntilServing(t *testing.T, url string, args ...string) error {
+	t.Helper()
+	stop, done := serveInBackground(t, url, args...)
+	stop()
+	return waitEnded(t, done)
+}
+
+// databaseWithoutSettings makes a migrated database whose settings table is gone, so that a backend
+// started on it cannot read its settings. It returns the database and key flags.
+func databaseWithoutSettings(t *testing.T) []string {
+	t.Helper()
+	args := sqliteArgs(t)
+	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, args[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.ExecForTests(context.Background(), "DROP TABLE app_settings"); err != nil {
+		t.Fatal(err)
+	}
+	return args
 }
 
 // cancelledContext is the context of a process that was told to stop before it began.

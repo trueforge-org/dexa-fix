@@ -20,6 +20,7 @@ import (
 	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
 	"github.com/trueforge-org/dexafix/pkg/frontend"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 	"github.com/trueforge-org/dexafix/pkg/store/valkeystate"
 )
@@ -264,10 +265,7 @@ API and another the internal one on the same database.`,
 		backendOpts := []mainbackend.Option{mainbackend.WithBody(bodyClt)}
 		if !remoteBody {
 			// No --body-url: this process runs the body service too, on the same database.
-			inProcess, bodySvc, err := bodybackend.NewInProcess(st)
-			if err != nil {
-				return err
-			}
+			inProcess, bodySvc := must.Value2(bodybackend.NewInProcess(st)) // cannot fail: a store, a secret and a key of its own
 			bodySvc.SetVersion(Version)
 			backendOpts = []mainbackend.Option{mainbackend.WithBody(inProcess)}
 		}
