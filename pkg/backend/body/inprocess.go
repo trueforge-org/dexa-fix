@@ -7,6 +7,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/shared/inproc"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -23,10 +24,8 @@ func NewInProcess(st store.BodyStore, opts ...Option) (*bodyapi.Client, *Service
 	if err != nil {
 		return nil, nil, err
 	}
-	c, err := bodyapi.New("http://body.internal", &http.Client{Transport: inproc.Transport(svc.Handler())}, secret, bodyapi.NewSigner(priv))
-	if err != nil {
-		return nil, nil, err
-	}
+	// The address is fixed and well formed, so the client cannot be refused.
+	c := must.Value(bodyapi.New("http://body.internal", &http.Client{Transport: inproc.Transport(svc.Handler())}, secret, bodyapi.NewSigner(priv)))
 	return c, svc, nil
 }
 
