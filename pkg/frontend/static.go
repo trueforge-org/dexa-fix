@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rs/zerolog/log"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // staticVersions maps every embedded static file to a short content hash.
@@ -18,11 +18,7 @@ func staticVersions(fsys fs.FS) map[string]string {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		b, err := fs.ReadFile(fsys, p)
-		if err != nil {
-			return nil
-		}
-		sum := sha256.Sum256(b)
+		sum := sha256.Sum256(must.Value(fs.ReadFile(fsys, p))) // a file that was just listed can be read
 		out[p] = hex.EncodeToString(sum[:])[:12]
 		return nil
 	})
@@ -59,9 +55,7 @@ func newCrossOriginProtection(base *url.URL) *http.CrossOriginProtection {
 	cop := http.NewCrossOriginProtection()
 	cop.AddInsecureBypassPattern("POST /auth/{provider}/callback")
 	if base != nil {
-		if err := cop.AddTrustedOrigin(base.Scheme + "://" + base.Host); err != nil {
-			log.Error().Err(err).Msg("base URL not accepted as a trusted origin")
-		}
+		must.Do(cop.AddTrustedOrigin(base.Scheme + "://" + base.Host)) // the base URL was checked by edge.ParseBaseURL
 	}
 	return cop
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -275,12 +276,8 @@ func fieldSeries(days []estimate.DayEstimate, key string, rangeDays int) []chart
 		return pts
 	}
 	cutoff := pts[len(pts)-1].date.AddDate(0, 0, -(rangeDays - 1))
-	for i, p := range pts {
-		if !p.date.Before(cutoff) {
-			return pts[i:]
-		}
-	}
-	return nil
+	// The newest point is never before the cutoff, so there is always one.
+	return pts[slices.IndexFunc(pts, func(p chartPoint) bool { return !p.date.Before(cutoff) }):]
 }
 
 func buildChart(pts []chartPoint, f estimate.Field, rangeDesc string) *chartView {

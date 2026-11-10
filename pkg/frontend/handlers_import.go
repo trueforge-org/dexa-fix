@@ -3,7 +3,6 @@ package frontend
 import (
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 )
@@ -60,12 +59,4 @@ func (s *Frontend) integrationPageRoutes(mux *http.ServeMux) {
 		}
 		flashRedirect(w, r, u.ID, f.Message)
 	}))
-}
-
-// label capitalises a provider name for display.
-func label(name string) string {
-	if name == "" {
-		return name
-	}
-	return strings.ToUpper(name[:1]) + name[1:]
 }
