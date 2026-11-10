@@ -3,7 +3,10 @@ package mainbackend
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -47,6 +50,9 @@ type jobRig struct {
 	worker *workerapi.Client
 	alice  context.Context // a request of alice's, for the apiclient
 	root   context.Context // a request of the administrator's
+	cookie string          // alice's session cookie, as "name=value"
+	pub    *httptest.Server
+	token  string // alice's access token for the public API
 }
 
 func newJobRig(t *testing.T) *jobRig {
@@ -85,6 +91,9 @@ func newJobRig(t *testing.T) *jobRig {
 		if err := st.CreateSession(ctx, hashToken(token), u.ID, "test", time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
+		if i == 1 {
+			r.cookie = sessionCookie + "=" + token
+		}
 		visit := apiclient.WithRequest(ctx, apiclient.Request{Cookie: sessionCookie + "=" + token, ClientIP: "203.0.113.7", Host: "dexa.example.com", Secure: true})
 		if i == 0 {
 			r.root = visit
@@ -92,7 +101,39 @@ func newJobRig(t *testing.T) *jobRig {
 			r.alice = visit
 		}
 	}
+	r.pub = httptest.NewServer(b.PublicHandler())
+	t.Cleanup(r.pub.Close)
+	r.token = "dxf_" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if err := st.CreateAccessToken(ctx, &models.AccessToken{UserID: 2, Name: "t", Prefix: "dxf_", Hash: hashToken(r.token)}); err != nil {
+		t.Fatal(err)
+	}
 	return r
+}
+
+// call makes a public API request as alice and returns the status, the body and the headers.
+func (r *jobRig) call(method, path, payload string) (int, string, http.Header) {
+	r.t.Helper()
+	req, err := http.NewRequest(method, r.pub.URL+"/api/v1/users/2"+path, strings.NewReader(payload))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+r.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b), resp.Header
+}
+
+// connectWithings sets up the Withings application and links alice to it.
+func (r *jobRig) connectWithings() {
+	r.t.Helper()
+	setWithingsApp(r.t, r.st)
+	if err := r.st.PutIntegration(context.Background(), 2, "withings", []byte(`{}`)); err != nil {
+		r.t.Fatal(err)
+	}
 }
 
 // allowStrengthLevel gives alice the administrator's permission to use Strength Level.

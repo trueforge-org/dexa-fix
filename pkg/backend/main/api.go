@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -150,10 +150,8 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 				badRequest(w, msg)
 				return
 			}
-			var hash string
-			if hash, err = hashPassword(in.Password); err == nil {
-				u, err = s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
-			}
+			hash := must.Value(hashPassword(in.Password)) // the password was just checked to fit bcrypt's limit
+			u, err = s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 		}
 		if err != nil {
 			apiError(w, err)
@@ -358,16 +356,4 @@ func pageOf(f store.ListFilter) bodyapi.Page {
 		p.Before = f.After.String()
 	}
 	return p
-}
-
-// etagMatches reports whether an If-None-Match header lists the tag (or is "*"). The comparison is
-// weak, as the spec requires for this header.
-func etagMatches(header, etag string) bool {
-	weak := func(s string) string { return strings.TrimPrefix(strings.TrimSpace(s), "W/") }
-	for _, candidate := range strings.Split(header, ",") {
-		if c := strings.TrimSpace(candidate); c == "*" || weak(c) == weak(etag) {
-			return true
-		}
-	}
-	return false
 }
