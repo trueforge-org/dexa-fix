@@ -80,7 +80,3 @@ project's sponsor page on [Open Collective](https://opencollective.com/dexafix)
 and, as a GitHub icon, the source code (which the AGPL asks a server to offer).
 Signed-in people see a short, dismissible reminder above the estimates that the
 project lives on support; closing it is remembered for 90 days in a cookie.
-
-The terms and the policy are the project's own texts for the software, written
-without legal review: an operator who runs a copy for other people should have
-them checked and adjust them for their situation.
