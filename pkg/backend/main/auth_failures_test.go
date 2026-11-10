@@ -62,7 +62,7 @@ func TestBasicCredentialsOnTheAPIAreRefusedWhenTheyShouldBe(t *testing.T) {
 	})
 	t.Run("an account whose two-step state cannot be read is refused", func(t *testing.T) {
 		breakTable(t, g.st, "user_totp")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		if rec := g.publicGet(ctx, path, good); rec.Code != http.StatusUnauthorized || !strings.Contains(logs.String(), "authentication failed") {
 			t.Fatalf("%d, log %s", rec.Code, logs)
 		}
@@ -144,7 +144,7 @@ func TestProviderIDTokensOnTheAPIAreCheckedAgainstTheirIssuer(t *testing.T) {
 		url := dead.URL
 		dead.Close()
 		g.addProvider(models.AuthProvider{Slug: "dead", Label: "Dead", Kind: models.ProviderKindOIDC, Issuer: url, ClientID: "c", ClientSecret: "s"})
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		if rec := g.publicGet(ctx, path, bearer(unsigned(url))); rec.Code != http.StatusUnauthorized || !strings.Contains(logs.String(), "authentication failed") {
 			t.Fatalf("%d, log %s", rec.Code, logs)
 		}
@@ -196,7 +196,7 @@ func TestSigningInFailsCleanlyWhenTheStoreLetsItDown(t *testing.T) {
 		g := newRig(t)
 		g.signUp("alice")
 		breakTable(t, g.st, "app_settings")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		rep := g.signIn("alice")
 		var out struct{ Error string }
 		rep.decode(t, &out)
@@ -259,7 +259,7 @@ func TestAnOldPasswordHashIsUpgradedAtSignInButNeverAtTheCostOfSigningIn(t *test
 	t.Run("when the upgrade cannot be saved the sign-in still works", func(t *testing.T) {
 		g, uid := setup(t)
 		rejectWritesOn(t, g.st, "user_identities", "INSERT", "UPDATE")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		if rep := g.signIn("alice"); rep.cookie(sessionCookie) == nil || !strings.Contains(logs.String(), "upgrade password hash") {
 			t.Fatalf("no session or no log, log %s", logs)
 		}

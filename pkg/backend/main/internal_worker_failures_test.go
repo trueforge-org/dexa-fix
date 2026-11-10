@@ -424,7 +424,7 @@ func TestTheWorkerEndpointsFailCleanlyWhenTheStoreLetsThemDown(t *testing.T) {
 	t.Run("the worker cannot be recorded, but the lease goes on", func(t *testing.T) {
 		f := newWorkerFixture(t)
 		breakTable(t, f.st, "worker_instances")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		code, _ := f.raw("POST", "/lease", nil, `{"worker":"w","kinds":["`+demoKind+`"]}`)
 		if code != http.StatusNoContent || !strings.Contains(logs.String(), "record the worker") {
 			t.Fatalf("%d, log %s", code, logs)
@@ -480,7 +480,7 @@ func TestAJobIsPreparedForAWorkerOrEndedHonestly(t *testing.T) {
 		})
 		f.flaky.release.Store(true)
 		f.queue(t, scriptKind, models.JobOriginUser)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		_, err := f.client.Lease(context.Background(), workerapi.LeaseRequest{Worker: "w1", Kinds: []string{scriptKind}})
 		if !errors.Is(err, apiclient.ErrUnavailable) || !strings.Contains(logs.String(), "could not give the job back") {
 			t.Fatalf("%v, log %s", err, logs)

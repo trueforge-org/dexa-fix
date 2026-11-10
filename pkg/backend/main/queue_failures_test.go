@@ -64,7 +64,7 @@ func TestTheQueueSweepReportsWhatItCannotDo(t *testing.T) {
 	t.Run("expired leases cannot be ended", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		breakTable(t, f.st, "worker_jobs")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		sweep(f)
 		if !strings.Contains(logs.String(), "end expired leases") {
 			t.Fatalf("log %s", logs)
@@ -73,7 +73,7 @@ func TestTheQueueSweepReportsWhatItCannotDo(t *testing.T) {
 	t.Run("queued jobs that waited too long cannot be expired", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		f.flaky.expireQueued.Store(true)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		sweep(f)
 		if !strings.Contains(logs.String(), "expire queued jobs") {
 			t.Fatalf("log %s", logs)
@@ -96,7 +96,7 @@ func TestANewAccountStillGetsCreatedWhenItsPriorityCannotBeSet(t *testing.T) {
 	if err := f.st.ExecForTests(context.Background(), "CREATE TRIGGER reject_priority BEFORE UPDATE OF job_priority ON users BEGIN SELECT RAISE(ABORT, 'the test broke the priority'); END"); err != nil {
 		t.Fatal(err)
 	}
-	logs := captureLog(t)
+	logs := captureSignInLog(t)
 	u, err := f.b.createUser(context.Background(), "dave")
 	if err != nil || u.JobPriority == 20 || !strings.Contains(logs.String(), "default job priority") {
 		t.Fatalf("user %+v, err %v, log %s", u, err, logs)

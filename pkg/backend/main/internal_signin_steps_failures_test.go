@@ -563,7 +563,7 @@ func TestTheForgottenPasswordMailIsSentOnlyWhereItCanWork(t *testing.T) {
 		g.signUp("alice")
 		enableSelfService(t, g.srv, fm)
 		breakTable(t, g.st, "users")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		g.b.sendResetFor("alice@example.com", base)
 		if !strings.Contains(logs.String(), "password reset lookup") || len(fm.all()) != 0 {
 			t.Fatalf("log %q, mails %d", logs.String(), len(fm.all()))
@@ -586,7 +586,7 @@ func TestTheForgottenPasswordMailIsSentOnlyWhereItCanWork(t *testing.T) {
 		g.signUp("alice")
 		enableSelfService(t, g.srv, fm)
 		breakTable(t, g.st, "password_resets")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		g.b.sendResetFor("alice@example.com", base)
 		if !strings.Contains(logs.String(), "password reset token") || len(fm.all()) != 0 {
 			t.Fatalf("log %q, mails %d", logs.String(), len(fm.all()))

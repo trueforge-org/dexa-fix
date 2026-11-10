@@ -340,7 +340,7 @@ func TestStrengthLevelResultsAreOnlyKeptWhenTheyMakeSense(t *testing.T) {
 	})
 	t.Run("a sync that could not write some days says so in the log", func(t *testing.T) {
 		f := newScriptedFixture(t)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		out, err := apply(f, kindStrengthLevelSync, models.Job{UserID: f.user.ID, Payload: `{"days":7}`}, `{"failed":2,"failed_messages":["no such day"]}`)
 		if err != nil || !strings.Contains(out, `"days":7`) || !strings.Contains(logs.String(), "no such day") {
 			t.Fatalf("%s, %v, log %s", out, err, logs)
@@ -387,7 +387,7 @@ func TestTheLastStrengthLevelSyncIsDescribedForEveryState(t *testing.T) {
 func TestStoppingStrengthLevelFailsSoftWhenTheJobsCannotBeCanceled(t *testing.T) {
 	f := newScriptedFixture(t)
 	breakTable(t, f.st, "worker_jobs")
-	logs := captureLog(t)
+	logs := captureSignInLog(t)
 	f.b.stopStrengthLevel(context.Background(), f.user.ID)
 	if !strings.Contains(logs.String(), "stop the Strength Level jobs") {
 		t.Fatalf("log %s", logs)

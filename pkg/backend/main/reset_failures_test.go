@@ -51,7 +51,7 @@ func TestAResetMailThatCannotBeSentIsReportedAndLogged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logs := captureLog(t)
+	logs := captureSignInLog(t)
 	if g.b.sendResetMail(u, "https://dexa.example.com/password/reset?t=x", time.Hour) {
 		t.Fatal("a mail that failed was reported as sent")
 	}
@@ -67,7 +67,7 @@ func TestResetLinksThatCannotBeRemovedAreLogged(t *testing.T) {
 	g := newRig(t)
 	uid, _ := g.signUp("alice")
 	breakTable(t, g.st, "password_resets")
-	logs := captureLog(t)
+	logs := captureSignInLog(t)
 	g.b.forgetResets(context.Background(), uid)
 	if !strings.Contains(logs.String(), "could not remove password reset links") {
 		t.Fatalf("log %s", logs)

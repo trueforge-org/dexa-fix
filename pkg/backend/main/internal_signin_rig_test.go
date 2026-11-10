@@ -228,8 +228,8 @@ type blindToNonces struct{ store.Store }
 
 func (blindToNonces) NonceSeen(context.Context, string) (bool, error) { return false, nil }
 
-// captureLog collects what the backend logs while the test runs.
-func captureLog(t *testing.T) *bytes.Buffer {
+// captureSignInLog collects what the backend logs while the test runs.
+func captureSignInLog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	old := log.Logger

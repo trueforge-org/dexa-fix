@@ -218,7 +218,7 @@ func TestARegistrationFailsCleanlyWhenTheStoreLetsItDown(t *testing.T) {
 		g := newRig(t)
 		uid, session := g.signUp("alice")
 		breakTable(t, g.st, "user_identities")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		_, _, rep := g.beginRegistration(uid, session, body)
 		if rep.Code != 500 || !strings.Contains(logs.String(), "passkey re-authentication") {
 			t.Fatalf("%d %s", rep.Code, logs)
@@ -245,7 +245,7 @@ func TestARegistrationFailsCleanlyWhenTheStoreLetsItDown(t *testing.T) {
 		if err := g.st.ExecForTests(context.Background(), "UPDATE users SET passkey_handle = ? WHERE id = ?", tooLong, uid); err != nil {
 			t.Fatal(err)
 		}
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		_, _, rep := g.beginRegistration(uid, session, body)
 		if rep.Code != 500 || !strings.Contains(logs.String(), "passkey registration could not start") {
 			t.Fatalf("%d %s", rep.Code, logs)
@@ -369,7 +369,7 @@ func TestStoredPasskeysAreReadCarefully(t *testing.T) {
 	if err := g.st.ExecForTests(ctx, "UPDATE passkeys SET credential = 'not json'"); err != nil {
 		t.Fatal(err)
 	}
-	logs := captureLog(t)
+	logs := captureSignInLog(t)
 	pu, err := g.b.passkeyUserFor(ctx, u, handle)
 	if err != nil || len(pu.creds) != 0 || !strings.Contains(logs.String(), "skipping an unreadable passkey") {
 		t.Fatalf("creds %d, err %v, log %s", len(pu.creds), err, logs)
@@ -466,7 +466,7 @@ func TestPasskeySignInRefusesWhatIsNotTheRegisteredKeyAndWorksOnce(t *testing.T)
 	t.Run("the use of the passkey cannot be recorded, but the sign-in goes on", func(t *testing.T) {
 		challenge, ceremony := g.beginLogin()
 		rejectWritesOn(t, g.st, "passkeys", "UPDATE")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		rep := g.finishLogin(pkAssertionJSON(t, pkGood(pkLocalSite, k, challenge, handle, 5)), ceremony)
 		if rep.cookie(sessionCookie) == nil || !strings.Contains(logs.String(), "could not record the passkey use") {
 			t.Fatalf("%d %s, log %s", rep.Code, rep.body(), logs)

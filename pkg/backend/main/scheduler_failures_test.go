@@ -73,7 +73,7 @@ func TestOldJobsAndWorkersArePurgedAndAFailureToDoSoIsLogged(t *testing.T) {
 		if err := f.st.ExecForTests(ctx, "UPDATE worker_jobs SET finished_at = '2000-01-01 00:00:00'"); err != nil {
 			t.Fatal(err)
 		}
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		f.b.purgeJobs(ctx)
 		if _, err := f.st.GetJob(ctx, j.PublicID); err == nil || !strings.Contains(logs.String(), "purged old jobs") {
 			t.Fatalf("job still there (%v), log %s", err, logs)
@@ -83,7 +83,7 @@ func TestOldJobsAndWorkersArePurgedAndAFailureToDoSoIsLogged(t *testing.T) {
 		f := newScriptedFixture(t)
 		f.setSetting(t, settingWorkersKeepDays, "1")
 		breakTable(t, f.st, "worker_jobs")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		f.b.purgeJobs(ctx)
 		if !strings.Contains(logs.String(), "purge old jobs") {
 			t.Fatalf("log %s", logs)
@@ -92,7 +92,7 @@ func TestOldJobsAndWorkersArePurgedAndAFailureToDoSoIsLogged(t *testing.T) {
 	t.Run("the workers cannot be purged", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		breakTable(t, f.st, "worker_instances")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		f.b.purgeJobs(ctx)
 		if !strings.Contains(logs.String(), "purge old workers") {
 			t.Fatalf("log %s", logs)
@@ -116,7 +116,7 @@ func TestTheSchedulerFailsCleanlyWhenWhatItNeedsFails(t *testing.T) {
 		f.sc.set(func(s *scripted) {
 			s.sched = func(context.Context, *Backend) ([]scheduleTarget, error) { return nil, errors.New("no users today") }
 		})
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		f.b.runScheduler(ctx)
 		if !strings.Contains(logs.String(), "schedule jobs") || len(f.jobsOf(t)) != 0 {
 			t.Fatalf("log %s", logs)
@@ -179,7 +179,7 @@ func TestTheScheduleOfAUserFollowsTheirScheduledJobs(t *testing.T) {
 	t.Run("a schedule that cannot be read is logged", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		breakTable(t, f.st, "worker_schedules")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		finish(f, models.OutcomeFail)
 		if !strings.Contains(logs.String(), "read the schedule") {
 			t.Fatalf("log %s", logs)
@@ -188,7 +188,7 @@ func TestTheScheduleOfAUserFollowsTheirScheduledJobs(t *testing.T) {
 	t.Run("a schedule that cannot be written is logged", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		rejectWritesOn(t, f.st, "worker_schedules", "INSERT", "UPDATE")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		finish(f, models.OutcomeFail)
 		if !strings.Contains(logs.String(), "write the schedule") {
 			t.Fatalf("log %s", logs)
@@ -208,7 +208,7 @@ func TestTheScheduleOfAUserFollowsTheirScheduledJobs(t *testing.T) {
 	t.Run("a schedule that cannot be forgotten is logged", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		breakTable(t, f.st, "worker_schedules")
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		f.b.resumeSchedule(ctx, f.user.ID, scriptKind)
 		if !strings.Contains(logs.String(), "resume the schedule") {
 			t.Fatalf("log %s", logs)
@@ -234,7 +234,7 @@ func TestTheCircuitBreakerFailsSafeWhenItsStoreFails(t *testing.T) {
 	t.Run("the recent jobs cannot be read", func(t *testing.T) {
 		f := setup(t)
 		f.flaky.lastFinished.Store(true)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		failing(f)
 		failing(f)
 		if !strings.Contains(logs.String(), "check the circuit breaker") || !f.b.cfg().workers.Kinds[scriptKind].Enabled {
@@ -254,7 +254,7 @@ func TestTheCircuitBreakerFailsSafeWhenItsStoreFails(t *testing.T) {
 	t.Run("the pause cannot be saved", func(t *testing.T) {
 		f := setup(t)
 		f.flaky.putFails.Store(kindSettingName(scriptKind, fieldEnabled), true)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		failing(f)
 		failing(f)
 		if !strings.Contains(logs.String(), "pause the kind") || !f.b.cfg().workers.Kinds[scriptKind].Enabled {
@@ -264,7 +264,7 @@ func TestTheCircuitBreakerFailsSafeWhenItsStoreFails(t *testing.T) {
 	t.Run("the reason cannot be saved but the kind is paused", func(t *testing.T) {
 		f := setup(t)
 		f.flaky.putFails.Store(kindSettingName(scriptKind, fieldPausedReason), true)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		failing(f)
 		failing(f)
 		if !strings.Contains(logs.String(), "write the reason") || f.b.cfg().workers.Kinds[scriptKind].Enabled {
@@ -275,7 +275,7 @@ func TestTheCircuitBreakerFailsSafeWhenItsStoreFails(t *testing.T) {
 		f := setup(t)
 		failing(f)
 		f.flaky.generation.Store(true)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		failing(f)
 		if !strings.Contains(logs.String(), "reload the settings") {
 			t.Fatalf("log %s", logs)

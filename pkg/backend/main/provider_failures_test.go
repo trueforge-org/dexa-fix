@@ -145,7 +145,7 @@ func TestStartingAProviderSignInFailsCleanly(t *testing.T) {
 		p := idp.oidcProvider(models.ProviderKindOIDC)
 		idp.Close()
 		g.addProvider(p)
-		logs := captureLog(t)
+		logs := captureSignInLog(t)
 		var out apiclient.SignInOutcome
 		rep := g.do("POST", "/auth/providers/idp/start", map[string]any{})
 		rep.decode(t, &out)
