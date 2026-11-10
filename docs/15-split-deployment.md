@@ -154,13 +154,54 @@ which is `dexafix db provision` and makes the database roles and the schema.
 
 ```bash
 cd deploy
+mkdir -m 700 secrets && sudo chown 568:568 secrets
 docker compose up -d
 ```
 
 Open <http://localhost:8080> and create the first account: it becomes the
-administrator. There is nothing to prepare first: no file has to exist before
-`up`, because the containers read their secrets from volumes that `init` fills.
-`init` and `db-setup` run again at every `docker compose up -d`.
+administrator. No file has to exist before `up` except that folder, because the
+containers read their secrets from volumes that `init` fills. `init` and
+`db-setup` run again at every `docker compose up -d`.
+
+### Who `init` runs as
+
+`init` runs as the unprivileged user `568:568`, the user of all the other
+containers, with no capabilities. That keeps a root process out of the
+deployment, but it means the folders `init` writes must already belong to that
+user:
+
+| Folder | Must be | Who makes it so |
+| --- | --- | --- |
+| `./secrets` on the host (mounted at `/secrets/host`) | Owned by `568:568`, mode `700` | You, once: `mkdir -m 700 secrets && sudo chown 568:568 secrets`. A folder that Docker makes by itself belongs to root. |
+| The volumes `secrets-api`, `-web`, `-worker`, `-body`, `-db`, `-dbsetup`, `-valkey` | Owned by `568:568` | The image: a new volume copies the owner of its mount point. A volume that an earlier version made may belong to root. |
+
+If an owner or a mode would have to change and `init` is not allowed to change
+it, `init` stops with an error that says what to do, and nothing else starts:
+
+```text
+open /secrets/host/.service_secret.123: permission denied
+
+init runs as 568:568 and may not change the owner or the permissions of this folder. Do one of these, once:
+  - Run init as root this one time. ...
+        docker compose run --rm --user 0:0 init
+  - Or prepare the folder on the host yourself:
+        sudo chown -R 568:568 ./secrets && sudo chmod 700 ./secrets
+```
+
+You can also skip the preparation and run `init` as root the first time. As
+root it gives `./secrets`, the files in it and the volumes to `568:568` (it has
+the two capabilities it needs for that, `CHOWN` and `DAC_OVERRIDE`, and
+nothing else). From then on nothing has to change, so the plain `up` runs it as
+`568:568` again:
+
+```bash
+cd deploy
+docker compose run --rm --user 0:0 init   # once: fixes the owner of ./secrets and the volumes
+docker compose up -d                      # every time after that
+```
+
+Another user id than `568` works too (set `user:` and `--chown=` of `init` to
+it, and run the other containers as it), but then the same rule holds.
 
 What `init` makes, and where it keeps it:
 
@@ -174,7 +215,7 @@ What `init` makes, and where it keeps it:
 **Back up `./secrets/encryption_key` and `./secrets/body_encryption_key`
 together with the database.** Without an encryption key the encrypted values
 cannot be read again. They are on the host, so `docker compose down -v` does not
-delete them. `./secrets` is private to root; read it with `sudo`.
+delete them. `./secrets` is private to `568:568` (mode `700`); read it with `sudo`.
 
 The certificates are valid for 397 days and are replaced at every `docker
 compose up`, so run it at least once a year. The CA's private key is thrown away

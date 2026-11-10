@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -298,5 +301,127 @@ func TestSecretsInitRefusesBadInput(t *testing.T) {
 	}
 	if u, g, err := parseOwner("568"); err != nil || u != 568 || g != 568 {
 		t.Errorf("parseOwner(568) = %d %d %v", u, g, err)
+	}
+}
+
+func asEuid(t *testing.T, uid int) {
+	t.Helper()
+	prev := initEuid
+	initEuid = func() int { return uid }
+	t.Cleanup(func() { initEuid = prev })
+}
+
+// Init runs as 568:568. If something would need a chown or chmod it cannot do, it stops and says
+// what to do, instead of a bare "permission denied".
+func TestSecretsInitExplainsWhenRootIsNeeded(t *testing.T) {
+	o, _ := testInit(t)
+	o.uid, o.gid = 568, 568
+	denied := &fs.PathError{Op: "open", Path: "/secrets/host/x", Err: fs.ErrPermission}
+
+	asEuid(t, 568)
+	err := o.explain(denied)
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("the original error must stay: %v", err)
+	}
+	for _, want := range []string{"permission denied", "docker compose run --rm --user 0:0 init", "chown -R 568:568 ./secrets", "chmod 700 ./secrets", "init runs as 568:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the advice lacks %q:\n%v", want, err)
+		}
+	}
+
+	// Anything else is not about rights and is passed on as it is.
+	other := errors.New("disk full")
+	if got := o.explain(other); got != other {
+		t.Errorf("an unrelated error was changed: %v", got)
+	}
+	if o.explain(nil) != nil {
+		t.Error("no error must stay no error")
+	}
+	// Root has the rights: a permission error there is something else (a read-only mount, say).
+	asEuid(t, 0)
+	if got := o.explain(denied); got != error(denied) {
+		t.Errorf("as root the error must not be turned into advice: %v", got)
+	}
+}
+
+// For real, where the file system can say no: a folder that init may not write to.
+func TestSecretsInitStopsWithAdviceInAFolderItMayNotWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may write anywhere")
+	}
+	o, dirs := testInit(t)
+	if err := os.MkdirAll(dirs["host"], 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dirs["host"], 0o500); err != nil { // present, but not writable
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dirs["host"], 0o700) })
+	err := o.run()
+	if err == nil || !strings.Contains(err.Error(), "--user 0:0") {
+		t.Fatalf("want the advice, got %v", err)
+	}
+}
+
+// Run as root once, init gives the folders and the files to the owner of the containers, so that
+// every later run can be that owner.
+func TestSecretsInitAsRootGivesTheFoldersToTheOwner(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("giving files to somebody else needs root")
+	}
+	o, dirs := testInit(t)
+	o.uid, o.gid = 12345, 12345
+	if err := o.run(); err != nil {
+		t.Fatal(err)
+	}
+	owner := func(path string) (int, int) {
+		fi, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := fi.Sys().(*syscall.Stat_t)
+		return int(st.Uid), int(st.Gid)
+	}
+	for name, dir := range dirs {
+		if u, g := owner(dir); u != 12345 || g != 12345 {
+			t.Errorf("directory %s belongs to %d:%d", name, u, g)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil || len(entries) == 0 {
+			t.Fatalf("%s: %v (%d files)", name, err, len(entries))
+		}
+		for _, e := range entries {
+			if u, g := owner(filepath.Join(dir, e.Name())); u != 12345 || g != 12345 {
+				t.Errorf("%s/%s belongs to %d:%d", name, e.Name(), u, g)
+			}
+		}
+	}
+	// The host files stay readable by everyone and the folder private, as before.
+	if m := mode(t, dirs["host"], "encryption_key"); m != 0o444 {
+		t.Errorf("host file mode %v", m)
+	}
+	if fi, _ := os.Stat(dirs["host"]); fi.Mode().Perm() != 0o700 {
+		t.Errorf("host directory mode %v", fi.Mode().Perm())
+	}
+	// A second run changes nothing it should not: the encryption key is kept.
+	before := readFile(t, dirs["host"], "encryption_key")
+	if err := o.run(); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(t, dirs["host"], "encryption_key") != before {
+		t.Error("the encryption key was replaced")
+	}
+}
+
+// Not root, init does not try to give anything away: it only reads and writes what it may.
+func TestSecretsInitAsTheOwnerNeedsNoRights(t *testing.T) {
+	o, dirs := testInit(t)
+	o.uid, o.gid = os.Getuid(), os.Getgid() // already the owner of what it makes
+	asEuid(t, 568)
+	if err := o.run(); err != nil {
+		t.Fatalf("running as the owner must work: %v", err)
+	}
+	if got := readFile(t, dirs["host"], "encryption_key"); got == "" {
+		t.Error("no encryption key")
 	}
 }

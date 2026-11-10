@@ -19,18 +19,26 @@
 #                  v                                         |                            v
 #                db (PostgreSQL) <---------------------------+  "data"          Withings, Strength Level
 #
-# Start:
+# Start, with the folder for the secrets made first (init runs as the unprivileged user 568:568,
+# like the other containers, so ./secrets must belong to it; a folder that Docker makes by itself
+# belongs to root and init then stops and tells you so):
+#   mkdir -m 700 secrets && sudo chown 568:568 secrets
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
-# Nothing has to be made by hand first. Two short-lived containers run at every `docker compose up`:
+# Or let init do the chown/chmod for you, as root, the first time only:
+#   docker compose run --rm --user 0:0 init     (gives ./secrets and the volumes to 568:568)
+#   docker compose up -d                        (init runs as 568:568 from now on: nothing to change)
+# Plain `docker compose up -d` on a folder that belongs to somebody else stops at init with that advice.
+#
+# Two short-lived containers run at every `docker compose up`:
 #
 #   init       is `dexafix secrets init`. It makes every secret and certificate:
 #                ./secrets/   passwords, connection strings and the two encryption keys, created only
 #                             when missing and never replaced. BACK UP encryption_key and
 #                             body_encryption_key together with the database: without them the encrypted
 #                             values (stored passwords, keys, tokens, the readings and scans) cannot be
-#                             read. The directory is private to root; read it with sudo.
+#                             read. The directory is private (mode 700) to 568:568; read it with sudo.
 #                volumes secrets-api, -web, -worker, -body, -db, -dbsetup, -valkey
 #                             what each container needs and nothing more: its connection string and key,
 #                             the shared secrets (kept once) and the mutual TLS certificates (new at
@@ -87,14 +95,18 @@ x-after-init: &after-init
     condition: service_completed_successfully
 
 services:
-  # Makes the secrets and certificates, then exits. It needs no network. It runs as root with two
-  # capabilities only: to write ./secrets (owned by root) and to hand the files in the volumes to the
-  # unprivileged user (568) of the other containers.
+  # Makes the secrets and certificates, then exits. It needs no network, and runs as the unprivileged
+  # user 568:568 like the other containers: the folders it writes must belong to that user (./secrets:
+  # chown 568:568 and chmod 700; the volumes are made that way by the image). If an owner or a mode
+  # would have to change, it stops with an error that says so. Run it once as root to have it done:
+  #   docker compose run --rm --user 0:0 init
+  # cap_add is for that one run only: a process that is not root has no capabilities, so as 568:568
+  # the two are of no use, and as root they are all it has (no other capability, no network).
   init:
     image: *image
     restart: "no"
     read_only: true
-    user: "0:0"
+    user: "568:568"
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
