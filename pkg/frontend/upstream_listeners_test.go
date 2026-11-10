@@ -189,9 +189,17 @@ func TestHTTP3IsStartedAndStoppedWithTheFrontend(t *testing.T) {
 	if !off {
 		t.Fatal("Close left a listener running")
 	}
-	if conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), time.Second); err == nil {
+	// The serving goroutine closes its listener as it ends, a moment after Close returned.
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), time.Second)
+		if err != nil {
+			break
+		}
 		conn.Close()
-		t.Fatal("HTTPS still answers after Close")
+		if time.Now().After(deadline) {
+			t.Fatal("HTTPS still answers after Close")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
