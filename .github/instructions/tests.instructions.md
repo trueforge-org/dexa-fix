@@ -39,7 +39,7 @@ The merged coverage of the three test modes is **100%** of statements, and it st
 
 - New or changed code comes with its tests in the same commit, at the level where it can fail (unit test, backend flow test, split test when it crosses the process boundary).
 - Before you call a change done, measure it (below) and check that nothing you touched is below 100%. Coverage runs go to `haiku-triage` like every other test run.
-- Cover an error branch by making the real thing fail: drop a table with `breakTable`, wrap the store in a type that fails one method, close the body service, or point the client at a fake server that answers 500 or garbage. The test asserts what a person would notice (status code, message, a row that is or is not there).
+- Cover an error branch by making the real thing fail: rename a table away with `breakTable` (`pkg/backend/main/faults_test.go`, through `sqlstore.Store.ExecForTests`), wrap the store in a type that fails one method, close the body service, or point the client at a fake server that answers 500 or garbage. The test asserts what a person would notice (status code, message, a row that is or is not there).
 - Do not add a seam to production code only to reach a line. A call that cannot fail (`crypto/rand.Read` since Go 1.24, key and certificate generation from fixed valid input) is not checked: ignore the result or use `must.Do` / `must.Value`, whose own test covers the panic.
 - Do not game the number: no test without an assertion, no deleting code that can be reached, no files left out of the profile.
 - Name tests as sentences (`TestAdminPageFailsCleanlyWhenTheSettingsTableIsGone`) and give each failure mode of one handler its own `t.Run` scenario, so a failing line of output reads as what broke.

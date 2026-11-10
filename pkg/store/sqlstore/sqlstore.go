@@ -321,6 +321,13 @@ func SequentialUserIDsForTests() { sequentialUserIDs.Store(true) }
 // the test that wants random ids in a binary that otherwise uses counted ones.
 func SetSequentialUserIDsForTests(on bool) { sequentialUserIDs.Store(on) }
 
+// ExecForTests runs one statement for a test that has to break the database on purpose, such as
+// renaming a table so that every query on it fails. Never call it from production code.
+func (s *Store) ExecForTests(ctx context.Context, query string, args ...any) error {
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
 // freeUserID picks a random id that no user has yet. A collision is 1 in 10^15 for a store of
 // millions of users, so a few tries are plenty.
 func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
