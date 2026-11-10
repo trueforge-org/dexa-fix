@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -108,7 +109,8 @@ func TestUserReset2FAFailsClearly(t *testing.T) {
 		if _, err := d.st.CreateUserWithIdentity(ctx, "bob", "bob@example.com", models.Identity{Provider: models.ProviderLocal, Secret: "h"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := d.st.ExecForTests(ctx, "UPDATE users SET email = 'enc:damaged'"); err != nil {
+		// An address sealed with another key: well formed, so the database opens, but this key cannot open it.
+		if err := d.st.ExecForTests(ctx, "UPDATE users SET email = ?", emailSealedWithAnotherKey(t)); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err := run(t, d.with("user", "reset-2fa", "bob@example.com")...)
@@ -221,4 +223,36 @@ func TestSettingsResetNetworkRunsWithoutAContextFromTheRunner(t *testing.T) {
 	if !strings.Contains(out.String(), "cleared") {
 		t.Errorf("output: %q", out.String())
 	}
+}
+
+// emailSealedWithAnotherKey returns the stored form of an e-mail address that the key of newRecoveryDB cannot open.
+func emailSealedWithAnotherKey(t *testing.T) string {
+	t.Helper()
+	k, err := sqlstore.ParseKey(strings.Repeat("9c", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := sqlstore.NewCipher(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsn := newDSN(t)
+	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, dsn, sqlstore.WithCipher(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateUserWithIdentity(context.Background(), "eve", "eve@example.com", models.Identity{Provider: models.ProviderLocal, Secret: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	raw, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	var sealed string
+	if err := raw.QueryRow("SELECT email FROM users").Scan(&sealed); err != nil {
+		t.Fatal(err)
+	}
+	return sealed
 }

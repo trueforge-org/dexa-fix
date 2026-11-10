@@ -16,6 +16,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // `dexafix secrets init` makes everything the Compose deployment (deploy/docker-compose.yaml)
@@ -123,7 +124,7 @@ func existing(dir, name string) (string, error) {
 // keep returns the value in dir/name, making it with gen first if there is none. host files are
 // readable by everyone (the containers run as other users and a bind-mounted secret keeps the
 // host's mode; the directory stays private); the others are for their owner only.
-func (o initOptions) keep(dir, name string, host bool, gen func() (string, error)) (string, error) {
+func (o initOptions) keep(dir, name string, host bool, gen func() string) (string, error) {
 	v, err := existing(dir, name)
 	if err != nil {
 		return "", err
@@ -132,9 +133,7 @@ func (o initOptions) keep(dir, name string, host bool, gen func() (string, error
 		o.say("kept      %s", filepath.Join(dir, name))
 		return v, nil
 	}
-	if v, err = gen(); err != nil {
-		return "", err
-	}
+	v = gen()
 	mode := os.FileMode(0o400)
 	if host {
 		mode = 0o444
@@ -170,15 +169,9 @@ func (o initOptions) share(dir, name, value string) error {
 }
 
 // hostValue reads a value made in the host directory.
-func (o initOptions) hostValue(name string) (string, error) {
-	v, err := existing(o.hostDir, name)
-	if err != nil {
-		return "", err
-	}
-	if v == "" {
-		return "", fmt.Errorf("%s is missing in %s", name, o.hostDir)
-	}
-	return v, nil
+func (o initOptions) hostValue(name string) string {
+	// Cannot fail: keep read or made every file that is read here a moment ago.
+	return must.Value(existing(o.hostDir, name))
 }
 
 // run makes everything. A permission error while not root means that an owner or a mode would have
@@ -265,7 +258,7 @@ func (o initOptions) makeAll() error {
 	}
 
 	// ---- kept for good: the host directory ----
-	randomHex := func() (string, error) { return newServiceSecret(), nil }
+	randomHex := newServiceSecret
 	// valkey_password is made whether or not Valkey is used (it is optional): it costs nothing, and
 	// turning Valkey on later then needs no second run.
 	for _, name := range []string{"db_admin_password", "db_password", "encryption_key", "body_db_password", "body_encryption_key", "valkey_password"} {
@@ -275,13 +268,10 @@ func (o initOptions) makeAll() error {
 	}
 	// The passwords are hex, so they are safe inside a URL. The connection strings are made from
 	// the passwords on disk, so they stay right if a password was put there by hand.
-	dsn := func(file, user, query string) func() (string, error) {
-		return func() (string, error) {
-			pw, err := existing(o.hostDir, file)
-			if err != nil || pw == "" {
-				return "", fmt.Errorf("read %s: %v", file, err)
-			}
-			return fmt.Sprintf("postgres://%s:%s@%s:5432/dexafix?%ssslmode=disable", user, pw, o.dbHost, query), nil
+	dsn := func(file, user, query string) func() string {
+		return func() string {
+			pw := must.Value(existing(o.hostDir, file)) // the password file was made or read just above
+			return fmt.Sprintf("postgres://%s:%s@%s:5432/dexafix?%ssslmode=disable", user, pw, o.dbHost, query)
 		}
 	}
 	if _, err := o.keep(o.hostDir, "dsn", true, dsn("db_password", "dexafix", "")); err != nil {
@@ -293,17 +283,12 @@ func (o initOptions) makeAll() error {
 
 	// ---- copies for the containers that are not DexaFix processes, and the database secrets of the two that are ----
 	// The password files are the source: a password put there by hand is what the others get.
-	adminPW, err := o.hostValue("db_admin_password")
-	if err != nil {
-		return err
-	}
+	adminPW := o.hostValue("db_admin_password")
 	if err := o.share(o.dbDir, "db_admin_password", adminPW); err != nil {
 		return err
 	}
 	if o.valkeyDir != "" {
-		if pw, err := o.hostValue("valkey_password"); err != nil {
-			return err
-		} else if err := o.share(o.valkeyDir, "valkey_password", pw); err != nil {
+		if err := o.share(o.valkeyDir, "valkey_password", o.hostValue("valkey_password")); err != nil {
 			return err
 		}
 	}
@@ -314,11 +299,7 @@ func (o initOptions) makeAll() error {
 			return err
 		}
 		for _, name := range []string{"db_password", "body_db_password"} {
-			pw, err := o.hostValue(name)
-			if err != nil {
-				return err
-			}
-			if err := o.share(o.dbsetupDir, name, pw); err != nil {
+			if err := o.share(o.dbsetupDir, name, o.hostValue(name)); err != nil {
 				return err
 			}
 		}
@@ -337,11 +318,7 @@ func (o initOptions) makeAll() error {
 		if c.dir == "" {
 			continue
 		}
-		v, err := o.hostValue(c.name)
-		if err != nil {
-			return err
-		}
-		if err := o.share(c.dir, c.name, v); err != nil {
+		if err := o.share(c.dir, c.name, o.hostValue(c.name)); err != nil {
 			return err
 		}
 	}
@@ -359,21 +336,17 @@ func (o initOptions) makeAll() error {
 	if err != nil {
 		return err
 	}
-	tokenKey, err := o.keep(o.apiDir, fileBodyTokenKey, false, func() (string, error) {
+	tokenKey, err := o.keep(o.apiDir, fileBodyTokenKey, false, func() string {
 		_, _, priv := bodyapi.GenerateKey()
-		return bodyapi.EncodePrivateKey(priv), nil
+		return bodyapi.EncodePrivateKey(priv)
 	})
 	if err != nil {
 		return err
 	}
 	// The URL of the optional Valkey server, with the password in it, for the api process only. It is
 	// made from the password on disk, so it stays right if a password was put there by hand.
-	if pw, err := existing(o.hostDir, "valkey_password"); err != nil {
+	if err := o.put(o.apiDir, fileValkeyURL, fmt.Sprintf("redis://:%s@%s:6379/0", o.hostValue("valkey_password"), o.valkeyHost)); err != nil {
 		return err
-	} else if pw != "" {
-		if err := o.put(o.apiDir, fileValkeyURL, fmt.Sprintf("redis://:%s@%s:6379/0", pw, o.valkeyHost)); err != nil {
-			return err
-		}
 	}
 	if service == worker || service == bodySecret || worker == bodySecret {
 		return errors.New("the service, worker and body secrets must all differ: they open different doors; delete the duplicates and run init again")
@@ -418,10 +391,7 @@ func (o initOptions) makeAll() error {
 	if o.bodyDir != "" {
 		// The link to the body service has a CA of its own: a certificate of one link opens nothing
 		// of the other.
-		body, err := mtls.GenerateValid(o.bodyNames, "DexaFix body", "DexaFix api", o.validity)
-		if err != nil {
-			return err
-		}
+		body := must.Value(mtls.GenerateValid(o.bodyNames, "DexaFix body", "DexaFix api", o.validity)) // the same validity worked for the other link
 		files = append(files,
 			pemFile{o.bodyDir, fileMTLSCA, body.CA}, pemFile{o.bodyDir, fileMTLSCert, body.ServerCert}, pemFile{o.bodyDir, fileMTLSKey, body.ServerKey},
 			pemFile{o.apiDir, fileBodyMTLSCA, body.CA}, pemFile{o.apiDir, fileBodyMTLSCert, body.ClientCert}, pemFile{o.apiDir, fileBodyMTLSKey, body.ClientKey})
