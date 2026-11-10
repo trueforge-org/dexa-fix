@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // Sender sends one message to one recipient.
@@ -175,11 +177,7 @@ func (m *SMTP) message(to, subject, body string) (string, error) {
 	h("Auto-Submitted", "auto-generated")
 	b.WriteString("\r\n")
 	qp := quotedprintable.NewWriter(&b)
-	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\r\n", "\n"))); err != nil {
-		return "", err
-	}
-	if err := qp.Close(); err != nil {
-		return "", err
-	}
+	must.Value(qp.Write([]byte(strings.ReplaceAll(body, "\r\n", "\n")))) // writing to a strings.Builder cannot fail
+	must.Do(qp.Close())
 	return b.String(), nil
 }
