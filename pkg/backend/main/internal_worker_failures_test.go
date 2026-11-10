@@ -83,8 +83,8 @@ func (sc *scripted) provider() workerProvider {
 	}}
 }
 
-// flakyStore is a store that fails the calls a test asks it to fail.
-type flakyStore struct {
+// workerFlakyStore is a store that fails the calls a test asks it to fail.
+type workerFlakyStore struct {
 	store.Store
 	putFails       sync.Map // setting names whose PutSetting fails
 	enqueue        atomic.Bool
@@ -101,10 +101,10 @@ type flakyStore struct {
 	lastFinishedEr error
 }
 
-func (f *flakyStore) Unwrap() store.Store { return f.Store }
+func (f *workerFlakyStore) Unwrap() store.Store { return f.Store }
 
 // CompleteJob reports a lost lease, as when the lease ran out between two calls, when a test asks for it.
-func (f *flakyStore) CompleteJob(ctx context.Context, id, hash string, c models.Completion, now time.Time) (models.Job, error) {
+func (f *workerFlakyStore) CompleteJob(ctx context.Context, id, hash string, c models.Completion, now time.Time) (models.Job, error) {
 	if f.completeLost.Load() {
 		return models.Job{}, store.ErrLeaseLost
 	}
@@ -112,64 +112,64 @@ func (f *flakyStore) CompleteJob(ctx context.Context, id, hash string, c models.
 }
 
 // GetJob fails when a test asks for it.
-func (f *flakyStore) GetJob(ctx context.Context, id string) (models.Job, error) {
+func (f *workerFlakyStore) GetJob(ctx context.Context, id string) (models.Job, error) {
 	if f.jobBroken.Load() {
-		return models.Job{}, errFlaky
+		return models.Job{}, errWorkerFlaky
 	}
 	return f.Store.GetJob(ctx, id)
 }
 
 // GetUser answers "no such user" or fails, when a test asks for it.
-func (f *flakyStore) GetUser(ctx context.Context, id int64) (models.User, error) {
+func (f *workerFlakyStore) GetUser(ctx context.Context, id int64) (models.User, error) {
 	if f.userMissing.Load() {
 		return models.User{}, store.ErrNotFound
 	}
 	if f.userBroken.Load() {
-		return models.User{}, errFlaky
+		return models.User{}, errWorkerFlaky
 	}
 	return f.Store.GetUser(ctx, id)
 }
 
-var errFlaky = errors.New("the store failed on purpose")
+var errWorkerFlaky = errors.New("the store failed on purpose")
 
-func (f *flakyStore) PutSetting(ctx context.Context, name, value string) error {
+func (f *workerFlakyStore) PutSetting(ctx context.Context, name, value string) error {
 	if _, fail := f.putFails.Load(name); fail {
-		return errFlaky
+		return errWorkerFlaky
 	}
 	return f.Store.PutSetting(ctx, name, value)
 }
 
-func (f *flakyStore) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bool, error) {
+func (f *workerFlakyStore) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bool, error) {
 	if f.enqueue.Load() {
-		return models.Job{}, false, errFlaky
+		return models.Job{}, false, errWorkerFlaky
 	}
 	return f.Store.EnqueueJob(ctx, n)
 }
 
-func (f *flakyStore) LastFinishedStates(ctx context.Context, kind string, n int, since time.Time) ([]string, error) {
+func (f *workerFlakyStore) LastFinishedStates(ctx context.Context, kind string, n int, since time.Time) ([]string, error) {
 	if f.lastFinished.Load() {
-		return nil, errFlaky
+		return nil, errWorkerFlaky
 	}
 	return f.Store.LastFinishedStates(ctx, kind, n, since)
 }
 
-func (f *flakyStore) ExpireQueuedJobs(ctx context.Context, now time.Time) (int64, error) {
+func (f *workerFlakyStore) ExpireQueuedJobs(ctx context.Context, now time.Time) (int64, error) {
 	if f.expireQueued.Load() {
-		return 0, errFlaky
+		return 0, errWorkerFlaky
 	}
 	return f.Store.ExpireQueuedJobs(ctx, now)
 }
 
-func (f *flakyStore) ReleaseJob(ctx context.Context, id, hash string, now time.Time) error {
+func (f *workerFlakyStore) ReleaseJob(ctx context.Context, id, hash string, now time.Time) error {
 	if f.release.Load() {
-		return errFlaky
+		return errWorkerFlaky
 	}
 	return f.Store.ReleaseJob(ctx, id, hash, now)
 }
 
-func (f *flakyStore) SettingsGeneration(ctx context.Context) (int64, error) {
+func (f *workerFlakyStore) SettingsGeneration(ctx context.Context) (int64, error) {
 	if f.generation.Load() {
-		return 0, errFlaky
+		return 0, errWorkerFlaky
 	}
 	return f.Store.SettingsGeneration(ctx)
 }
@@ -179,7 +179,7 @@ func (f *flakyStore) SettingsGeneration(ctx context.Context) (int64, error) {
 type scriptedFixture struct {
 	*workerFixture
 	sc    *scripted
-	flaky *flakyStore
+	flaky *workerFlakyStore
 }
 
 func newScriptedFixture(t *testing.T) *scriptedFixture {
@@ -189,7 +189,7 @@ func newScriptedFixture(t *testing.T) *scriptedFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	fl := &flakyStore{Store: st}
+	fl := &workerFlakyStore{Store: st}
 	d := &demoProvider{}
 	sc := &scripted{}
 	b, err := NewBackend(fl, testBody(fl), withWorkerProvider(d.provider()), withWorkerProvider(sc.provider()))

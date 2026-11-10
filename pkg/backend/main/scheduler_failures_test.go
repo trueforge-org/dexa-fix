@@ -146,7 +146,7 @@ func TestTheSchedulerFailsCleanlyWhenWhatItNeedsFails(t *testing.T) {
 	t.Run("a job that cannot be queued ends the round with the error", func(t *testing.T) {
 		f := setup(t)
 		f.flaky.enqueue.Store(true)
-		if err := f.b.scheduleKind(ctx, spec(f), live); !errors.Is(err, errFlaky) {
+		if err := f.b.scheduleKind(ctx, spec(f), live); !errors.Is(err, errWorkerFlaky) {
 			t.Fatalf("err %v", err)
 		}
 	})
