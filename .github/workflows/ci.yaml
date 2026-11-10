@@ -89,19 +89,21 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_USER: dexafix
+          # not "dexafix": the provision tests make that role and set its password, which would
+          # lock the tests out if they logged in as it
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: dexafix
           POSTGRES_DB: dexafix_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dexafix -d dexafix_test"
+          --health-cmd "pg_isready -U postgres -d dexafix_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
       # every test creates (and drops) its own schema in this database
-      DEXAFIX_TEST_POSTGRES_DSN: postgres://dexafix:dexafix@localhost:5432/dexafix_test?sslmode=disable
+      DEXAFIX_TEST_POSTGRES_DSN: postgres://postgres:dexafix@localhost:5432/dexafix_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

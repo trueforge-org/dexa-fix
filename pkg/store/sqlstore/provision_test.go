@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -18,7 +19,38 @@ func provisionDSN(t *testing.T) string {
 	if dsn == "" {
 		t.Skip("DEXAFIX_TEST_POSTGRES_DSN is not set")
 	}
+	if err := checkProvisionAdmin(dsn); err != nil {
+		t.Fatal(err)
+	}
 	return dsn
+}
+
+// checkProvisionAdmin refuses an administrator that is one of the roles Provision makes. Provision
+// sets their passwords, so the next connection of that administrator, and with it every other test
+// of the package that uses the same DSN, would fail with "password authentication failed".
+func checkProvisionAdmin(dsn string) error {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	if cfg.User == ProvisionAppRole || cfg.User == ProvisionBodyRole {
+		return fmt.Errorf("DEXAFIX_TEST_POSTGRES_DSN logs in as %q, a role that Provision creates and gives a new password: "+
+			"use another administrator, for example postgres://postgres:x@localhost:5432/postgres", cfg.User)
+	}
+	return nil
+}
+
+func TestCheckProvisionAdmin(t *testing.T) {
+	for dsn, wantErr := range map[string]bool{
+		"postgres://postgres:x@localhost:5432/postgres?sslmode=disable":          false,
+		"postgres://admin:x@localhost:5432/dexafix_test?sslmode=disable":         false,
+		"postgres://dexafix:dexafix@localhost:5432/dexafix_test?sslmode=disable": true,
+		"postgres://dexafix_body:x@localhost:5432/dexafix_test?sslmode=disable":  true,
+	} {
+		if err := checkProvisionAdmin(dsn); (err != nil) != wantErr {
+			t.Errorf("checkProvisionAdmin(%q) = %v, want error: %v", dsn, err, wantErr)
+		}
+	}
 }
 
 // openAs connects as another role to the database "dexafix".
