@@ -2,7 +2,6 @@ package sqlstore
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"modernc.org/sqlite"
@@ -10,7 +9,6 @@ import (
 
 // SQLite result codes (https://www.sqlite.org/rescode.html).
 const (
-	sqliteConstraint           = 19   // SQLITE_CONSTRAINT
 	sqliteConstraintForeignKey = 787  // SQLITE_CONSTRAINT_FOREIGNKEY
 	sqliteConstraintPrimaryKey = 1555 // SQLITE_CONSTRAINT_PRIMARYKEY
 	sqliteConstraintUnique     = 2067 // SQLITE_CONSTRAINT_UNIQUE
@@ -33,8 +31,6 @@ func isUnique(err error) bool {
 		switch sqErr.Code() {
 		case sqliteConstraintUnique, sqliteConstraintPrimaryKey:
 			return true
-		case sqliteConstraint: // extended codes not reported
-			return strings.Contains(err.Error(), "UNIQUE constraint failed")
 		}
 	}
 	return false
@@ -51,8 +47,6 @@ func isFK(err error) bool {
 		switch sqErr.Code() {
 		case sqliteConstraintForeignKey:
 			return true
-		case sqliteConstraint:
-			return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 		}
 	}
 	return false

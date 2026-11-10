@@ -152,10 +152,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	case migrateRequire:
-		p, err := s.provider()
-		if err == nil {
-			err = s.checkVersion(ctx, p)
-		}
+		err := s.checkVersion(ctx, s.provider())
 		if err == nil {
 			var pending bool
 			if pending, err = s.HasPending(ctx); err == nil && pending {

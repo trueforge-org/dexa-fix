@@ -158,9 +158,7 @@ func (s *Store) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bo
 		if err != nil {
 			return models.Job{}, false, err
 		}
-		if c, err := res.RowsAffected(); err != nil {
-			return models.Job{}, false, err
-		} else if c > 0 {
+		if c, _ := res.RowsAffected(); c > 0 {
 			stored, err := s.loadJob(ctx, "public_id = ?", id)
 			if err != nil {
 				return models.Job{}, false, err

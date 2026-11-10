@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -106,24 +107,19 @@ func (b *BodyStore) MaxConns() int { return b.maxConns }
 
 // ---- migrations ----
 
-func (b *BodyStore) provider() (*goose.Provider, error) {
-	sub, err := fs.Sub(migrationsFS, "migrations/body/"+b.driver)
-	if err != nil {
-		return nil, err
-	}
+// provider cannot fail, see Store.provider.
+func (b *BodyStore) provider() *goose.Provider {
+	sub := must.Value(fs.Sub(migrationsFS, "migrations/body/"+b.driver))
 	dialect := goose.DialectSQLite3
 	if b.driver == DriverPostgres {
 		dialect = goose.DialectPostgres
 	}
-	return goose.NewProvider(dialect, b.db.DB, sub, goose.WithTableName(bodyMigrationTable))
+	return must.Value(goose.NewProvider(dialect, b.db.DB, sub, goose.WithTableName(bodyMigrationTable)))
 }
 
 // Migrate applies the pending migrations of the body domain.
 func (b *BodyStore) Migrate(ctx context.Context) ([]*goose.MigrationResult, error) {
-	p, err := b.provider()
-	if err != nil {
-		return nil, err
-	}
+	p := b.provider()
 	cur, err := p.GetDBVersion(ctx)
 	if err != nil {
 		return nil, err
@@ -136,20 +132,12 @@ func (b *BodyStore) Migrate(ctx context.Context) ([]*goose.MigrationResult, erro
 
 // HasPending reports whether the body domain has unapplied migrations.
 func (b *BodyStore) HasPending(ctx context.Context) (bool, error) {
-	p, err := b.provider()
-	if err != nil {
-		return false, err
-	}
-	return p.HasPending(ctx)
+	return b.provider().HasPending(ctx)
 }
 
 // SchemaVersion is the applied migration version of the body domain (0 = none).
 func (b *BodyStore) SchemaVersion(ctx context.Context) (int64, error) {
-	p, err := b.provider()
-	if err != nil {
-		return 0, err
-	}
-	return p.GetDBVersion(ctx)
+	return b.provider().GetDBVersion(ctx)
 }
 
 // ---- key check, encryption of plaintext rows, rotation ----

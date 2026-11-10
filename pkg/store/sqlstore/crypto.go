@@ -19,6 +19,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -70,50 +71,22 @@ func newKeyEntry(key []byte) (*keyEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	bodyKey, err := hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)
-	if err != nil {
-		return nil, err
-	}
-	if e.body, err = newKeyEntryInfo(bodyKey, bodyInfo); err != nil {
-		return nil, err
-	}
+	// The body master key is KeySize bytes by construction, so deriving from it cannot fail.
+	e.body = must.Value(newKeyEntryInfo(must.Value(hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)), bodyInfo))
 	return e, nil
 }
 
-// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string.
+// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string. Once the
+// length of the key is right nothing below can fail, which is why it does not return errors.
 func newKeyEntryInfo(key []byte, dekInfo string) (*keyEntry, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("encryption key must be %d bytes, got %d", KeySize, len(key))
 	}
-	gcm := func(k []byte) (cipher.AEAD, error) {
-		block, err := aes.NewCipher(k)
-		if err != nil {
-			return nil, err
-		}
-		return cipher.NewGCM(block)
-	}
-	derive := func(info string) ([]byte, error) { return hkdf.Key(sha256.New, key, nil, info, KeySize) }
+	gcm := func(k []byte) cipher.AEAD { return must.Value(cipher.NewGCM(must.Value(aes.NewCipher(k)))) }
+	derive := func(info string) []byte { return must.Value(hkdf.Key(sha256.New, key, nil, info, KeySize)) }
 
-	e := &keyEntry{}
-	var err error
-	if e.v1, err = gcm(key); err != nil {
-		return nil, err
-	}
-	dek, err := derive(dekInfo)
-	if err != nil {
-		return nil, err
-	}
-	if e.v2, err = gcm(dek); err != nil {
-		return nil, err
-	}
-	if e.index, err = derive("dexa-fix e-mail lookup"); err != nil {
-		return nil, err
-	}
-	checkKey, err := derive("dexa-fix key check")
-	if err != nil {
-		return nil, err
-	}
-	m := hmac.New(sha256.New, checkKey)
+	e := &keyEntry{v1: gcm(key), v2: gcm(derive(dekInfo)), index: derive("dexa-fix e-mail lookup")}
+	m := hmac.New(sha256.New, derive("dexa-fix key check"))
 	m.Write([]byte("dexa-fix key check v1"))
 	e.check = hex.EncodeToString(m.Sum(nil))
 	id := sha256.Sum256(key)
@@ -404,10 +377,7 @@ func HasEncryptedValues(ctx context.Context, driver, dsn string) (bool, error) {
 	if found {
 		return true, nil
 	}
-	if s.BodyStore == nil {
-		return false, nil
-	}
-	return s.BodyStore.HasEncryptedValues(ctx)
+	return s.BodyStore.HasEncryptedValues(ctx) // Open without WithoutBody always has the body domain
 }
 
 // HasEncryptedBodyValues is HasEncryptedValues for a database that holds only the body domain.

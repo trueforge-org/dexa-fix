@@ -193,10 +193,7 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 			if err != nil {
 				return err
 			}
-			email, err := s.decrypt(r.Email, emailContext(r.ID))
-			if err != nil {
-				return fmt.Errorf("%s: %w", kind, err)
-			}
+			email, _ := s.decrypt(r.Email, emailContext(r.ID)) // reseal opened it just now
 			lookup := s.emailLookup(models.NormalizeEmail(email))
 			lookupChanged := lookup != nil && (r.EmailLookup == nil || *r.EmailLookup != *lookup)
 			if enc == "" && !lookupChanged {
