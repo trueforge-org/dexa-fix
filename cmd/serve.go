@@ -277,7 +277,8 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			return err
 		}
 		errCh := make(chan error, 1)
-		go func() { errCh <- httpSrv.Serve(srv.WrapListener(ln)) }()
+		wrapped := srv.WrapListener(ln) // before the goroutine: it records the address that StartListeners reads
+		go func() { errCh <- httpSrv.Serve(wrapped) }()
 		srv.StartListeners(handler)
 		log.Info().Str("listen", listen).Str("db", driver).Msg("serving")
 

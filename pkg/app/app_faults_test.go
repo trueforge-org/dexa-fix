@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -69,11 +72,51 @@ func TestCombinedServerStopsWhenTheDatabaseFailsWhileItStarts(t *testing.T) {
 	})
 }
 
+// testLog is where the program's log goes during these tests. It is installed once, and a test only
+// changes where it writes: a goroutine of the server that logs after its test ended cannot then race
+// with the next test.
+type testLogSink struct {
+	mu sync.Mutex
+	to io.Writer
+}
+
+func (l *testLogSink) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.to.Write(p)
+}
+
+func (l *testLogSink) set(w io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.to = w
+}
+
+var testLog = &testLogSink{to: os.Stderr}
+
+func init() { log.Logger = zerolog.New(testLog) }
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 func TestCombinedServerLogsWhenAChangedSettingCannotReachTheFrontend(t *testing.T) {
-	var logs bytes.Buffer
-	old := log.Logger
-	log.Logger = zerolog.New(&logs)
-	t.Cleanup(func() { log.Logger = old })
+	logs := new(lockedBuffer)
+	testLog.set(logs)
+	t.Cleanup(func() { testLog.set(os.Stderr) })
 
 	st := &lateFailure{Store: openStore(t)}
 	st.okCalls.Store(2) // the backend, then the frontend's first ask

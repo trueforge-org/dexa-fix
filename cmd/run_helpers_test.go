@@ -132,13 +132,36 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
+// logSink is where the program's log goes during the tests. It is installed once, and captureLog
+// only changes where it writes: a goroutine of an earlier command that logs after its test ended
+// then cannot race with the next test.
+type logSink struct {
+	mu sync.Mutex
+	to io.Writer
+}
+
+func (l *logSink) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.to.Write(p)
+}
+
+func (l *logSink) set(w io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.to = w
+}
+
+var testLog = &logSink{to: os.Stderr}
+
+func init() { log.Logger = zerolog.New(testLog) }
+
 // captureLog collects what the program logs until the test ends.
 func captureLog(t *testing.T) *lockedBuffer {
 	t.Helper()
 	buf := new(lockedBuffer)
-	old := log.Logger
-	log.Logger = zerolog.New(buf)
-	t.Cleanup(func() { log.Logger = old })
+	testLog.set(buf)
+	t.Cleanup(func() { testLog.set(os.Stderr) })
 	return buf
 }
 
