@@ -24,6 +24,7 @@ import (
 	_ "modernc.org/sqlite" // pure-Go sqlite driver
 
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -92,16 +93,13 @@ func connect(ctx context.Context, driver, dsn string) (db *bun.DB, maxConns int,
 	switch driver {
 	case DriverSQLite:
 		secureSQLiteFile(dsn)
-		sqlDB, err = sql.Open("sqlite", sqliteDSN(dsn))
+		sqlDB = must.Value(sql.Open("sqlite", sqliteDSN(dsn))) // the driver registers itself on import; nothing is parsed yet
 		dialect = sqlitedialect.New()
 	case DriverPostgres:
-		sqlDB, err = sql.Open("pgx", dsn)
+		sqlDB = must.Value(sql.Open("pgx", dsn)) // the connection string is only parsed at the first connection
 		dialect = pgdialect.New()
 	default:
 		return nil, 0, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
-	}
-	if err != nil {
-		return nil, 0, err
 	}
 	switch {
 	case driver == DriverSQLite && sqliteInMemory(dsn):

@@ -79,7 +79,7 @@ func TestKeyHandlingReportsADatabaseFailure(t *testing.T) {
 		}},
 		{"HasEncryptedValues of the body data", func(c context.Context, s *Store, f faultData) error { return e1(s.BodyStore.HasEncryptedValues(c)) }},
 		{"the first encrypted value when only a provider secret is encrypted", func(c context.Context, s *Store, f faultData) error {
-			for _, q := range []string{`DELETE FROM user_integrations`, `DELETE FROM user_totp`, `UPDATE users SET email = '', email_lookup = NULL`} {
+			for _, q := range []string{`DELETE FROM app_settings`, `DELETE FROM user_integrations`, `DELETE FROM user_totp`, `UPDATE users SET email = '', email_lookup = NULL`} {
 				if err := s.ExecForTests(c, q); err != nil {
 					return err
 				}
@@ -92,6 +92,8 @@ func TestKeyHandlingReportsADatabaseFailure(t *testing.T) {
 			}
 			return e1(firstEncryptedBody(c, s.db))
 		}},
+		{"Migrate when nothing is pending", func(c context.Context, s *Store, f faultData) error { return e1(s.Migrate(c)) }},
+		{"MigrateTo the version it is at", func(c context.Context, s *Store, f faultData) error { return e1(s.MigrateTo(c, 1)) }},
 		{"body Rekey", func(c context.Context, s *Store, f faultData) error {
 			withKeys(t, s, 2, 1)
 			return e1(s.BodyStore.Rekey(c, false))

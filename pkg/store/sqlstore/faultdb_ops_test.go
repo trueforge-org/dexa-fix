@@ -82,6 +82,7 @@ type faultOp struct {
 var faultAbsorbed = map[string][]int{
 	"Stats": {1}, "Stats of a store with a key": {1}, "SchemaVersion": {1}, "HasPending": {1, 3}, "MigrationStatus": {1},
 	"CancelJob": {1}, "CancelJob running": {1},
+	"Migrate when nothing is pending": {1, 4}, "MigrateTo the version it is at": {1},
 }
 
 // e1 returns the error, the last of the values a store method answered with.
