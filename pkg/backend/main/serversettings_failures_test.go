@@ -129,14 +129,13 @@ func TestTheSelfSignedCertificateIsRenewedBeforeItExpires(t *testing.T) {
 	if err := r.st.PutSetting(ctx, settingTLSMode, apiclient.TLSSelfSigned); err != nil {
 		t.Fatal(err)
 	}
-	r.flaky.failOn("SettingsGeneration") // the renewal cannot reload: it is logged and nothing changes
-	r.b.cfg().tlsInfo = nil
+	r.b.swapSettings(withMode(r.b.cfg(), apiclient.TLSSelfSigned)) // the mode in force follows the stored one at the next reload
+	r.flaky.failOn("SettingsGeneration")                           // the renewal cannot reload: it is logged and nothing changes
 	r.renewCertificateNow(ctx)
 	if r.b.cfg().tlsCert != nil {
 		t.Fatal("a certificate appeared although the settings could not be reloaded")
 	}
 	r.flaky.heal()
-	r.b.swapSettings(withMode(r.b.cfg(), apiclient.TLSSelfSigned))
 	r.renewCertificateNow(ctx) // none yet: one is made
 	first := r.b.cfg().tlsCert
 	if first == nil {
