@@ -56,8 +56,19 @@ func answering(status int, body string) faultFn {
 
 const testPassword = "correct horse"
 
-// newFaultStack builds the stack and signs the first user up (an administrator, id 1).
+// newFaultStack builds the stack and signs the first user up (an administrator, id 1). Signing up
+// is slow on purpose (password hashing), so tests that never need a session use newAnonymousStack.
 func newFaultStack(t *testing.T) *faultStack {
+	t.Helper()
+	fs := newAnonymousStack(t)
+	if res := fs.post("/signup", url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); res.code != http.StatusSeeOther {
+		t.Fatalf("signup: %d %s", res.code, res.body)
+	}
+	return fs
+}
+
+// newAnonymousStack is newFaultStack without a signed-in user.
+func newAnonymousStack(t *testing.T) *faultStack {
 	t.Helper()
 	bs, _, _ := newBackendServer(t)
 	target, _ := url.Parse(bs.URL)
@@ -92,9 +103,6 @@ func newFaultStack(t *testing.T) *faultStack {
 	t.Cleanup(fs.web.Close)
 	jar, _ := cookiejar.New(nil)
 	fs.c = &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	if res := fs.post("/signup", url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); res.code != http.StatusSeeOther {
-		t.Fatalf("signup: %d %s", res.code, res.body)
-	}
 	return fs
 }
 

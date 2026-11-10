@@ -12,7 +12,7 @@ import (
 )
 
 func TestPagesBeforeSigningInSayTheBackendIsUnavailable(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	fs.failAll(serverError)
 	for _, c := range []pageCall{
 		{"the sign-in page", "GET", "/", nil},
@@ -144,7 +144,7 @@ func TestAnUnknownStaticFileKeepsItsPlainURL(t *testing.T) {
 }
 
 func TestAPageThatCannotBeRenderedIsAnInternalError(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	rec := httptest.NewRecorder()
 	fs.f.render(rec, "dexa.html", http.StatusOK, pageData{Rows: []row{{ID: 1}}}) // a row without the user it belongs to cannot be shown
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "internal error") {

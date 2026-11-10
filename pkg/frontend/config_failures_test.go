@@ -28,7 +28,7 @@ func waitForLog(t *testing.T, out *logOutput, want string) {
 }
 
 func TestTheFrontendKeepsItsSettingsWhenTheBackendCannotGiveNewOnes(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	ctx := context.Background()
 	before := fs.f.cfg()
 
@@ -52,7 +52,7 @@ func TestTheFrontendKeepsItsSettingsWhenTheBackendCannotGiveNewOnes(t *testing.T
 
 func TestSettingsFromTheBackendAreMadeSafe(t *testing.T) {
 	out := captureLog(t)
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	fs.fail(configAnswer(`{"tls_mode":"bogus"}`), "GET", "/frontend-config")
 	if err := fs.f.RefreshConfig(context.Background()); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestSettingsFromTheBackendAreMadeSafe(t *testing.T) {
 
 func TestTheFrontendWarnsOnceAboutAnotherVersionOfTheBackend(t *testing.T) {
 	out := captureLog(t)
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	fs.f.Version = "1.0.0"
 	fs.fail(configAnswer(`{"version":"2.0.0"}`), "GET", "/frontend-config")
 	for range 2 {
@@ -88,7 +88,7 @@ func TestTheFrontendWarnsOnceAboutAnotherVersionOfTheBackend(t *testing.T) {
 
 func TestWaitingForTheBackend(t *testing.T) {
 	t.Run("a backend that refuses the service secret is named as the cause", func(t *testing.T) {
-		fs := newFaultStack(t)
+		fs := newAnonymousStack(t)
 		fs.fail(answering(http.StatusUnauthorized, `{"code":"unauthorized","message":"no"}`), "GET", "/frontend-config")
 		err := fs.f.WaitForBackend(context.Background(), 5*time.Second)
 		if err == nil || !strings.Contains(err.Error(), "refused the service secret") {
@@ -96,7 +96,7 @@ func TestWaitingForTheBackend(t *testing.T) {
 		}
 	})
 	t.Run("a backend that stays away is given up on", func(t *testing.T) {
-		fs := newFaultStack(t)
+		fs := newAnonymousStack(t)
 		fs.failAll(serverError)
 		err := fs.f.WaitForBackend(context.Background(), 100*time.Millisecond)
 		if err == nil || !strings.Contains(err.Error(), "the backend is not available") {
@@ -105,7 +105,7 @@ func TestWaitingForTheBackend(t *testing.T) {
 	})
 	t.Run("a backend that comes up while waiting is used", func(t *testing.T) {
 		out := captureLog(t)
-		fs := newFaultStack(t)
+		fs := newAnonymousStack(t)
 		var calls atomic.Int32
 		fs.fail(func(w http.ResponseWriter, r *http.Request) {
 			if calls.Add(1) == 1 {
@@ -122,7 +122,7 @@ func TestWaitingForTheBackend(t *testing.T) {
 		}
 	})
 	t.Run("a caller that stops waiting ends the wait", func(t *testing.T) {
-		fs := newFaultStack(t)
+		fs := newAnonymousStack(t)
 		fs.failAll(serverError)
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -137,7 +137,7 @@ func TestThePollWarnsWhenTheBackendCannotBeAsked(t *testing.T) {
 	old := configPollInterval
 	configPollInterval = 5 * time.Millisecond
 	t.Cleanup(func() { configPollInterval = old })
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	fs.fail(serverError, "GET", "/frontend-config")
 	fs.f.StartConfigPoll()
 	waitForLog(t, out, "could not refresh the settings from the backend; keeping the last ones")
@@ -176,7 +176,7 @@ func TestNothingIsAnsweredToAVisitorWhoWentAway(t *testing.T) {
 }
 
 func TestSignInPostsAreLimitedMoreStrictlyThanOtherRequests(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	fs.f.unlimited = false // the stack turns the limits off
 	limited := httptest.NewServer(fs.f.Handler())
 	t.Cleanup(limited.Close)
@@ -217,7 +217,7 @@ func TestOnlyRequestsOfPeopleWhoAreNotSignedInAreCountedAsSignIns(t *testing.T) 
 }
 
 func TestReadinessFollowsTheBackend(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	if res := fs.get("/readyz"); res.code != http.StatusOK || res.body != "ok" {
 		t.Fatalf("healthy: %d %q", res.code, res.body)
 	}
@@ -228,7 +228,7 @@ func TestReadinessFollowsTheBackend(t *testing.T) {
 }
 
 func TestWithoutAnAPIBehindItTheFrontendSaysWhereTheAPILives(t *testing.T) {
-	fs := newFaultStack(t)
+	fs := newAnonymousStack(t)
 	res := fs.get("/api/v1/anything")
 	if res.code != http.StatusNotFound || !strings.Contains(res.body, "served by the api process") {
 		t.Fatalf("%d %q", res.code, res.body)
