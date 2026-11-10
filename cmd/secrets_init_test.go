@@ -36,6 +36,19 @@ func readFile(t *testing.T, dir, name string) string {
 	return strings.TrimSpace(string(b))
 }
 
+// replaceFile puts new content in a file that may be read-only (init makes its secrets 0400 or 0444).
+// Writing into such a file fails for its owner, and only root gets past that, so it is replaced, as
+// somebody editing a secret by hand has to do.
+func replaceFile(t *testing.T, path, content string, mode os.FileMode) {
+	t.Helper()
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mode(t *testing.T, dir, name string) os.FileMode {
 	t.Helper()
 	fi, err := os.Stat(filepath.Join(dir, name))
@@ -92,9 +105,7 @@ func TestSecretsInitFillsTheVolumes(t *testing.T) {
 	}
 
 	// A password changed by hand on the host reaches the volumes at the next run.
-	if err := os.WriteFile(filepath.Join(d["host"], "db_admin_password"), []byte(strings.Repeat("a", 40)+"\n"), 0o444); err != nil {
-		t.Fatal(err)
-	}
+	replaceFile(t, filepath.Join(d["host"], "db_admin_password"), strings.Repeat("a", 40)+"\n", 0o444)
 	if err := o.run(); err != nil {
 		t.Fatal(err)
 	}
@@ -288,9 +299,7 @@ func TestSecretsInitRefusesBadInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	same := readFile(t, d["api"], fileServiceSecret) + "\n"
-	if err := os.WriteFile(filepath.Join(d["api"], fileWorkerSecret), []byte(same), 0o400); err != nil {
-		t.Fatal(err)
-	}
+	replaceFile(t, filepath.Join(d["api"], fileWorkerSecret), same, 0o400)
 	if err := o.run(); err == nil || !strings.Contains(err.Error(), "differ") {
 		t.Errorf("equal secrets must be refused, got %v", err)
 	}
