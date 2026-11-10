@@ -141,19 +141,22 @@ dexafix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 // confirmRollback refuses to roll the schema back to target unless --yes was given, and says what
 // would be dropped. Moving up, or staying put, needs no confirmation.
 func confirmRollback(ctx context.Context, cmd *cobra.Command, st *sqlstore.Store, target int64) error {
-	cur, err := st.SchemaVersion(ctx)
+	// One read gives both the current version and the list of what would be undone.
+	sts, err := st.MigrationStatus(ctx)
 	if err != nil {
 		return err
+	}
+	var cur int64
+	for _, s := range sts {
+		if s.State == "applied" && s.Source.Version > cur {
+			cur = s.Source.Version
+		}
 	}
 	if target >= cur {
 		return nil
 	}
 	if yes, _ := cmd.Flags().GetBool("yes"); yes {
 		return nil
-	}
-	sts, err := st.MigrationStatus(ctx)
-	if err != nil {
-		return err
 	}
 	out := cmd.ErrOrStderr()
 	fmt.Fprintf(out, "This would roll the schema back from version %d to %d, undoing:\n", cur, target)
