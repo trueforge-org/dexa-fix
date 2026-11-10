@@ -42,6 +42,8 @@ func TestServeStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 			append([]string{"--auto-migrate=false"}, sqliteArgs(t)...), "migrat"},
 		"a database whose settings table is gone": {
 			databaseWithoutSettings(t), "settings"},
+		"a database whose stored settings cannot be opened": {
+			databaseWithDamagedSettings(t), "encrypted value format"},
 		"an address that is taken": {
 			append([]string{"--listen", takeAddr(t)}, sqliteArgs(t)...), "address already in use"},
 	}
@@ -112,6 +114,8 @@ func TestServeAPIStopsWithAnErrorWhenItCannotStart(t *testing.T) {
 			"internal TLS"},
 		"a database whose settings table is gone": {
 			append([]string{"--service-secret-file", service}, databaseWithoutSettings(t)...), "settings"},
+		"a database whose stored settings cannot be opened": {
+			append([]string{"--service-secret-file", service}, databaseWithDamagedSettings(t)...), "encrypted value format"},
 		"a password in the connection string": {
 			[]string{"--service-secret-file", service, "--dsn", "postgres://u:hunter2hunter2@localhost/x"}, "contains a password"},
 		"an encryption key file in a folder that does not exist": {

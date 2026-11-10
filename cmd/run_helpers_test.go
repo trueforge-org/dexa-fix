@@ -39,23 +39,30 @@ func restoreFlag[F any](f F) {
 
 func visitFlags[F any](visit func(func(F)), fn func(F)) { visit(fn) }
 
-// resetFlags puts every flag of every command back to its default when the test ends: cobra keeps
-// flag values between runs, and the next test must not see these.
+// resetAllFlags puts every flag of every command back to its default: cobra keeps flag values
+// between runs, and a run must not see what the one before it was given.
+func resetAllFlags() {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		visitFlags(c.Flags().VisitAll, restoreFlag)
+		c.SetOut(nil) // a test that gave a command its own writers must not keep them
+		c.SetErr(nil)
+		c.SetContext(nil)
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(RootCmd)
+	RootCmd.SetArgs(nil)
+	RootCmd.SetOut(nil)
+	RootCmd.SetErr(nil)
+}
+
+// resetFlags resets the flags now and again when the test ends.
 func resetFlags(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
-		var walk func(c *cobra.Command)
-		walk = func(c *cobra.Command) {
-			visitFlags(c.Flags().VisitAll, restoreFlag)
-			for _, sub := range c.Commands() {
-				walk(sub)
-			}
-		}
-		walk(RootCmd)
-		RootCmd.SetArgs(nil)
-		RootCmd.SetOut(nil)
-		RootCmd.SetErr(nil)
-	})
+	resetAllFlags()
+	t.Cleanup(resetAllFlags)
 }
 
 // execute runs the real command line with args and returns what it printed to stdout and stderr.
@@ -243,6 +250,23 @@ func sqliteArgs(t *testing.T) []string {
 	t.Helper()
 	dir := t.TempDir()
 	return []string{"--db-driver", "sqlite", "--dsn", "file:" + filepath.Join(dir, "d.db"), "--encryption-key-file", filepath.Join(dir, "k.key")}
+}
+
+// databaseWithDamagedSettings makes a database whose stored base URL cannot be opened with its key,
+// so that a backend can open the database but not read its settings. It returns the flags.
+func databaseWithDamagedSettings(t *testing.T) []string {
+	t.Helper()
+	d := newRecoveryDB(t)
+	ctx := context.Background()
+	name := mainbackend.NetworkSettingNames[0]
+	if err := d.st.PutSetting(ctx, name, "https://dexafix.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.st.ExecForTests(ctx, "UPDATE app_settings SET value = 'enc:damaged' WHERE name = '"+name+"'"); err != nil {
+		t.Fatal(err)
+	}
+	d.st.Close()
+	return d.flags
 }
 
 // testBackend serves the internal API of a backend with a service and a worker secret.

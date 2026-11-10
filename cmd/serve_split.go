@@ -122,10 +122,7 @@ from the api process and apply without a restart.`,
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		srv, err := frontend.NewFrontend(client)
-		if err != nil {
-			return err
-		}
+		srv := must.Value(frontend.NewFrontend(client)) // cannot fail: the templates are built into the binary
 		srv.Version = Version
 		defer srv.Close()
 		if upstream != "" {
