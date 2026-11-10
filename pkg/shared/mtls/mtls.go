@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -153,18 +154,6 @@ func stat(paths ...string) ([]fileState, error) {
 	return out, nil
 }
 
-func same(a, b []fileState) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // loader holds a value built from files and rebuilds it when the files change. A failed rebuild
 // keeps the value in use: a half-written file during rotation must not break the link.
 type loader[T any] struct {
@@ -198,7 +187,7 @@ func (l *loader[T]) get() T {
 	}
 	l.checked = time.Now()
 	st, err := stat(l.paths...)
-	if err != nil || same(st, l.state) {
+	if err != nil || slices.Equal(st, l.state) {
 		return l.value
 	}
 	if v, err := l.build(); err == nil {
