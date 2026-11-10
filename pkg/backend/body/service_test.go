@@ -28,7 +28,7 @@ type rig struct {
 }
 
 // newRig starts a body service over an in-memory store, with three users, and a client for it.
-func newRig(t *testing.T) *rig {
+func newRig(t testing.TB) *rig {
 	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {

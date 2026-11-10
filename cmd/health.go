@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -29,6 +31,35 @@ const healthReadyTimeout = 3 * time.Second
 func addHealthFlag(c *cobra.Command) {
 	c.Flags().String("health-listen", envOr("DEXAFIX_HEALTH_LISTEN", ""),
 		"address of a listener that answers /healthz and /readyz only, for a container health check, such as 127.0.0.1:8083 (empty: off)")
+	c.Flags().Bool("pprof", envOr("DEXAFIX_PPROF", "false") == "true",
+		"also serve Go profiling data (/debug/pprof/) on the --health-listen listener, which must then be a loopback address (default: off)")
+}
+
+// pprofHandler serves the profiling pages next to h. They are registered by hand on a mux of our
+// own so that nothing lands on http.DefaultServeMux.
+func pprofHandler(h http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return mux
+}
+
+// loopbackAddr reports whether addr (host:port) names only the loopback interface. An empty host
+// means every interface, so it is not loopback.
+func loopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // healthHandler answers /healthz and /readyz. ready may be nil: then readiness is liveness.
@@ -60,9 +91,21 @@ func healthHandler(ready func(context.Context) error) http.Handler {
 func startHealth(cmd *cobra.Command, ready func(context.Context) error, errCh chan<- error) (*http.Server, error) {
 	addr, _ := cmd.Flags().GetString("health-listen")
 	if addr == "" {
+		if prof, _ := cmd.Flags().GetBool("pprof"); prof {
+			return nil, errors.New("--pprof needs --health-listen on a loopback address such as 127.0.0.1:8083")
+		}
 		return nil, nil
 	}
-	srv := newHTTPServer(addr, healthHandler(ready))
+	h := healthHandler(ready)
+	if prof, _ := cmd.Flags().GetBool("pprof"); prof {
+		// Profiles show memory and stacks, so they are for the machine itself, never for a network.
+		if !loopbackAddr(addr) {
+			return nil, fmt.Errorf("--pprof needs --health-listen on a loopback address such as 127.0.0.1:8083, not %q", addr)
+		}
+		h = pprofHandler(h)
+		log.Warn().Str("listen", addr).Msg("serving profiling data on /debug/pprof/")
+	}
+	srv := newHTTPServer(addr, h)
 	if err := listenAndServe(srv, nil, errCh); err != nil {
 		return nil, fmt.Errorf("health listener: %w", err)
 	}

@@ -256,6 +256,24 @@ and it answers nothing else. Bind it to the loopback address. The web process
 needs no extra listener: its own `/healthz` (the process runs) and `/readyz`
 (it can reach the api process) are on its normal listener.
 
+### Profiling
+
+To see where an api, body or worker process spends its time, start it with
+`--pprof` (or `DEXAFIX_PPROF=true`) together with a loopback
+`--health-listen`:
+
+```bash
+dexafix serve api --health-listen 127.0.0.1:8083 --pprof ...
+go tool pprof http://127.0.0.1:8083/debug/pprof/profile?seconds=30
+```
+
+The profiling pages are served on the health listener only, and the process
+refuses to start when `--pprof` is set without a loopback `--health-listen`,
+because a profile shows memory and stacks. In a container, run `go tool pprof`
+from the host through `docker exec` or a published loopback port. The web
+process has no health listener and no profiling pages. `--pprof` is off by
+default.
+
 `dexafix healthcheck <url>` makes one request and exits 0 for a 2xx answer, so
 the container can check itself:
 
