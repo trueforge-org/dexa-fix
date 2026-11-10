@@ -4,6 +4,7 @@ import (
 	"context"
 	"html/template"
 	"net/url"
+	"strconv"
 
 	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
@@ -136,10 +137,16 @@ type EstimatesPage struct {
 	SLReady  bool             `json:"sl_ready"`
 }
 
-// EstimatesPage returns the data of the estimates page.
-func (c *Client) EstimatesPage(ctx context.Context, userID int64) (EstimatesPage, error) {
+// EstimatesPage returns the data of the estimates page. With days > 0 the result holds only the days
+// within that many days of the newest one (estimate.WithinDays) and all the calibrations; 0 means
+// every day.
+func (c *Client) EstimatesPage(ctx context.Context, userID int64, days int) (EstimatesPage, error) {
 	var p EstimatesPage
-	err := c.Get(ctx, userPath(userID, "/pages/estimates"), &p)
+	path := userPath(userID, "/pages/estimates")
+	if days > 0 {
+		path += "?days=" + strconv.Itoa(days)
+	}
+	err := c.Get(ctx, path, &p)
 	return p, err
 }
 

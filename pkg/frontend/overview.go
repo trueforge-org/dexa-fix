@@ -131,18 +131,20 @@ func selectedRange(key string) chartRange {
 	return chartRanges[1]
 }
 
+// pageDays is how many days of estimates the estimates page needs for a chart range, so that the
+// rest need not cross the network: the range itself, and at least what the tiles compare with
+// (deltaDays back, plus the slack, plus the newest day). 0 means every day.
+func pageDays(r chartRange) int {
+	if r.Days <= 0 {
+		return 0
+	}
+	return max(r.Days, deltaDays+deltaSlackDays+1)
+}
+
 // daysInRange returns the part of days (newest first) within rangeDays of the newest day. A
 // rangeDays of 0 returns all of them.
 func daysInRange(days []estimate.DayEstimate, rangeDays int) []estimate.DayEstimate {
-	if rangeDays <= 0 || len(days) == 0 {
-		return days
-	}
-	cutoff := days[0].Date.AddDate(0, 0, -(rangeDays - 1))
-	n := 0
-	for n < len(days) && !days[n].Date.Before(cutoff) {
-		n++
-	}
-	return days[:n]
+	return estimate.WithinDays(days, rangeDays)
 }
 
 // buildOverview summarises a result for the given chart selection. Unknown selections fall back

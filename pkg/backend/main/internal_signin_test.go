@@ -309,3 +309,32 @@ func TestSplitAdminEndpointRefusesWithoutStepUpProof(t *testing.T) {
 		t.Errorf("with the proof: %v", err)
 	}
 }
+
+// The estimates page asks for a window of days. Over a real split, a good window is answered and a
+// bad one is refused with the invalid code, not trimmed to something else.
+func TestSplitEstimatesPageWindow(t *testing.T) {
+	bs, _, _ := newInternalServer(t)
+	c := splitClient(t, bs)
+	rec := httptest.NewRecorder()
+	ctx := apiclient.WithRequest(context.Background(), apiclient.Request{ClientIP: "198.51.100.7", Secure: true, Relay: rec})
+	if o, err := c.Login(ctx, "root@example.com", testPassword); err != nil || o.Redirect != "/u/1" {
+		t.Fatalf("outcome %+v err %v", o, err)
+	}
+	back := apiclient.WithRequest(context.Background(), apiclient.Request{Cookie: sessionCookie + "=" + relayedCookie(rec, sessionCookie).Value})
+
+	for _, days := range []int{0, 1, 38, 365} {
+		if _, err := c.EstimatesPage(back, 1, days); err != nil {
+			t.Errorf("days=%d: %v", days, err)
+		}
+	}
+	for _, bad := range []string{"0", "-5", "abc", "1.5", "100001"} {
+		resp, err := c.Raw(back, http.MethodGet, "/users/1/pages/estimates?days="+bad, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("days=%s: status %d, want 400", bad, resp.StatusCode)
+		}
+	}
+}

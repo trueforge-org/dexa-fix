@@ -221,12 +221,23 @@ type EstimatesReply struct {
 // Estimates returns the user's estimates. ifNoneMatch is the ETag of a copy the caller already has,
 // or empty.
 func (c *Client) Estimates(ctx context.Context, u Subject, ifNoneMatch string) (EstimatesReply, error) {
+	return c.EstimatesWindow(ctx, u, ifNoneMatch, 0)
+}
+
+// EstimatesWindow is Estimates for callers that only need the newest days: with days > 0 the answer
+// holds the days within that many days of the newest one (estimate.WithinDays) and all calibrations.
+// The ETag differs per window, so a validator from one window never matches another.
+func (c *Client) EstimatesWindow(ctx context.Context, u Subject, ifNoneMatch string, days int) (EstimatesReply, error) {
+	var q url.Values
+	if days > 0 {
+		q = url.Values{"days": {strconv.Itoa(days)}}
+	}
 	h := http.Header{}
 	if ifNoneMatch != "" {
 		h.Set("If-None-Match", ifNoneMatch)
 	}
 	var r EstimatesReply
-	resp, err := c.call(ctx, http.MethodGet, userPath(u.ID, "/estimates"), nil, u.ID, ScopeRead, &u.Params, h, nil, &r.Result)
+	resp, err := c.call(ctx, http.MethodGet, userPath(u.ID, "/estimates"), q, u.ID, ScopeRead, &u.Params, h, nil, &r.Result)
 	if err != nil {
 		return EstimatesReply{}, err
 	}

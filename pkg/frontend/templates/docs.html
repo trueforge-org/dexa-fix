@@ -891,7 +891,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></p
     <tr><td>POST</td><td><code>/users/{id}/scale-readings</code></td><td>Add a batch: a JSON array of up to 5000 readings. Upserted on <code>source</code> and <code>external_id</code>.</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/settings</code></td><td>Athlete-mode default and method ranking.</td></tr>
     <tr><td>PUT</td><td><code>/users/{id}/settings</code></td><td>Replace them: <code>{"athlete_default": true, "method_ranking": [...]}</code>.</td></tr>
-    <tr><td>GET</td><td><code>/users/{id}/estimates</code></td><td>Daily estimates and calibrations. Supports <code>ETag</code> / <code>If-None-Match</code> (304 when unchanged).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/estimates</code></td><td>Daily estimates and calibrations. Supports <code>ETag</code> / <code>If-None-Match</code> (304 when unchanged). <code>?days=N</code> returns only the days within N days of the newest one (all calibrations); the ETag differs per window.</td></tr>
     <tr><td>POST</td><td><code>/users/{id}/import/{provider}</code></td><td>Import from a provider (<code>withings</code>). Optional <code>since</code> (RFC 3339) and <code>day</code> (<code>YYYY-MM-DD</code>; wins over <code>since</code>).</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/export/profile</code></td><td>Download settings and personal details (JSON file).</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/export/data</code></td><td>Download all scans and readings (JSON file).</td></tr>

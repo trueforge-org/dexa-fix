@@ -7,9 +7,14 @@ import (
 	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
-// BenchmarkEstimatesCached10Years is what every estimates page view costs the body service and the
-// link to it once the estimate cache is warm: ten years of daily readings, encoded, sent, decoded.
-func BenchmarkEstimatesCached10Years(b *testing.B) {
+// BenchmarkEstimatesCached10Years is what every estimates page view cost the body service and the
+// link to it once the estimate cache is warm, before the page asked for a window: ten years of
+// daily readings, encoded, sent, decoded. BenchmarkEstimatesWindow90 is what it costs now.
+func BenchmarkEstimatesCached10Years(b *testing.B) { benchEstimates(b, 0) }
+
+func BenchmarkEstimatesWindow90(b *testing.B) { benchEstimates(b, 90) }
+
+func benchEstimates(b *testing.B, window int) {
 	r := newRig(b)
 	ctx := context.Background()
 	alice := r.sub(0)
@@ -26,13 +31,13 @@ func BenchmarkEstimatesCached10Years(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	first, err := r.client.Estimates(ctx, alice, "") // computes and fills the cache
+	first, err := r.client.EstimatesWindow(ctx, alice, "", 0) // computes and fills the cache
 	if err != nil || len(first.Result.Days) < days {
 		b.Fatalf("warm-up: %d days, %v", len(first.Result.Days), err)
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := r.client.Estimates(ctx, alice, ""); err != nil {
+		if _, err := r.client.EstimatesWindow(ctx, alice, "", window); err != nil {
 			b.Fatal(err)
 		}
 	}

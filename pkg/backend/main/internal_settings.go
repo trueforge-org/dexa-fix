@@ -2,6 +2,7 @@ package mainbackend
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/trueforge-org/dexafix/pkg/estimate"
 	"github.com/trueforge-org/dexafix/pkg/models"
@@ -20,8 +21,20 @@ func (s *Backend) internalSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+p+"/export/data", s.internalUser(s.internalExportData))
 }
 
+// maxEstimatesPageDays bounds ?days= on the estimates page; the body service has the same bound.
+const maxEstimatesPageDays = 100000
+
 func (s *Backend) internalEstimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
-	res, err := s.computeEstimates(r.Context(), u)
+	days := 0
+	if v := r.URL.Query().Get("days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxEstimatesPageDays {
+			internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, "days must be a whole number of days of at least 1")
+			return
+		}
+		days = n
+	}
+	res, err := s.computeEstimatesWindow(r.Context(), u, days)
 	if err != nil {
 		internalError(w, err)
 		return
