@@ -3,8 +3,8 @@ package frontend
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // The server, e-mail and test e-mail forms of the Admin page. The backend validates and stores.

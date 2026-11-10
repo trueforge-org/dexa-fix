@@ -10,9 +10,9 @@ go run . serve
 
 Open <http://localhost:8080>, create an account and enter some data. The first
 account becomes the administrator. By default the SQLite database is
-`dexa-fix.db` in the current directory.
+`dexafix.db` in the current directory.
 
-The first run also creates the encryption key file `dexa-fix.key` in the current
+The first run also creates the encryption key file `dexafix.key` in the current
 directory, unless `DEXAFIX_ENCRYPTION_KEY` is set. Back up the key file too. The
 server does not start without it, because the encrypted values cannot be read.
 See [Encryption](08-encryption.md) for where to keep it.
@@ -20,8 +20,8 @@ See [Encryption](08-encryption.md) for where to keep it.
 To build a binary:
 
 ```bash
-go build -o dexa-fix .
-./dexa-fix serve
+go build -o dexafix .
+./dexafix serve
 ```
 
 The server speaks plain HTTP on the `--listen` port. To serve HTTPS, with HTTP/2

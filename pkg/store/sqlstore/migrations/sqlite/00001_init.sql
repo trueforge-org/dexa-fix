@@ -1,6 +1,7 @@
 -- +goose Up
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Random, not sequential (see newUserID), so that ids cannot be guessed or counted.
+  id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL,
   athlete_default INTEGER NOT NULL DEFAULT 0,
@@ -14,8 +15,8 @@ CREATE TABLE users (
   hidden_columns TEXT NOT NULL DEFAULT '',
   -- Set by an administrator: the user may store Strength Level credentials and sync automatically.
   strengthlevel_auto INTEGER NOT NULL DEFAULT 0,
-  -- Counts changes to everything the estimates are computed from, so cached estimates can tell when
-  -- they are out of date (see Store.bumpVersion).
+  -- Counts changes to the user settings the estimates depend on (time zone, height, ranking, athlete
+  -- default). The scans and readings have their own counter: body_user_state.
   data_version INTEGER NOT NULL DEFAULT 0,
   -- Set by an administrator: the user may also run the multi-day Strength Level sync from Settings.
   strengthlevel_bulk INTEGER NOT NULL DEFAULT 0,
@@ -23,36 +24,13 @@ CREATE TABLE users (
   -- date-times are read and shown.
   timezone TEXT NOT NULL DEFAULT 'UTC',
   -- Random handle that identifies the user to passkeys (WebAuthn user.id). It is not personal data.
-  passkey_handle TEXT
+  passkey_handle TEXT,
+  -- Set by an administrator: orders the user's worker jobs among other users' (1-100, higher first).
+  -- Administrators' jobs always go before everyone's, whatever this says.
+  job_priority INTEGER NOT NULL DEFAULT 50
 );
 CREATE UNIQUE INDEX idx_users_email_lookup ON users(email_lookup);
 CREATE UNIQUE INDEX idx_users_passkey_handle ON users(passkey_handle);
-CREATE TABLE scale_readings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  measured_at TIMESTAMP NOT NULL,
-  weight_kg REAL, fat_ratio_pct REAL, fat_mass_kg REAL, fat_free_mass_kg REAL,
-  muscle_mass_kg REAL, hydration_kg REAL, bone_mass_kg REAL, visceral_fat_index REAL,
-  source TEXT NOT NULL DEFAULT 'manual',
-  method TEXT NOT NULL DEFAULT 'scale',
-  athlete_mode INTEGER NOT NULL DEFAULT 0,
-  external_id TEXT,
-  notes TEXT NOT NULL DEFAULT '',
-  created_at TIMESTAMP NOT NULL,
-  UNIQUE (user_id, source, external_id)
-);
-CREATE INDEX idx_scale_user_time ON scale_readings(user_id, measured_at);
-CREATE TABLE dexa_scans (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  measured_at DATE NOT NULL,
-  weight_kg REAL, fat_ratio_pct REAL, fat_mass_kg REAL, fat_free_mass_kg REAL,
-  lean_mass_kg REAL, bone_mass_kg REAL, visceral_fat_mass_kg REAL,
-  bmd_g_cm2 REAL, t_score REAL, z_score REAL, android_fat_pct REAL, gynoid_fat_pct REAL,
-  notes TEXT NOT NULL DEFAULT '',
-  created_at TIMESTAMP NOT NULL
-);
-CREATE INDEX idx_dexa_user_time ON dexa_scans(user_id, measured_at);
 CREATE TABLE user_integrations (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
@@ -193,16 +171,64 @@ CREATE TABLE auth_failures (
 );
 CREATE INDEX idx_auth_failures_key ON auth_failures(fail_key, failed_at);
 CREATE INDEX idx_auth_failures_at ON auth_failures(failed_at);
--- The status of a user's Strength Level sync (a JSON view), written by the backend that runs it and
--- read by any backend. A 'running' state that stopped being updated belongs to a dead process.
-CREATE TABLE strengthlevel_jobs (
-  user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+-- The queue of work for the workers (processes without database access that talk to Withings,
+-- Strength Level and the like). The backend owns it: a worker sees a job only inside a lease.
+-- payload and result are encrypted; payload is cleared when the job ends.
+CREATE TABLE worker_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  interactive INTEGER NOT NULL DEFAULT 0,
+  -- At most one queued or running job per non-empty key.
+  dedupe_key TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL,
-  updated_at TIMESTAMP NOT NULL
+  payload TEXT NOT NULL DEFAULT '',
+  progress TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL,
+  timeout_seconds INTEGER NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  run_after TIMESTAMP NOT NULL,
+  expires_at TIMESTAMP,
+  started_at TIMESTAMP,
+  finished_at TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL,
+  lease_owner TEXT NOT NULL DEFAULT '',
+  -- Hash of the secret only the leaseholder knows: a worker that lost its lease cannot report.
+  lease_token_hash TEXT NOT NULL DEFAULT '',
+  lease_until TIMESTAMP,
+  deadline_at TIMESTAMP,
+  cancel_requested INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX idx_worker_jobs_public ON worker_jobs(public_id);
+CREATE UNIQUE INDEX idx_worker_jobs_dedupe ON worker_jobs(dedupe_key) WHERE dedupe_key <> '' AND state IN ('queued', 'running');
+CREATE INDEX idx_worker_jobs_ready ON worker_jobs(state, run_after);
+CREATE INDEX idx_worker_jobs_user ON worker_jobs(user_id, kind, id);
+-- Worker processes that recently asked for work, so the pages can say whether anything is listening.
+CREATE TABLE worker_instances (
+  id TEXT NOT NULL PRIMARY KEY,
+  kinds TEXT NOT NULL,
+  version TEXT NOT NULL DEFAULT '',
+  last_seen TIMESTAMP NOT NULL
+);
+-- What the scheduler remembers about a user and a kind of job.
+CREATE TABLE worker_schedules (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  last_enqueued_at TIMESTAMP,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  paused_reason TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (user_id, kind)
 );
 
 -- +goose Down
-DROP TABLE strengthlevel_jobs;
+DROP TABLE worker_schedules;
+DROP TABLE worker_instances;
+DROP TABLE worker_jobs;
 DROP TABLE auth_failures;
 DROP TABLE used_nonces;
 DROP TABLE passkeys;
@@ -216,6 +242,4 @@ DROP TABLE access_tokens;
 DROP TABLE sessions;
 DROP TABLE user_identities;
 DROP TABLE user_integrations;
-DROP TABLE dexa_scans;
-DROP TABLE scale_readings;
 DROP TABLE users;

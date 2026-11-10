@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 var deleteForms = regexp.MustCompile(`action="/u/1/scale/\d+/delete"`)
@@ -47,7 +46,7 @@ func readBody(resp *http.Response) string {
 	}
 }
 
-func seedReadings(t *testing.T, st store.Store, n int) {
+func seedReadings(t *testing.T, st store.BodyStore, n int) {
 	t.Helper()
 	base := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	var rs []models.ScaleReading
@@ -153,7 +152,7 @@ func TestEstimatesAreCachedAndInvalidatedByEveryWrite(t *testing.T) {
 	}
 
 	// A client that kept the answer is told it is still good, and the server computes nothing.
-	missesBefore := srv.estCache.misses
+	_, missesBefore := testBodyOf(srv.Backend).CacheStats()
 	if resp := get(t, c, url, map[string]string{"If-None-Match": etag}); resp.StatusCode != http.StatusNotModified {
 		t.Errorf("revalidation: %d", resp.StatusCode)
 	}
@@ -161,8 +160,8 @@ func TestEstimatesAreCachedAndInvalidatedByEveryWrite(t *testing.T) {
 	if body2 := readBody(get(t, c, url, nil)); body2 != body1 {
 		t.Error("cached response differs from the first")
 	}
-	if srv.estCache.misses != missesBefore || srv.estCache.hits == 0 {
-		t.Errorf("not served from the cache: hits %d, misses %d (was %d)", srv.estCache.hits, srv.estCache.misses, missesBefore)
+	if hits, misses := testBodyOf(srv.Backend).CacheStats(); misses != missesBefore || hits == 0 {
+		t.Errorf("not served from the cache: hits %d, misses %d (was %d)", hits, misses, missesBefore)
 	}
 
 	// Every kind of change must make the old answer stale, whichever way it was made.
@@ -183,6 +182,18 @@ func TestEstimatesAreCachedAndInvalidatedByEveryWrite(t *testing.T) {
 			code, _ := apiCall(t, c, "PUT", ts.URL+"/api/v1/users/1/settings", `{"athlete_default":true,"method_ranking":[]}`, nil)
 			if code != 200 {
 				t.Fatalf("put settings: %d", code)
+			}
+		},
+		// The user row is not body data: only the hash of the settings in the cache key sees these.
+		"changing the height": func() {
+			h := 181.5
+			if err := st.UpdateUserProfile(t.Context(), 1, "root", "", &h); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"changing the time zone": func() {
+			if err := st.UpdateUserTimezone(t.Context(), 1, "Pacific/Auckland"); err != nil {
+				t.Fatal(err)
 			}
 		},
 		"deleting a reading behind the web app's back": func() {
@@ -207,32 +218,5 @@ func TestEstimatesAreCachedAndInvalidatedByEveryWrite(t *testing.T) {
 	// Another user's data never leaks through the cache.
 	if resp := get(t, c, ts.URL+"/api/v1/users/2/estimates", nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("other user's estimates: %d", resp.StatusCode)
-	}
-}
-
-func TestEstimateCacheEvictsAndKeepsNewerVersions(t *testing.T) {
-	c := newEstimateCache()
-	calls := 0
-	res := func() func() (estimate.Result, error) {
-		return func() (estimate.Result, error) { calls++; return estimate.Result{}, nil }
-	}
-	key := func(v int64) estimateKey { return estimateKey{version: v, day: "2026-01-01"} }
-
-	c.get(1, key(5), res())
-	c.get(1, key(5), res())
-	if calls != 1 {
-		t.Errorf("same key computed %d times", calls)
-	}
-	c.get(1, key(6), res())
-	c.get(1, key(5), res()) // a slow request from before the write must not replace the newer result...
-	c.get(1, key(6), res()) // ...so version 6 is still cached
-	if calls != 3 {
-		t.Errorf("calls %d, want 3 (v5, v6, late v5)", calls)
-	}
-	for id := int64(10); id < 10+estimateCacheUsers+5; id++ {
-		c.get(id, key(1), res())
-	}
-	if len(c.entries) > estimateCacheUsers {
-		t.Errorf("cache holds %d users, limit %d", len(c.entries), estimateCacheUsers)
 	}
 }

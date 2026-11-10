@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 func settingsFlash(w http.ResponseWriter, r *http.Request, u models.User, msg string) {

@@ -3,7 +3,6 @@ package cmd
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,21 +22,39 @@ const minServiceSecretLen = 32
 
 func addServiceSecretFlag(c *cobra.Command) {
 	c.Flags().String("service-secret-file", envOr("DEXAFIX_SERVICE_SECRET_FILE", ""),
-		"file with the secret the web and api processes share, one per line (the first is the one sent); create one with `dexa-fix secrets service-secret`")
+		"file with the secret the web and api processes share, one per line (the first is the one sent); create one with `dexafix secrets service-secret`")
 }
 
+// secretFile describes a file of shared secrets, for the messages that name it.
+type secretFile struct {
+	what   string // "service secret"
+	flag   string // "--service-secret-file"
+	env    string // "DEXAFIX_SERVICE_SECRET_FILE"
+	create string // "dexafix secrets service-secret"
+}
+
+var (
+	serviceSecretFile = secretFile{"service secret", "--service-secret-file", "DEXAFIX_SERVICE_SECRET_FILE", "dexafix secrets service-secret"}
+	workerSecretFile  = secretFile{"worker secret", "--worker-secret-file", "DEXAFIX_WORKER_SECRET_FILE", "dexafix secrets worker-secret"}
+)
+
 // loadServiceSecrets reads the secrets in a file. Blank lines and lines starting with # are skipped.
-func loadServiceSecrets(path string) ([]string, error) {
+func loadServiceSecrets(path string) ([]string, error) { return serviceSecretFile.load(path) }
+
+// loadWorkerSecrets reads the secrets the workers and the api process share, in the same format.
+func loadWorkerSecrets(path string) ([]string, error) { return workerSecretFile.load(path) }
+
+func (k secretFile) load(path string) ([]string, error) {
 	if path == "" {
-		return nil, errors.New("--service-secret-file (DEXAFIX_SERVICE_SECRET_FILE) is required: create one with `dexa-fix secrets service-secret`")
+		return nil, fmt.Errorf("%s (%s) is required: create one with `%s`", k.flag, k.env, k.create)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("service secret: %w", err)
+		return nil, fmt.Errorf("%s: %w", k.what, err)
 	}
 	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 && !mountedSecret(path) {
 		log.Warn().Str("file", path).Str("mode", fmt.Sprintf("%04o", fi.Mode().Perm())).
-			Msg("the service secret file can be read by other users; restrict it (chmod 600) unless a secret store mounts it for you")
+			Msg("the " + k.what + " file can be read by other users; restrict it (chmod 600) unless a secret store mounts it for you")
 	}
 	var out []string
 	for _, line := range strings.Split(string(b), "\n") {
@@ -45,7 +62,7 @@ func loadServiceSecrets(path string) ([]string, error) {
 			continue
 		}
 		if len(line) < minServiceSecretLen {
-			return nil, fmt.Errorf("%s: a service secret must be at least %d characters; create one with `dexa-fix secrets service-secret`", path, minServiceSecretLen)
+			return nil, fmt.Errorf("%s: a %s must be at least %d characters; create one with `%s`", path, k.what, minServiceSecretLen, k.create)
 		}
 		out = append(out, line)
 	}
@@ -72,7 +89,7 @@ var serviceSecretCmd = &cobra.Command{
 	Use:   "service-secret",
 	Short: "Print a new secret for the web and api processes to share",
 	Long: "Prints a new random secret. Save it in a file readable only by the two processes and give the path " +
-		"to both with --service-secret-file:\n\n  dexa-fix secrets service-secret > service.secret && chmod 600 service.secret",
+		"to both with --service-secret-file:\n\n  dexafix secrets service-secret > service.secret && chmod 600 service.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := newServiceSecret()
@@ -84,8 +101,29 @@ var serviceSecretCmd = &cobra.Command{
 	},
 }
 
+var workerSecretCmd = &cobra.Command{
+	Use:   "worker-secret",
+	Short: "Print a new secret for the api process and its workers to share",
+	Long: "Prints a new random secret. Save it in a file readable only by the api process and the workers and give the path " +
+		"to both with --worker-secret-file. It must differ from the service secret: the two open different doors.\n\n" +
+		"  dexafix secrets worker-secret > worker.secret && chmod 600 worker.secret",
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		s, err := newServiceSecret()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), s)
+		return nil
+	},
+}
+
+func addWorkerSecretFlag(c *cobra.Command, help string) {
+	c.Flags().String("worker-secret-file", envOr("DEXAFIX_WORKER_SECRET_FILE", ""), help)
+}
+
 func init() {
-	secretsCmd.AddCommand(serviceSecretCmd)
+	secretsCmd.AddCommand(serviceSecretCmd, workerSecretCmd)
 	RootCmd.AddCommand(secretsCmd)
 }
 

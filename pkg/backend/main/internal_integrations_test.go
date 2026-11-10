@@ -8,17 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/workers/builtin"
 )
 
 // integrationBackend starts a backend with a configured Withings provider on a real connection and
 // two signed-in users, with the session cookies of both.
 func integrationBackend(t *testing.T) (*apiclient.Client, string, string) {
 	t.Helper()
-	cfg := withings.Config{ClientID: "id", ClientSecret: "s", RedirectURL: "http://app/integrations/withings/callback"}
-	ts, _, st := newServerAndStore(t, withings.New(cfg, nil))
+	ts, _, st := newServerAndStore(t, builtin.Options{})
+	setWithingsApp(t, st)
 	var sessions []string
 	for _, n := range []string{"one", "two"} {
 		form := url.Values{"name": {n}, "email": {n + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
@@ -31,7 +30,7 @@ func integrationBackend(t *testing.T) (*apiclient.Client, string, string) {
 		resp.Body.Close()
 		sessions = append(sessions, sessionCookie+"="+sessionCookieOf(t, resp).Value)
 	}
-	srv, err := New(st, importer.NewRegistry(withings.New(cfg, nil)))
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}

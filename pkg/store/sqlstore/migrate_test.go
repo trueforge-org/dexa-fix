@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 func names(t *testing.T, dir string) []string {
@@ -29,6 +29,14 @@ func TestMigrationParity(t *testing.T) {
 	a, b := names(t, DriverSQLite), names(t, DriverPostgres)
 	if len(a) == 0 || !reflect.DeepEqual(a, b) {
 		t.Fatalf("migration files differ: sqlite=%v postgres=%v", a, b)
+	}
+}
+
+// The body domain has its own migration set; the two backends must agree there too.
+func TestBodyMigrationParity(t *testing.T) {
+	a, b := names(t, "body/"+DriverSQLite), names(t, "body/"+DriverPostgres)
+	if len(a) == 0 || !reflect.DeepEqual(a, b) {
+		t.Fatalf("body migration files differ: sqlite=%v postgres=%v", a, b)
 	}
 }
 

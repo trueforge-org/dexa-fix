@@ -9,24 +9,36 @@ These values are encrypted with AES-256-GCM before they are stored:
   certificate
 - e-mail addresses
 - each user's two-step verification secret, the key of their authenticator app
+- each user's scale readings and DEXA scans: the measured values and the notes.
+  The time of a measurement, its source, its method and the user it belongs to
+  stay readable, because the database needs them to find and order rows.
 
 Each value is tied to its row, so copying it to another row makes it unreadable.
+The readings and scans have a key of their own, derived from the encryption key,
+so a value from one group does not open with the key of the other. One key file
+covers both.
 Each e-mail address also gets a keyed hash, derived from the encryption key. The
 hash makes addresses searchable and unique without decrypting them. Passwords,
 access tokens, password reset links and two-step verification recovery codes are
-stored only as hashes. Names are not encrypted, but addresses are. Measurements and height are
-not encrypted by the application either. For those, and for names, use disk or
-database encryption.
+stored only as hashes. Names are not encrypted, but addresses are. Height is not
+encrypted by the application either. For that, and for names, use disk or
+database encryption. Without an encryption key nothing is encrypted; readings
+and scans written then are encrypted at the next start with a key.
+
+With a [body service](17-body-service.md) in its own process, the readings and
+scans have an encryption key of their own: `serve body` takes
+`--encryption-key-file` for it, checks it against its database and refuses a
+wrong one. Rotate it with `db rekey --body`. Back it up like the main key.
 
 The key comes from one of these, in this order:
 
 1. The environment variable `DEXAFIX_ENCRYPTION_KEY`: 32 bytes as 64
    hexadecimal characters or as base64. There is no command-line flag for it.
 2. The key file set with `--encryption-key-file` or
-   `DEXAFIX_ENCRYPTION_KEY_FILE`. The default is `dexa-fix.key` in the working
+   `DEXAFIX_ENCRYPTION_KEY_FILE`. The default is `dexafix.key` in the working
    directory.
 
-If the variable is not set and the key file does not exist, dexa-fix creates
+If the variable is not set and the key file does not exist, DexaFix creates
 the file with a new random key and mode 0600, but only for a new database or one
 that holds no encrypted values yet. If the database already holds encrypted
 values, a missing key file is an error and no file is created, so a key file
@@ -44,7 +56,7 @@ random value.
 
 For SQLite, `serve` logs a warning when the key file is in the same directory as
 the database file, which is the case for the container image defaults
-(`/data/dexa-fix.db` and `/data/dexa-fix.key`). A leak of that directory (a
+(`/config/dexafix.db` and `/config/dexafix.key`). A leak of that directory (a
 backup, a volume snapshot) then exposes both the encrypted values and the key.
 Prefer `DEXAFIX_ENCRYPTION_KEY` from a secret store, or a key file on a separate
 secret mount.
@@ -66,12 +78,12 @@ the key:
    `DEXAFIX_ENCRYPTION_KEY=<new>` and `DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old>`, or
    a new `--encryption-key-file` plus `--encryption-key-previous-file` with the
    old key on a line of its own. Several previous keys are allowed.
-4. Run `dexa-fix db rekey --dry-run` to see how many values would change. It
+4. Run `dexafix db rekey --dry-run` to see how many values would change. It
    fails if any value cannot be opened by one of the keys.
-5. Run `dexa-fix db rekey`. In a single transaction it re-encrypts the e-mail
+5. Run `dexafix db rekey`. In a single transaction it re-encrypts the e-mail
    addresses, integrations, server settings (including the cookie key),
-   sign-in provider secrets and two-step verification secrets with the current
-   key, recomputes the e-mail lookup hashes (they derive from the key) and
+   sign-in provider secrets, two-step verification secrets, and the scale
+   readings and DEXA scans with the current key, recomputes the e-mail lookup hashes (they derive from the key) and
    stores the new check value. It prints a count for each kind, such as
    `two-step secrets re-encrypted: 2`. It either completes or changes nothing,
    and can be repeated: values already under the current key are skipped.

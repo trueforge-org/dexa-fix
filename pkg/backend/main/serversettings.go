@@ -11,10 +11,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/mailer"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/mailer"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Server settings are kept in the database and edited on the Admin page, not given as command line
@@ -54,6 +54,8 @@ type liveSettings struct {
 	tlsInfo        *tlsutil.Info
 	http3          bool
 	httpsPort      string // TCP port for HTTPS, and UDP port for HTTP/3
+	workers        workerSettings
+	generation     int64 // the settings generation this set was read at; workers compare it
 }
 
 // smtpSettings is what the Admin page shows and saves for e-mail.
@@ -132,6 +134,11 @@ func (s *Backend) reloadSettingsGenerating(ctx context.Context) error { return s
 
 func (s *Backend) reload(ctx context.Context, generate bool) error {
 	l := &liveSettings{}
+	var err error
+	// Read before the values: a change made meanwhile makes the next poll reload again.
+	if l.generation, err = s.store.SettingsGeneration(ctx); err != nil {
+		return err
+	}
 
 	if v, err := s.settingValue(ctx, settingBaseURL); err != nil {
 		return err
@@ -194,6 +201,9 @@ func (s *Backend) reload(ctx context.Context, generate bool) error {
 			l.mailer = m
 		}
 	}
+	if l.workers, err = s.loadWorkerSettings(ctx); err != nil {
+		return err
+	}
 	s.swapSettings(l)
 	return nil
 }
@@ -221,7 +231,7 @@ func (s *Backend) selfServiceReset(ctx context.Context) bool {
 }
 
 // NetworkSettingNames are the settings that can make the Admin page unreachable when they are
-// wrong (the base URL, the trusted proxies, the PROXY protocol). `dexa-fix settings reset-network`
+// wrong (the base URL, the trusted proxies, the PROXY protocol). `dexafix settings reset-network`
 // clears them.
 var NetworkSettingNames = []string{settingBaseURL, settingTrustedProxies, settingProxyProtocol}
 

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 func testCipher(t *testing.T, fill byte) *Cipher {

@@ -10,12 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 func TestDSNHasPassword(t *testing.T) {
 	for dsn, want := range map[string]bool{
-		"file:dexa-fix.db":                               false,
+		"file:dexafix.db": false,
 		"file:/data/x.db?_pragma=busy_timeout(5000)":     false,
 		"postgres://user@localhost/db":                   false,
 		"postgres://user:secret@localhost/db":            true,

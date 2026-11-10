@@ -6,7 +6,7 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // The row types below map the schema for bun. They are kept separate from pkg/models so the domain
@@ -15,7 +15,7 @@ import (
 type userRow struct {
 	bun.BaseModel `bun:"table:users"`
 
-	ID                int64     `bun:"id,pk,autoincrement"`
+	ID                int64     `bun:"id,pk"` // random, see newUserID
 	Name              string    `bun:"name"`
 	Role              string    `bun:"role"`
 	Email             string    `bun:"email"`
@@ -30,6 +30,7 @@ type userRow struct {
 	StrengthLevelBulk bool      `bun:"strengthlevel_bulk"`
 	DataVersion       int64     `bun:"data_version"`
 	PasskeyHandle     *string   `bun:"passkey_handle"`
+	JobPriority       int       `bun:"job_priority"`
 }
 
 func (r *userRow) toModel() models.User {
@@ -58,90 +59,88 @@ func (r *userRow) toModel() models.User {
 		StrengthLevelAuto: r.StrengthLevelAuto,
 		StrengthLevelBulk: r.StrengthLevelBulk,
 		DataVersion:       r.DataVersion,
+		JobPriority:       r.JobPriority,
 	}
+}
+
+// bodyStateRow counts the changes to one user's scans and readings (see bumpBodyVersion).
+type bodyStateRow struct {
+	bun.BaseModel `bun:"table:body_user_state"`
+
+	UserID      int64 `bun:"user_id,pk"`
+	DataVersion int64 `bun:"data_version"`
+}
+
+// scaleRow is one scale reading. The columns that identify and order it are plain; the measured
+// values and the notes are in Data (see scaleValues), encrypted when the store has a key.
+// bodyMetaRow is a row of body_meta: the key check of the body domain.
+type bodyMetaRow struct {
+	bun.BaseModel `bun:"table:body_meta"`
+
+	Name      string    `bun:"name,pk"`
+	Value     string    `bun:"value"`
+	UpdatedAt time.Time `bun:"updated_at"`
 }
 
 type scaleRow struct {
 	bun.BaseModel `bun:"table:scale_readings"`
 
-	ID               int64     `bun:"id,pk,autoincrement"`
-	UserID           int64     `bun:"user_id"`
-	MeasuredAt       time.Time `bun:"measured_at"`
-	WeightKg         *float64  `bun:"weight_kg"`
-	FatRatioPct      *float64  `bun:"fat_ratio_pct"`
-	FatMassKg        *float64  `bun:"fat_mass_kg"`
-	FatFreeMassKg    *float64  `bun:"fat_free_mass_kg"`
-	MuscleMassKg     *float64  `bun:"muscle_mass_kg"`
-	HydrationKg      *float64  `bun:"hydration_kg"`
-	BoneMassKg       *float64  `bun:"bone_mass_kg"`
-	VisceralFatIndex *float64  `bun:"visceral_fat_index"`
-	Source           string    `bun:"source"`
-	Method           string    `bun:"method"`
-	AthleteMode      bool      `bun:"athlete_mode"`
-	ExternalID       *string   `bun:"external_id"`
-	Notes            string    `bun:"notes"`
-	CreatedAt        time.Time `bun:"created_at"`
+	ID          int64     `bun:"id,pk,autoincrement"`
+	UserID      int64     `bun:"user_id"`
+	MeasuredAt  time.Time `bun:"measured_at"`
+	Source      string    `bun:"source"`
+	Method      string    `bun:"method"`
+	AthleteMode bool      `bun:"athlete_mode"`
+	ExternalID  *string   `bun:"external_id"`
+	CreatedAt   time.Time `bun:"created_at"`
+	RowUID      string    `bun:"row_uid"`
+	Data        string    `bun:"data"`
+
+	Vals scaleValues `bun:"-"` // what Data holds, while a row is being written
 }
 
-// scaleValueCols are the columns refreshed when an import re-delivers an existing reading.
-// method and athlete_mode are deliberately absent: they are user choices that must survive re-imports.
-var scaleValueCols = []string{
-	"measured_at", "notes",
-	"weight_kg", "fat_ratio_pct", "fat_mass_kg", "fat_free_mass_kg",
-	"muscle_mass_kg", "hydration_kg", "bone_mass_kg", "visceral_fat_index",
+// scaleValues is the document in scaleRow.Data.
+type scaleValues struct {
+	WeightKg         *float64 `json:"weight_kg,omitempty"`
+	FatRatioPct      *float64 `json:"fat_ratio_pct,omitempty"`
+	FatMassKg        *float64 `json:"fat_mass_kg,omitempty"`
+	FatFreeMassKg    *float64 `json:"fat_free_mass_kg,omitempty"`
+	MuscleMassKg     *float64 `json:"muscle_mass_kg,omitempty"`
+	HydrationKg      *float64 `json:"hydration_kg,omitempty"`
+	BoneMassKg       *float64 `json:"bone_mass_kg,omitempty"`
+	VisceralFatIndex *float64 `json:"visceral_fat_index,omitempty"`
+	Notes            string   `json:"notes,omitempty"`
 }
 
-// scaleValueColsKeepNotes is scaleValueCols without notes, for re-delivered readings that carry none.
-var scaleValueColsKeepNotes = func() []string {
-	var out []string
-	for _, c := range scaleValueCols {
-		if c != "notes" {
-			out = append(out, c)
-		}
-	}
-	return out
-}()
-
-func (r *scaleRow) toModel() models.ScaleReading {
-	return models.ScaleReading{
-		ID: r.ID, UserID: r.UserID, MeasuredAt: r.MeasuredAt.UTC(),
-		WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
-		MuscleMassKg: r.MuscleMassKg, HydrationKg: r.HydrationKg, BoneMassKg: r.BoneMassKg, VisceralFatIndex: r.VisceralFatIndex,
-		Source: r.Source, Method: r.Method, AthleteMode: r.AthleteMode, ExternalID: r.ExternalID,
-		Notes: r.Notes, CreatedAt: r.CreatedAt,
-	}
-}
-
+// dexaRow is one DEXA scan, laid out like scaleRow.
 type dexaRow struct {
 	bun.BaseModel `bun:"table:dexa_scans"`
 
-	ID                int64     `bun:"id,pk,autoincrement"`
-	UserID            int64     `bun:"user_id"`
-	MeasuredAt        time.Time `bun:"measured_at"`
-	WeightKg          *float64  `bun:"weight_kg"`
-	FatRatioPct       *float64  `bun:"fat_ratio_pct"`
-	FatMassKg         *float64  `bun:"fat_mass_kg"`
-	FatFreeMassKg     *float64  `bun:"fat_free_mass_kg"`
-	LeanMassKg        *float64  `bun:"lean_mass_kg"`
-	BoneMassKg        *float64  `bun:"bone_mass_kg"`
-	VisceralFatMassKg *float64  `bun:"visceral_fat_mass_kg"`
-	BMDGCm2           *float64  `bun:"bmd_g_cm2"`
-	TScore            *float64  `bun:"t_score"`
-	ZScore            *float64  `bun:"z_score"`
-	AndroidFatPct     *float64  `bun:"android_fat_pct"`
-	GynoidFatPct      *float64  `bun:"gynoid_fat_pct"`
-	Notes             string    `bun:"notes"`
-	CreatedAt         time.Time `bun:"created_at"`
+	ID         int64     `bun:"id,pk,autoincrement"`
+	UserID     int64     `bun:"user_id"`
+	MeasuredAt time.Time `bun:"measured_at"`
+	CreatedAt  time.Time `bun:"created_at"`
+	RowUID     string    `bun:"row_uid"`
+	Data       string    `bun:"data"`
+
+	Vals dexaValues `bun:"-"`
 }
 
-func (r *dexaRow) toModel() models.DexaScan {
-	return models.DexaScan{
-		ID: r.ID, UserID: r.UserID, MeasuredAt: r.MeasuredAt.UTC(),
-		WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
-		LeanMassKg: r.LeanMassKg, BoneMassKg: r.BoneMassKg, VisceralFatMassKg: r.VisceralFatMassKg,
-		BMDGCm2: r.BMDGCm2, TScore: r.TScore, ZScore: r.ZScore, AndroidFatPct: r.AndroidFatPct, GynoidFatPct: r.GynoidFatPct,
-		Notes: r.Notes, CreatedAt: r.CreatedAt,
-	}
+// dexaValues is the document in dexaRow.Data.
+type dexaValues struct {
+	WeightKg          *float64 `json:"weight_kg,omitempty"`
+	FatRatioPct       *float64 `json:"fat_ratio_pct,omitempty"`
+	FatMassKg         *float64 `json:"fat_mass_kg,omitempty"`
+	FatFreeMassKg     *float64 `json:"fat_free_mass_kg,omitempty"`
+	LeanMassKg        *float64 `json:"lean_mass_kg,omitempty"`
+	BoneMassKg        *float64 `json:"bone_mass_kg,omitempty"`
+	VisceralFatMassKg *float64 `json:"visceral_fat_mass_kg,omitempty"`
+	BMDGCm2           *float64 `json:"bmd_g_cm2,omitempty"`
+	TScore            *float64 `json:"t_score,omitempty"`
+	ZScore            *float64 `json:"z_score,omitempty"`
+	AndroidFatPct     *float64 `json:"android_fat_pct,omitempty"`
+	GynoidFatPct      *float64 `json:"gynoid_fat_pct,omitempty"`
+	Notes             string   `json:"notes,omitempty"`
 }
 
 type integrationRow struct {
@@ -150,13 +149,5 @@ type integrationRow struct {
 	UserID    int64     `bun:"user_id,pk"`
 	Provider  string    `bun:"provider,pk"`
 	Data      string    `bun:"data"`
-	UpdatedAt time.Time `bun:"updated_at"`
-}
-
-type strengthLevelJobRow struct {
-	bun.BaseModel `bun:"table:strengthlevel_jobs"`
-
-	UserID    int64     `bun:"user_id,pk"`
-	State     string    `bun:"state"`
 	UpdatedAt time.Time `bun:"updated_at"`
 }

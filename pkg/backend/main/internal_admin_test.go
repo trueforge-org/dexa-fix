@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/frontend"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 func TestAdminEndpointsOverTheSplit(t *testing.T) {

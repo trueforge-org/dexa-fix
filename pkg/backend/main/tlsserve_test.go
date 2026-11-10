@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
 
 // tlsCertFor makes a self-signed certificate with the given validity, for the cases the server

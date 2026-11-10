@@ -10,8 +10,8 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // tokenTouchInterval limits how often a token's last-used time is written.
@@ -500,8 +500,6 @@ func (s *Store) Stats(ctx context.Context) (store.Stats, error) {
 	}{
 		{&st.Users, (*userRow)(nil), ""},
 		{&st.Admins, (*userRow)(nil), "role = 'admin'"},
-		{&st.DexaScans, (*dexaRow)(nil), ""},
-		{&st.ScaleReadings, (*scaleRow)(nil), ""},
 		{&st.AccessTokens, (*tokenRow)(nil), ""},
 		{&st.TwoFactorUsers, (*totpRow)(nil), "confirmed_at IS NOT NULL"},
 	}

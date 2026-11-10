@@ -13,16 +13,16 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 //go:embed templates static
 var assets embed.FS
 
-var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "docs.html", "twofactor.html", "reset.html"}
+var pages = []string{"index.html", "dexa.html", "scale.html", "estimates.html", "settings.html", "admin.html", "adminworkers.html", "status.html", "docs.html", "twofactor.html", "reset.html"}
 
 // assetURL returns the cache-busting URL of an embedded static file.
 func (s *Frontend) assetURL(name string) string {
@@ -40,6 +40,7 @@ func (s *Frontend) Handler() http.Handler {
 
 	mux.HandleFunc("GET /{$}", s.index)
 	mux.HandleFunc("GET /docs", s.docsPage)
+	s.statusRoutes(mux)
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	s.twoFactorRoutes(mux)
@@ -120,10 +121,12 @@ type pageData struct {
 	TwoFactor *twoFactorView // second step of a sign-in
 	Reset     *resetView     // password reset pages
 
-	SLSend        bool          // estimates page: show the button that sends one day to Strength Level
-	StrengthLevel *slView       // settings page: only for users an administrator has enabled it for
-	Security      *securityView // settings page: password, tokens and linked accounts
-	Admin         *adminView    // admin page
+	SLSend        bool                   // estimates page: show the button that sends one day to Strength Level
+	StrengthLevel *slView                // settings page: only for users an administrator has enabled it for
+	Security      *securityView          // settings page: password, tokens and linked accounts
+	Workers       *apiclient.WorkersPage // the workers page of the Admin section
+	Status        *statusView            // the status page
+	Admin         *adminView             // admin page
 }
 
 func (s *Frontend) render(w http.ResponseWriter, page string, status int, data pageData) {
@@ -144,7 +147,7 @@ func (s *Frontend) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, apiclient.ErrUnavailable):
 		log.Error().Err(err).Msg("backend request failed")
 		w.Header().Set("Retry-After", "5")
-		http.Error(w, "dexa-fix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
+		http.Error(w, "DexaFix is temporarily unavailable, try again in a moment", http.StatusServiceUnavailable)
 	case errors.As(err, &apiErr):
 		switch apiErr.Status {
 		case http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:

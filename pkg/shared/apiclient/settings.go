@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"net/url"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 // The views below are what the settings and estimates pages show. The backend builds them from its
@@ -15,6 +15,8 @@ import (
 type IntegrationView struct {
 	Configured bool // the server has the provider's credentials
 	Connected  bool // the user has linked their account
+	// AutoPaused is why automatic runs for the user were paused after repeated failures; empty when they are not.
+	AutoPaused string
 }
 
 // AuditLine is one event as shown on a page.
@@ -89,8 +91,10 @@ type SLView struct {
 	Saved  bool
 	Email  string // the saved login's e-mail address; the password is never sent back
 	Msg    string
-	Bulk   bool       // the multi-day sync is allowed
-	Job    *SLJobView // the latest multi-day sync, if any
+	Bulk   bool // the multi-day sync is allowed
+	// AutoPaused is why automatic syncs for the user were paused after repeated failures; empty when they are not.
+	AutoPaused string
+	Job        *SLJobView // the latest multi-day sync, if any
 }
 
 // SettingsPage is the data the settings page needs besides the user.

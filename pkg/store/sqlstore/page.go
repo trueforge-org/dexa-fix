@@ -5,8 +5,8 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // window applies a ListFilter to a query on a table with user_id, measured_at and id columns. It
@@ -29,7 +29,7 @@ func window(q *bun.SelectQuery, userID int64, f store.ListFilter) *bun.SelectQue
 	return q
 }
 
-func (s *Store) ListDexaScansPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.DexaScan, *store.Cursor, error) {
+func (s *BodyStore) ListDexaScansPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.DexaScan, *store.Cursor, error) {
 	var rows []dexaRow
 	if err := window(s.db.NewSelect().Model(&rows), userID, f).Scan(ctx); err != nil {
 		return nil, nil, err
@@ -40,14 +40,17 @@ func (s *Store) ListDexaScansPage(ctx context.Context, userID int64, f store.Lis
 		last := rows[len(rows)-1]
 		next = &store.Cursor{MeasuredAt: last.MeasuredAt.UTC(), ID: last.ID}
 	}
-	out := make([]models.DexaScan, 0, len(rows))
-	for i := range rows {
-		out = append(out, rows[i].toModel())
+	out, err := s.dexaModels(rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out == nil {
+		out = []models.DexaScan{}
 	}
 	return out, next, nil
 }
 
-func (s *Store) ListScaleReadingsPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.ScaleReading, *store.Cursor, error) {
+func (s *BodyStore) ListScaleReadingsPage(ctx context.Context, userID int64, f store.ListFilter) ([]models.ScaleReading, *store.Cursor, error) {
 	var rows []scaleRow
 	if err := window(s.db.NewSelect().Model(&rows), userID, f).Scan(ctx); err != nil {
 		return nil, nil, err
@@ -58,9 +61,12 @@ func (s *Store) ListScaleReadingsPage(ctx context.Context, userID int64, f store
 		last := rows[len(rows)-1]
 		next = &store.Cursor{MeasuredAt: last.MeasuredAt.UTC(), ID: last.ID}
 	}
-	out := make([]models.ScaleReading, 0, len(rows))
-	for i := range rows {
-		out = append(out, rows[i].toModel())
+	out, err := s.scaleModels(rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out == nil {
+		out = []models.ScaleReading{}
 	}
 	return out, next, nil
 }

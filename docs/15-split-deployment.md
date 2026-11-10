@@ -1,12 +1,12 @@
 # Split deployment
 
-`dexa-fix serve` runs everything in one process. The same app can also run as
+`dexafix serve` runs everything in one process. The same app can also run as
 two processes:
 
-- `dexa-fix serve web` is the frontend. It renders the pages, serves static
+- `dexafix serve web` is the frontend. It renders the pages, serves static
   files and owns the public listeners: plain HTTP, HTTPS and HTTP/3. It has no
   database and no encryption key.
-- `dexa-fix serve api` is the main backend (`pkg/backend/main`). It owns the database, the encryption
+- `dexafix serve api` is the main backend (`pkg/backend/main`). It owns the database, the encryption
   keys and every security decision. It also runs maintenance: the audit log
   purge and the renewal of the self-signed certificate.
 
@@ -42,6 +42,12 @@ that faces visitors holds neither the database nor the keys.
   runs the maintenance (`--maintenance=false` on the others). The URL web uses
   for the backend may point at a load balancer in front of them. See
   [Running more api processes](#running-more-api-processes).
+- Workers (`serve worker`) call the same internal listener with the worker
+  secret and reach the outside services for the api process. See
+  [Workers](16-workers.md).
+- The scale readings, DEXA scans and estimates are held by the
+  [body service](17-body-service.md), which runs inside the api process unless
+  you start `serve body` and give `serve api` a `--body-url`.
 - The HTTPS and HTTP/3 listeners belong to web. See
   [TLS and HTTP/3](#tls-and-http3).
 
@@ -51,12 +57,12 @@ Two processes on one host, for trying it out. Create a service secret, start
 the api process, then the web process:
 
 ```bash
-dexa-fix secrets service-secret > service.secret && chmod 600 service.secret
+dexafix secrets service-secret > service.secret && chmod 600 service.secret
 
-dexa-fix serve api --listen 127.0.0.1:8082 --internal-listen 127.0.0.1:8081 \
+dexafix serve api --listen 127.0.0.1:8082 --internal-listen 127.0.0.1:8081 \
   --service-secret-file service.secret
 
-dexa-fix serve web --listen 127.0.0.1:8080 --backend-url http://127.0.0.1:8081 \
+dexafix serve web --listen 127.0.0.1:8080 --backend-url http://127.0.0.1:8081 \
   --service-secret-file service.secret --api-upstream http://127.0.0.1:8082
 ```
 
@@ -76,13 +82,13 @@ database and the key. Only web publishes ports.
 ```yaml
 services:
   api:
-    image: ghcr.io/trueforge-org/dexa-fix:<tag>
+    image: ghcr.io/trueforge-org/dexafix:<tag>
     command: ["serve", "api"]
     volumes:
-      - dexa-data:/data
+      - dexa-data:/config
     environment:
-      DEXAFIX_DSN: file:/data/dexa-fix.db
-      DEXAFIX_ENCRYPTION_KEY_FILE: /data/dexa-fix.key
+      DEXAFIX_DSN: file:/config/dexafix.db
+      DEXAFIX_ENCRYPTION_KEY_FILE: /config/dexafix.key
       DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/dexafix_service
     secrets:
       - dexafix_service
@@ -93,7 +99,7 @@ services:
       - internal
 
   web:
-    image: ghcr.io/trueforge-org/dexa-fix:<tag>
+    image: ghcr.io/trueforge-org/dexafix:<tag>
     command: ["serve", "web"]
     environment:
       DEXAFIX_BACKEND_URL: http://api:8081
@@ -120,6 +126,10 @@ volumes:
   dexa-data:
 ```
 
+This example runs the body service inside the api container. The files in
+`deploy/` run it as a container of its own, with a database role, an encryption
+key and a secret of its own: see [Body service](17-body-service.md).
+
 The image's default command is `serve`, which runs one process. The split
 needs the `command` line for each service.
 
@@ -133,6 +143,200 @@ outside yet. Choose one:
   container's address among the trusted proxies on the Admin page. The
   `private` keyword covers Docker's bridge ranges.
 
+## The recommended deployment: `deploy/`
+
+`deploy/docker-compose.yaml` runs everything as containers: PostgreSQL, Valkey,
+the api process, the body service, the web process and one worker container per
+provider. Every link between them is protected by a secret **and** by mutual TLS.
+Two short-lived containers prepare the rest: `init`, which is `dexafix secrets
+init` and makes every password, key, secret and certificate, and `db-setup`,
+which is `dexafix db provision` and makes the database roles and the schema.
+
+```bash
+cd deploy
+docker compose up -d
+```
+
+Open <http://localhost:8080> and create the first account: it becomes the
+administrator. There is nothing to prepare first: no file has to exist before
+`up`, because the containers read their secrets from volumes that `init` fills.
+`init` and `db-setup` run again at every `docker compose up -d`.
+
+What `init` makes, and where it keeps it:
+
+| Where | What | When it changes |
+| --- | --- | --- |
+| `./secrets/` on the host | The database passwords, the connection strings, the Valkey password and the two encryption keys (`encryption_key`, `body_encryption_key`) | Never: a file that exists is kept |
+| Volume `secrets-api` | The api's connection string and encryption key, the service, worker and body secrets, the body token signing key, the Valkey URL, the api's certificates | The secrets and the key are kept; the certificates are new at every run |
+| Volumes `secrets-web`, `secrets-worker`, `secrets-body` | Only what that container needs: its shared secret and its certificates (the body service also gets its connection string and encryption key, and the public half of the signing key) | As above |
+| Volumes `secrets-db`, `secrets-dbsetup`, `secrets-valkey` | The superuser's password (the database), the administrator's connection string and the two role passwords (`db-setup`), the Valkey password | They follow the files in `./secrets` |
+
+**Back up `./secrets/encryption_key` and `./secrets/body_encryption_key`
+together with the database.** Without an encryption key the encrypted values
+cannot be read again. They are on the host, so `docker compose down -v` does not
+delete them. `./secrets` is private to root; read it with `sudo`.
+
+The certificates are valid for 397 days and are replaced at every `docker
+compose up`, so run it at least once a year. The CA's private key is thrown away
+as soon as the certificates are made. The containers read changed certificate
+files again within 30 seconds and need no restart. While they do, a process may
+be briefly ahead of the others: expect one `bad certificate` line in the api's
+log and a `could not refresh the settings` warning in web's, which heal by
+themselves. The web process and the workers share one client certificate: it
+proves the link, and the service or worker secret proves the role. The link to
+the body service has a CA of its own, so a certificate of one link opens nothing
+of the other.
+
+The database image is `ghcr.io/trueforge-org/postgresql` (ContainerForge). It
+runs as uid 568 and keeps its data in `/config/18`, and so do the other images
+of this stack: DexaFix runs as uid 568 too and keeps its data in `/config`. The
+`db-setup` container runs [`dexafix db provision`](05-commands.md) against it,
+so the application never runs as the superuser `postgres`. The api's role
+`dexafix` owns the database; the body service's role `dexafix_body` owns the
+schema `body` and can use nothing else. The image can make no roles from
+environment variables (its `ADDITIONAL_DBS` setting creates databases owned by
+the superuser, and nothing else), and it reads the superuser's password from the
+environment only, so the Compose file exports it from the secret file in a small
+`entrypoint`. `db provision` can be repeated: what exists is kept and the
+passwords are set again, so a failed start is mended by the next `up`, and a
+password you changed in `./secrets` takes effect there too.
+
+The Docker daemon may run on another host than your shell (Docker Desktop with a
+dev container). Then a bind mount such as `./secrets` is not visible to it: use a
+normal host, or put `./secrets` in a volume as the test setup in
+`deploy.instructions.md` does.
+
+## Status and health checks
+
+**The status page.** `/status` on the web process shows the health of each part:
+the web process itself, the api process, the database, the body service and the
+workers of each provider. It is the same for everybody, signed in or not. It
+shows a state per part and nothing else: no versions, host names, worker names
+or reasons. It answers 503 while a part is down, so a monitor needs no parsing,
+and 200 otherwise. A cache cannot mix visitors up (every response is
+`no-store`, and the list is identical for all).
+
+| State | Meaning |
+| --- | --- |
+| Operational | It works. |
+| Down | It does not answer. The api process cannot be reached, the database or the body service does not answer within 2 seconds, or workers of a provider registered in the last day but none has asked for work in the last 90 seconds. |
+| Not in use | No worker of that provider has registered in the last day. That is not a fault: imports of that provider simply wait until one starts. |
+
+A worker gets a new random name every time it starts, so workers of replaced
+containers stay on record for a day. They count for nothing once one worker of
+the provider is running. Give a worker a fixed `--worker-id` if you want it to
+keep its name.
+
+The api process keeps its answer for 5 seconds, so a flood of requests to
+`/status` costs one round of checks per 5 seconds.
+
+Administrators also get `/admin/status` (linked from `/status` and from the
+Admin page): the workers by name, version and last request, and the reason a
+part is down. It needs the same sign-in and second step as the rest of the Admin
+pages.
+
+**Health checks for containers.** The images are `scratch`: no shell, no curl.
+Three processes have an optional listener that answers `/healthz` and `/readyz`
+only:
+
+```bash
+dexafix serve api --health-listen 127.0.0.1:8083 ...
+dexafix serve body --health-listen 127.0.0.1:8083 ...
+dexafix serve worker --health-listen 127.0.0.1:8083 ...
+```
+
+- `/healthz` answers `ok` while the process runs.
+- `/readyz` answers `ok` when it can do its work, and 503 `not ready` otherwise.
+  For the api process and the body service that means the database answers. A
+  worker is ready once it has registered and has heard from the api process in
+  the last 90 seconds. The reason is only in the log, at the debug level.
+
+The listener needs no secret or certificate, which is why it is a separate one,
+and it answers nothing else. Bind it to the loopback address. The web process
+needs no extra listener: its own `/healthz` (the process runs) and `/readyz`
+(it can reach the api process) are on its normal listener.
+
+`dexafix healthcheck <url>` makes one request and exits 0 for a 2xx answer, so
+the container can check itself:
+
+```yaml
+healthcheck:
+  test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+```
+
+`deploy/docker-compose.yaml` does this for every container and starts them in
+order: the database, the body service, the api process, then the web process and
+the workers, each when the one before is healthy. The api process does not wait
+for the body service in its own `/readyz`: when the body service is down the
+pages say so (503) and everything else keeps working, and `/status` shows it.
+
+## Valkey
+
+By default the failed sign-in counters, the single-use values (second-step
+codes, password reset links, and the like) and the sessions are rows in the
+database. Every wrong password is a write and every page of a signed-in visitor
+is a session lookup, so a flood of either is a flood of database work. With
+[Valkey](https://valkey.io) (or any Redis-compatible server) the api process keeps
+them there instead and the database sees none of it. It is optional and only
+`serve api` takes it:
+
+```bash
+echo 'redis://:a-long-password@valkey:6379/0' > valkey.url && chmod 600 valkey.url
+dexafix serve api --valkey-url-file valkey.url ...
+```
+
+`--valkey-url` (`DEXAFIX_VALKEY_URL`) takes the URL without a password; a
+password on the command line is refused, as for the database. `rediss://` turns
+on TLS. At start the api process connects and checks that the server answers;
+if it does not, it stops.
+
+What it holds, and what it does not:
+
+- **Held in Valkey:** the failed-attempt counters (one sorted set per login name
+  and per client address, the same 15-minute sliding window as in the database)
+  the single-use values (one key each, with a life until the value would have
+  expired anyway, plus a minute for clock differences) and the sessions (one key
+  each, which expires with the session, and an index of every user's sessions so
+  that they can all be ended at once). A session holds only who signed in and
+  how: the person's name and role are read from the database on every request,
+  so a role change or a deleted account takes effect at once.
+- **Sessions end on purpose, not by a cache.** Signing out, a changed password,
+  a password set by an administrator, a reset link and a deleted account each
+  end the sessions in Valkey themselves. For the password cases that happens
+  before the password is written, so if Valkey cannot be reached the password is
+  not changed and the old sessions are not left alive.
+- **Not held in Valkey:** the job queue and everything else. The estimate cache
+  and the sign-in provider discovery cache are in each process's memory, as
+  before.
+- **The three are never mixed.** With Valkey the tables `auth_failures`,
+  `used_nonces` and `sessions` stay empty. Several api processes must all use
+  it, or none. Turning it on or off forgets who failed lately and **signs
+  everybody out**.
+
+**It fails closed.** While Valkey does not answer, every address counts as locked
+out, every single-use value as spent and no session can be read, so nobody can
+sign in or stays signed in (their sessions are there again when it is back). Pages that need
+no sign-in keep working, and `/status` shows Valkey as down. This is the same
+choice as when the database does not answer: a limit that gives way when its
+store is unreachable is no limit.
+
+**Run it with `maxmemory-policy noeviction`.** A counter that was evicted would
+let an attacker try again, a nonce that was evicted would let a one-time value
+be used twice, and a session that was evicted would sign somebody out. A full server then refuses writes, which fails closed. Keep the
+append-only file on a volume so a restart keeps the counters.
+
+The Compose example (`deploy/docker-compose.yaml`) has it: `init` makes the
+password (`./secrets/valkey_password`, kept like the other passwords) and the URL
+for the api container. The `valkey` container is on a network of its own that
+only the api container shares, and the api container waits for it to be healthy.
+To run the example without Valkey, remove the `valkey` service, the
+`DEXAFIX_VALKEY_URL_FILE` line of `api` and the `state` network; the same things
+are then rows in the database.
+
 ## Service secret
 
 The web and api processes share a service secret. Web sends it with every
@@ -141,7 +345,7 @@ call to the internal listener, and the api process refuses calls without it.
 Create the file with one command:
 
 ```bash
-dexa-fix secrets service-secret > service.secret && chmod 600 service.secret
+dexafix secrets service-secret > service.secret && chmod 600 service.secret
 ```
 
 The command prints one secret of 64 hexadecimal characters. The file holds one
@@ -184,11 +388,11 @@ listener off as well:
 
 ```bash
 # The one api process for web: internal listener and maintenance on
-dexa-fix serve api --listen :8080 --internal-listen :8081 \
+dexafix serve api --listen :8080 --internal-listen :8081 \
   --service-secret-file /run/secrets/dexafix_service
 
 # Public-only api processes on the same database
-dexa-fix serve api --listen :8080 --internal-listen "" --maintenance=false
+dexafix serve api --listen :8080 --internal-listen "" --maintenance=false
 ```
 
 A public-only process needs no service secret, because it has no internal
@@ -206,7 +410,7 @@ Some limits apply:
   to a quarter of the CPUs (at least one) at a time, so a flood of
   credentials cannot use up all the CPU.
 - **Settings reload.** A process reloads settings that another process changed,
-  for example with `dexa-fix settings reset-network`, within about 5 seconds.
+  for example with `dexafix settings reset-network`, within about 5 seconds.
 - **State is shared through the database.** Failed-login lock-outs, single-use
   nonces and the Strength Level sync status are stored in the database, so all
   api processes agree. Only caches (estimates) and the de-duplication of noisy
@@ -246,7 +450,7 @@ checks the api process's certificate against the same CA.
 ### Create the certificates
 
 ```bash
-dexa-fix secrets mtls --dir ./mtls --name api
+dexafix secrets mtls --dir ./mtls --name api
 ```
 
 `--name` is each host name or IP address that web uses to reach the api
@@ -268,7 +472,7 @@ create a new set and follow [Rotating the certificates](#rotating-the-certificat
 On the api host:
 
 ```bash
-dexa-fix serve api \
+dexafix serve api \
   --internal-tls-cert-file mtls/api.pem \
   --internal-tls-key-file mtls/api.key \
   --internal-tls-client-ca-file mtls/ca.pem \
@@ -278,7 +482,7 @@ dexa-fix serve api \
 On the web host:
 
 ```bash
-dexa-fix serve web --backend-url https://api:8081 \
+dexafix serve web --backend-url https://api:8081 \
   --backend-ca-file mtls/ca.pem \
   --backend-client-cert-file mtls/web.pem \
   --backend-client-key-file mtls/web.key \
@@ -303,7 +507,7 @@ old one and `mv` it into place.
 
 To rotate without a gap, for the CA or a leaf certificate:
 
-1. Create the new set: `dexa-fix secrets mtls --dir ./mtls-new --name api`.
+1. Create the new set: `dexafix secrets mtls --dir ./mtls-new --name api`.
 2. Concatenate the old and the new `ca.pem` into one file, and put that file in
    the CA file of both processes.
 3. Wait at least 30 seconds.
@@ -334,23 +538,12 @@ To rotate without a gap, for the CA or a leaf certificate:
 
 ### Compose
 
-The Compose example in `deploy/docker-compose.yaml` has a commented block for
-mTLS at the end of the file. The image runs as uid 65532, which cannot write
-into `./secrets`, so create the files as your own user:
-
-```bash
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/secrets:/out" \
-  ghcr.io/trueforge-org/dexa-fix:<tag> secrets mtls --dir /out/mtls --name api
-chmod 444 secrets/mtls/*.key
-```
-
-The `--name api` matches the service name, which web reaches as `api:8081`.
-The keys must be readable by uid 65532 inside the container, as the other
-secrets are (`init-secrets.sh` sets 444). The `secrets/mtls` directory stays
-private on the host, and the containers get the files through their mounts.
-
-Then uncomment the block and add the new secret names to the `secrets` lists of
-the api and web services.
+`deploy/docker-compose.yaml` has mutual TLS on by default for both internal
+links (web and workers to api, and api to the body service): the `init`
+container makes the certificates, see
+[The recommended deployment](#the-recommended-deployment-deploy). Nothing more
+is needed. To make a set by hand for another setup, use `dexafix secrets mtls`
+as above, or `dexafix secrets init` for everything at once.
 
 ## Troubleshooting
 
@@ -376,7 +569,7 @@ is not available`.
 
 ### The 503 page
 
-Visitors see `dexa-fix is temporarily unavailable, try again in a moment` with
+Visitors see `dexafix is temporarily unavailable, try again in a moment` with
 `Retry-After: 5`. Web could not get an answer from the api process: it is down,
 unreachable, or shedding load on its internal listener. Web logs
 `backend request failed`.

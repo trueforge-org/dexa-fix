@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // Names of the settings in the backend's store (see the Admin page).

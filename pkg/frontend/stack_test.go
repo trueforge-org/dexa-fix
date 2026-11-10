@@ -15,12 +15,11 @@ import (
 	"testing"
 	"time"
 
-	mainbackend "github.com/trueforge-org/dexa-fix/pkg/backend/main"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
+	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // The frontend has no database, so its tests that need a backend build one next to it: this is
@@ -37,7 +36,11 @@ func newBackendServer(t *testing.T) (*httptest.Server, *mainbackend.Backend, *sq
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	b, err := mainbackend.NewBackend(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	bodyClient, _, err := bodybackend.NewInProcess(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := mainbackend.NewBackend(st, mainbackend.WithBody(bodyClient))
 	if err != nil {
 		t.Fatal(err)
 	}

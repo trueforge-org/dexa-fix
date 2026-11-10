@@ -4,7 +4,7 @@
   <div class="card welcome">
     <div>
       <h1>Sign in {{help "accounts"}}</h1>
-      <small>{{if .FirstUser}}Create the first account below. It becomes the administrator.{{else}}Welcome back to dexa-fix.{{end}}</small>
+      <small>{{if .FirstUser}}Create the first account below. It becomes the administrator.{{else}}Welcome back to DexaFix.{{end}}</small>
     </div>
     {{if .Providers}}<div class="provider-buttons">{{range .Providers}}<a class="button secondary" href="/auth/{{.Slug}}/login">Continue with {{.Label}}</a>{{end}}{{help "providers"}}</div>{{end}}
     {{if .Passkeys}}<div class="provider-buttons"><button type="button" id="passkey-login" class="secondary" hidden>Sign in with a passkey</button></div>

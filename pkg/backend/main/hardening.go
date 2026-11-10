@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // The generic HTTP hardening (security headers, body limits, compression, the failure limiter)
@@ -22,18 +23,50 @@ const (
 // failWindow is the sliding window in which failed attempts count towards a lock-out.
 const failWindow = 15 * time.Minute
 
-// dbLimiter counts failed attempts per key in a sliding window. The attempts are rows in the
-// database, so every backend process on it sees the same count. It only counts failures, so people
-// who type the right password never notice it. A database error blocks (fails closed).
-type dbLimiter struct {
-	st  store.Store
+// StateStore holds the state that must agree across backend processes and is touched on every
+// sign-in: the failed-attempt counters and the single-use nonces. The database holds it unless a
+// Valkey server is configured (WithState), which keeps a flood of wrong passwords off the database.
+// store.Store and valkeystate.Client both satisfy it.
+type StateStore interface {
+	RecordFailure(ctx context.Context, key string, at time.Time) error
+	CountFailures(ctx context.Context, key string, since time.Time) (int, error)
+	ClearFailures(ctx context.Context, key string) error
+	UseNonce(ctx context.Context, nonce string, expires time.Time) (first bool, err error)
+	NonceSeen(ctx context.Context, nonce string) (bool, error)
+}
+
+// SessionState holds the sessions on a server of its own (Valkey), in place of the sessions table.
+// It is what store.Store offers for sessions, except that it knows nothing about users: the backend
+// reads the user (name, role, whether they exist) from the database on every request.
+type SessionState interface {
+	CreateSession(ctx context.Context, tokenHash string, userID int64, method string, expires time.Time) error
+	GetSession(ctx context.Context, tokenHash string) (models.Session, error)
+	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteUserSessions(ctx context.Context, userID int64) error
+	CountSessions(ctx context.Context) (int64, error)
+}
+
+// StateServer is a StateStore and a SessionState on a server of its own, which can also be asked
+// whether it answers.
+type StateServer interface {
+	StateStore
+	SessionState
+	Ping(ctx context.Context) error
+}
+
+// failureLimiter counts failed attempts per key in a sliding window. The attempts are shared state
+// (rows in the database, or a Valkey server), so every backend process sees the same count. It only
+// counts failures, so people who type the right password never notice it. An error from the state
+// store blocks (fails closed).
+type failureLimiter struct {
+	st  StateStore
 	now func() time.Time
 }
 
-func newDBLimiter(st store.Store) *dbLimiter { return &dbLimiter{st: st, now: time.Now} }
+func newFailureLimiter(st StateStore) *failureLimiter { return &failureLimiter{st: st, now: time.Now} }
 
 // Blocked reports whether key already used up its attempts.
-func (l *dbLimiter) Blocked(ctx context.Context, key string, max int) bool {
+func (l *failureLimiter) Blocked(ctx context.Context, key string, max int) bool {
 	n, err := l.st.CountFailures(ctx, key, l.now().Add(-failWindow))
 	if err != nil {
 		log.Error().Err(err).Msg("count failed attempts: treating the key as blocked")
@@ -43,14 +76,14 @@ func (l *dbLimiter) Blocked(ctx context.Context, key string, max int) bool {
 }
 
 // Fail notes a failed attempt. If it cannot be stored the attempt is not counted; that is logged.
-func (l *dbLimiter) Fail(ctx context.Context, key string) {
+func (l *failureLimiter) Fail(ctx context.Context, key string) {
 	if err := l.st.RecordFailure(ctx, key, l.now()); err != nil {
 		log.Error().Err(err).Msg("record a failed attempt")
 	}
 }
 
 // Reset forgets the attempts of key, after a success.
-func (l *dbLimiter) Reset(ctx context.Context, key string) {
+func (l *failureLimiter) Reset(ctx context.Context, key string) {
 	if err := l.st.ClearFailures(ctx, key); err != nil {
 		log.Error().Err(err).Msg("clear failed attempts")
 	}
@@ -60,21 +93,22 @@ func clientIP(r *http.Request) string { return edge.ClientIP(r) }
 
 func ipKey(r *http.Request) string { return edge.IPKey(r) }
 
-// dbNonces remembers which single-use sealed values were already spent, until the value would have
-// expired anyway, so that a value which may work only once cannot be replayed. The nonces are rows
-// in the database, so a value spent on one backend process is spent on all of them.
-type dbNonces struct{ st store.Store }
+// spentNonces remembers which single-use sealed values were already spent, until the value would have
+// expired anyway, so that a value which may work only once cannot be replayed. The nonces are shared
+// state (rows in the database, or keys in a Valkey server), so a value spent on one backend process
+// is spent on all of them.
+type spentNonces struct{ st StateStore }
 
-// nonceStore is what the flows use; dbNonces is the implementation.
+// nonceStore is what the flows use; spentNonces is the implementation.
 type nonceStore interface {
 	seen(ctx context.Context, nonce string) bool
 	use(ctx context.Context, nonce string, expires time.Time) bool
 }
 
 // seen reports whether nonce was already used, without recording it. A flow checks it before it
-// spends anything (a code) and records the nonce with use only once it has succeeded. On a
-// database error it reports true: the value is refused.
-func (n dbNonces) seen(ctx context.Context, nonce string) bool {
+// spends anything (a code) and records the nonce with use only once it has succeeded. On an
+// error it reports true: the value is refused.
+func (n spentNonces) seen(ctx context.Context, nonce string) bool {
 	used, err := n.st.NonceSeen(ctx, nonce)
 	if err != nil {
 		log.Error().Err(err).Msg("look up a used nonce: refusing the value")
@@ -83,9 +117,9 @@ func (n dbNonces) seen(ctx context.Context, nonce string) bool {
 	return used
 }
 
-// use records nonce and reports whether this is the first time it is seen. On a database error it
-// reports false: the value counts as already used.
-func (n dbNonces) use(ctx context.Context, nonce string, expires time.Time) bool {
+// use records nonce and reports whether this is the first time it is seen. On an error it reports
+// false: the value counts as already used.
+func (n spentNonces) use(ctx context.Context, nonce string, expires time.Time) bool {
 	first, err := n.st.UseNonce(ctx, nonce, expires)
 	if err != nil {
 		log.Error().Err(err).Msg("record a used nonce: refusing the value")

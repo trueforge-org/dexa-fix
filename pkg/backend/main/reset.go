@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // resetURL builds the link for a token. With emailed set it uses the configured base URL only: an
@@ -33,9 +33,9 @@ func (s *Backend) newResetToken(ctx context.Context, userID int64, createdBy *in
 }
 
 func resetMail(name, link string, ttl time.Duration) (subject, body string) {
-	return "Reset your dexa-fix password",
+	return "Reset your DexaFix password",
 		"Hello " + name + ",\n\n" +
-			"Someone asked to reset the password of your dexa-fix account. To choose a new password, open this link within " +
+			"Someone asked to reset the password of your DexaFix account. To choose a new password, open this link within " +
 			ttl.String() + ":\n\n" + link + "\n\n" +
 			"If you did not ask for this, ignore this e-mail: your password stays as it is.\n"
 }

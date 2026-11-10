@@ -19,10 +19,8 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // tlsRig is a server as cmd/serve starts it: a plain HTTP listener on 127.0.0.1, with the HTTPS and
@@ -60,7 +58,7 @@ func newEncryptedTLSRig(t *testing.T) *tlsRig {
 	if err := st.PutSetting(ctx, settingSignup, valueEnabled); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}

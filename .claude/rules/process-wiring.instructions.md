@@ -1,0 +1,1 @@
+../../.github/instructions/process-wiring.instructions.md

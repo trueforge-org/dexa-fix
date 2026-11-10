@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
 
 // loadCertificate reads the certificate for the stored mode. It returns nil, with a warning, when
@@ -141,7 +141,7 @@ func generateSelfSigned(names []string) (certPEM, keyPEM string, err error) {
 	}
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: names[0], Organization: []string{"dexa-fix (self-signed)"}},
+		Subject:               pkix.Name{CommonName: names[0], Organization: []string{"DexaFix (self-signed)"}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(selfSignedDays * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,

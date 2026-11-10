@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // flashOf returns the message of a redirect to the Admin page.

@@ -14,6 +14,6 @@ func help(id string) template.HTML {
 
 // docsPage serves the documentation. It is public: signed-in visitors get their own navigation.
 func (s *Frontend) docsPage(w http.ResponseWriter, r *http.Request) {
-	data := pageData{Title: "Documentation · dexa-fix", Tab: "docs", User: currentUser(r)}
+	data := pageData{Title: "Documentation · DexaFix", Tab: "docs", User: currentUser(r)}
 	s.render(w, "docs.html", http.StatusOK, data)
 }

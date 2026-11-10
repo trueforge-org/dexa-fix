@@ -19,10 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/app"
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/app"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // Version is the application version, set by main.
@@ -151,16 +149,21 @@ func sameDir(a, b string) bool {
 // addKeyFlags registers the encryption key flags shared by the commands that open the database
 // with a cipher. The keys themselves are never accepted as flag values.
 func addKeyFlags(c *cobra.Command) {
-	c.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexa-fix.key"), "file holding the key that encrypts secrets in the database; created if missing for a new database, unused when "+encryptionKeyEnv+" is set")
+	c.Flags().String("encryption-key-file", envOr("DEXAFIX_ENCRYPTION_KEY_FILE", "dexafix.key"), "file holding the key that encrypts secrets in the database; created if missing for a new database, unused when "+encryptionKeyEnv+" is set")
 	c.Flags().String("encryption-key-previous-file", envOr("DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE", ""), "file with earlier encryption keys, one per line, that may still open values written before a rotation (see also "+encryptionKeyPreviousEnv+")")
 }
 
 // loadCipher resolves the current and previous keys. It refuses to create a key file for a database
 // that already holds encrypted values.
 func loadCipher(ctx context.Context, cmd *cobra.Command, driver, dsn string) (*sqlstore.Cipher, error) {
+	return loadCipherFor(ctx, cmd, driver, dsn, func() (bool, error) { return sqlstore.HasEncryptedValues(ctx, driver, dsn) })
+}
+
+// loadCipherFor is loadCipher for a database that holds something else than the main data: hasData
+// says whether it already holds encrypted values (the body service's database, for one).
+func loadCipherFor(ctx context.Context, cmd *cobra.Command, driver, dsn string, hasData func() (bool, error)) (*sqlstore.Cipher, error) {
 	keyFile, _ := cmd.Flags().GetString("encryption-key-file")
 	prevFile, _ := cmd.Flags().GetString("encryption-key-previous-file")
-	hasData := func() (bool, error) { return sqlstore.HasEncryptedValues(ctx, driver, dsn) }
 	key, created, err := resolveEncryptionKey(os.Getenv(encryptionKeyEnv), keyFile, hasData)
 	if err != nil {
 		return nil, err
@@ -206,10 +209,13 @@ Secrets are never accepted as flags: a connection string with a password goes in
 file (--dsn-file).
 
 The Withings import is set up on the Admin page (client id, secret and redirect URL), not here.`,
-	Example: `dexa-fix serve --listen :8080
-DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix serve --db-driver postgres
-dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
+	Example: `dexafix serve --listen :8080
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexafix serve --db-driver postgres
+dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if without, _ := cmd.Flags().GetBool("without-body"); without {
+			return errors.New("--without-body does not apply to the combined `serve`: it runs the body service too (use `serve api --body-url ...` with `serve body`)")
+		}
 		listen, _ := cmd.Flags().GetString("listen")
 		driver, dsn, err := dbFlags(cmd)
 		if err != nil {
@@ -241,8 +247,7 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 				log.Warn().Str("variable", name).Msg("ignored: Withings credentials are set on the Admin page")
 			}
 		}
-		wi := withings.New(withings.Config{}, nil)
-		srv, err := app.New(st, importer.NewRegistry(wi))
+		srv, err := app.New(st)
 		if err != nil {
 			return err
 		}

@@ -9,10 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // agedSessions is the store with every session reported as created age ago. The sqlstore clock is
@@ -21,6 +19,9 @@ type agedSessions struct {
 	store.Store
 	age time.Duration
 }
+
+// Unwrap is the store underneath, for testBody to find the body domain in.
+func (a agedSessions) Unwrap() store.Store { return a.Store }
 
 func (a agedSessions) GetSession(ctx context.Context, tokenHash string) (models.Session, error) {
 	sess, err := a.Store.GetSession(ctx, tokenHash)
@@ -91,10 +92,11 @@ func TestCheckReauthRecentSession(t *testing.T) {
 	})
 
 	t.Run("user without a password refused with a session older than the window", func(t *testing.T) {
-		aged, err := New(agedSessions{Store: st, age: reauthWindow + time.Minute}, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+		aged, err := New(agedSessions{Store: st, age: reauthWindow + time.Minute})
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(aged.Close)
 		ok, status, msg, err := aged.checkReauth(reauthRequest(nil, token), withoutPassword, true)
 		if err != nil {
 			t.Fatal(err)

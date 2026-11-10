@@ -1,15 +1,15 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
-project_name: dexa-fix
+project_name: dexafix
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: dexa-fix
+  - id: dexafix
     main: .
-    binary: dexa-fix
+    binary: dexafix
     env:
       - CGO_ENABLED=0
     flags:
@@ -47,58 +47,6 @@ signs:
       - "--yes"
       - "--bundle=${signature}"
       - "${artifact}"
-
-# Keyless signing of the container images and the multi-arch manifest.
-docker_signs:
-  - cmd: cosign
-    artifacts: all
-    output: true
-    args:
-      - sign
-      - "--yes"
-      - "${artifact}@${digest}"
-
-dockers:
-  - id: amd64
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile
-    image_templates:
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-amd64"
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.source=https://github.com/trueforge-org/dexa-fix"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.licenses=AGPL-3.0-only"
-  - id: arm64
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile
-    image_templates:
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-arm64"
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.source=https://github.com/trueforge-org/dexa-fix"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.licenses=AGPL-3.0-only"
-
-docker_manifests:
-  - name_template: "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-amd64"
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/trueforge-org/dexa-fix:{{ .Major }}.{{ .Minor }}"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-amd64"
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/trueforge-org/dexa-fix:latest"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-amd64"
-      - "ghcr.io/trueforge-org/dexa-fix:{{ .Version }}-arm64"
 
 release:
   prerelease: auto

@@ -18,8 +18,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // encPrefix marks an encrypted value of any version; values without it are rows from before
@@ -49,9 +49,39 @@ type keyEntry struct {
 	v2    cipher.AEAD // AES under an HKDF derived key, for enc:v2 values
 	index []byte      // separate key for the e-mail lookup values
 	check string      // check value, see checkSetting
+	body  *keyEntry   // the body domain's key, derived from this master key (see Cipher.bodyCipher)
 }
 
+// The HKDF labels. Each domain derives its own key from a master key, so a value sealed for one
+// domain never opens in another, even when a context string happens to repeat.
+const (
+	// These labels (and the ones in derive below) keep the old spelling "dexa-fix" on purpose. They are
+	// inputs of the key derivation, not the product name: spelling them differently would derive
+	// different keys and make every encrypted value of an existing database unreadable.
+	mainInfo       = "dexa-fix aes-256-gcm v2"
+	bodyMasterInfo = "dexa-fix body master"
+	bodyInfo       = "dexa-fix body aes-256-gcm v2"
+)
+
+// newKeyEntry derives everything a master key is used for: the main domain's keys, and the key of
+// the body domain (scans and readings).
 func newKeyEntry(key []byte) (*keyEntry, error) {
+	e, err := newKeyEntryInfo(key, mainInfo)
+	if err != nil {
+		return nil, err
+	}
+	bodyKey, err := hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)
+	if err != nil {
+		return nil, err
+	}
+	if e.body, err = newKeyEntryInfo(bodyKey, bodyInfo); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string.
+func newKeyEntryInfo(key []byte, dekInfo string) (*keyEntry, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("encryption key must be %d bytes, got %d", KeySize, len(key))
 	}
@@ -69,7 +99,7 @@ func newKeyEntry(key []byte) (*keyEntry, error) {
 	if e.v1, err = gcm(key); err != nil {
 		return nil, err
 	}
-	dek, err := derive("dexa-fix aes-256-gcm v2")
+	dek, err := derive(dekInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +146,16 @@ func NewCipher(key []byte, previous ...[]byte) (*Cipher, error) {
 		}
 	}
 	return c, nil
+}
+
+// bodyCipher is the cipher of the body domain: scans and readings. Its keys derive from the master
+// keys (current and previous), so one key file covers both domains and a rotation reaches both.
+func (c *Cipher) bodyCipher() *Cipher {
+	b := &Cipher{current: c.current.body}
+	for _, e := range c.previous {
+		b.previous = append(b.previous, e.body)
+	}
+	return b
 }
 
 // entry returns the configured key with the given id, or nil.
@@ -255,10 +295,36 @@ func (s *Store) decrypt(value, context string) (string, error) {
 	return plain, err
 }
 
+// sealWith and openWith handle the values of a domain that has its own cipher (see bodyCipher). A
+// nil cipher leaves the value as it is, like encrypt and decrypt do for the main domain.
+func sealWith(c *Cipher, value, context string) (string, error) {
+	if c == nil || value == "" {
+		return value, nil
+	}
+	return c.seal(value, context)
+}
+
+func openWith(c *Cipher, value, context string) (string, error) {
+	if !strings.HasPrefix(value, encPrefix) {
+		return value, nil
+	}
+	if c == nil {
+		return "", errors.New("the database holds encrypted values but no encryption key is configured")
+	}
+	plain, _, err := c.open(value, context)
+	return plain, err
+}
+
 func integrationContext(userID int64, provider string) string {
 	return fmt.Sprintf("integration:%d:%s", userID, provider)
 }
-func settingContext(name string) string  { return "setting:" + name }
+func settingContext(name string) string { return "setting:" + name }
+func scaleContext(userID int64, rowUID string) string {
+	return fmt.Sprintf("scale:%d:%s", userID, rowUID)
+}
+func dexaContext(userID int64, rowUID string) string {
+	return fmt.Sprintf("dexa:%d:%s", userID, rowUID)
+}
 func providerContext(slug string) string { return "provider:" + slug }
 func emailContext(userID int64) string   { return fmt.Sprintf("email:%d", userID) }
 
@@ -273,15 +339,16 @@ func (s *Store) userModel(r *userRow) (models.User, error) {
 // errWrongKey explains a key that does not match the database.
 const errWrongKey = "the encryption key does not match this database: the key file is missing, the wrong file, " +
 	"or DEXAFIX_ENCRYPTION_KEY differs from the key that created the database. Restore the original key; " +
-	"to switch to a new key keep the old one in DEXAFIX_ENCRYPTION_KEY_PREVIOUS and run `dexa-fix db rekey`"
+	"to switch to a new key keep the old one in DEXAFIX_ENCRYPTION_KEY_PREVIOUS and run `dexafix db rekey`"
 
 // queryer is what bun.DB and bun.Tx share.
 type queryer interface {
 	NewSelect() *bun.SelectQuery
 }
 
-// firstEncrypted finds one encrypted value and the context that seals it. found is false when the
-// database holds none. The key check row is not a ciphertext and is skipped.
+// firstEncrypted finds one encrypted value of the main database and the context that seals it.
+// found is false when the database holds none. The key check row is not a ciphertext and is
+// skipped. (The body domain has its own: firstEncryptedBody.)
 func firstEncrypted(ctx context.Context, db queryer) (value, sealCtx string, found bool, err error) {
 	var (
 		integ []integrationRow
@@ -333,10 +400,26 @@ func HasEncryptedValues(ctx context.Context, driver, dsn string) (bool, error) {
 	}
 	defer s.Close()
 	_, _, found, err := firstEncrypted(ctx, s.db)
-	if err != nil && isMissingTable(err) {
+	if err != nil && !isMissingTable(err) {
+		return false, err
+	}
+	if found {
+		return true, nil
+	}
+	if s.BodyStore == nil {
 		return false, nil
 	}
-	return found, err
+	return s.BodyStore.HasEncryptedValues(ctx)
+}
+
+// HasEncryptedBodyValues is HasEncryptedValues for a database that holds only the body domain.
+func HasEncryptedBodyValues(ctx context.Context, driver, dsn string) (bool, error) {
+	b, err := OpenBody(ctx, driver, dsn, WithoutMigrate())
+	if err != nil {
+		return false, err
+	}
+	defer b.Close()
+	return b.HasEncryptedValues(ctx)
 }
 
 func isMissingTable(err error) bool {
@@ -347,38 +430,41 @@ func isMissingTable(err error) bool {
 // verifyKey makes sure the configured key belongs to this database. The check value in
 // app_settings is written on first use, and only when no encrypted value exists that could belong
 // to another key. A database that predates the check is verified by opening one of its values.
-func (s *Store) verifyKey(ctx context.Context) error {
+//
+// It only decides: a check that has to be written is returned as write, and the caller runs it once
+// every domain has accepted the key, so a wrong key leaves no check behind in any of them.
+func (s *Store) verifyKey(ctx context.Context) (write func() error, err error) {
 	var row settingRow
-	err := s.db.NewSelect().Model(&row).Where("name = ?", checkSetting).Scan(ctx)
+	err = s.db.NewSelect().Model(&row).Where("name = ?", checkSetting).Scan(ctx)
 	switch {
 	case err == nil:
 		e := s.cipher.matchCheck(row.Value)
 		if e == nil {
-			return errors.New(errWrongKey)
+			return nil, errors.New(errWrongKey)
 		}
 		if e != s.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
+			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexafix db rekey`")
 		}
-		return nil
+		return nil, nil
 	case !errors.Is(err, sql.ErrNoRows):
-		return err
+		return nil, err
 	}
 
 	value, vctx, found, err := firstEncrypted(ctx, s.db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if found {
 		_, e, err := s.cipher.open(value, vctx)
 		if err != nil {
-			return fmt.Errorf("%s (%w)", errWrongKey, err)
+			return nil, fmt.Errorf("%s (%w)", errWrongKey, err)
 		}
 		if e != s.cipher.current {
-			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexa-fix db rekey`")
-			return nil
+			log.Warn().Str("key", e.id).Msg("the database is still encrypted with a previous key: run `dexafix db rekey`")
+			return nil, nil
 		}
 	}
-	return s.writeCheck(ctx, s.db)
+	return func() error { return s.writeCheck(ctx, s.db) }, nil
 }
 
 type execer interface {
@@ -494,6 +580,31 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			}
 		}
 
+		var jobs []jobRow
+		if err := tx.NewSelect().Model(&jobs).Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range jobs {
+			if needs(r.Payload) {
+				enc, err := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
+				if err != nil {
+					return err
+				}
+				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("payload = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+					return err
+				}
+			}
+			if needs(r.Result) {
+				enc, err := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
+				if err != nil {
+					return err
+				}
+				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
+					return err
+				}
+			}
+		}
+
 		return s.backfillEmails(ctx, tx)
 	})
 }
@@ -503,7 +614,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 // the others are asked for an address at their next sign-in.
 func (s *Store) backfillEmails(ctx context.Context, tx bun.Tx) error {
 	var users []userRow
-	if err := tx.NewSelect().Model(&users).OrderExpr("id").Scan(ctx); err != nil {
+	if err := tx.NewSelect().Model(&users).OrderExpr("created_at, id").Scan(ctx); err != nil {
 		return err
 	}
 	seen := map[string]bool{}

@@ -9,8 +9,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Audit actions. Detail strings never hold credentials or free-form personal data (no passwords,
@@ -50,6 +50,8 @@ const (
 	auditSettingChanged   = "server_setting_changed"
 	auditProviderSaved    = "provider_saved"
 	auditProviderRemoved  = "provider_removed"
+	auditJobPriority      = "job_priority_changed"
+	auditJobCanceled      = "job_canceled"
 
 	auditTOTPEnabled           = "totp_enabled"
 	auditTOTPDisabled          = "totp_disabled"
@@ -85,6 +87,7 @@ var auditLabels = map[string]string{
 	auditPasswordSet: "Password set by an administrator", auditStrengthLevel: "Strength Level permission changed",
 	auditStrengthLevelBlk: "Strength Level multi-day permission changed", auditSettingChanged: "Server setting changed",
 	auditProviderSaved: "Sign-in provider saved", auditProviderRemoved: "Sign-in provider removed",
+	auditJobPriority: "Job priority changed", auditJobCanceled: "Job canceled by an administrator",
 	auditTOTPEnabled: "Two-step verification turned on", auditTOTPDisabled: "Two-step verification turned off",
 	auditTOTPRemovedByAdmin: "Two-step verification removed by an administrator", auditRecoveryRegenerated: "Recovery codes replaced",
 	auditRecoveryUsed: "Recovery code used", auditSecondFactorFailed: "Wrong two-step code",
@@ -224,6 +227,7 @@ func (s *Backend) auditRoutes(mux *http.ServeMux) {
 // StartMaintenance purges audit events older than the retention period now and every few hours,
 // until Close. The period is an Admin setting read at every round; zero keeps the log for good.
 func (s *Backend) StartMaintenance() {
+	s.startWorkerMaintenance()
 	s.bg.Start(func() {
 		t := time.NewTicker(auditPurgeEvery)
 		defer t.Stop()
@@ -240,6 +244,9 @@ func (s *Backend) StartMaintenance() {
 				}
 			}
 			s.purgeState(s.bg.Ctx)
+			if err := s.sweepBodyOrphans(s.bg.Ctx); err != nil && s.bg.Ctx.Err() == nil {
+				log.Warn().Err(err).Msg("look for readings and scans of deleted users")
+			}
 			select {
 			case <-s.bg.Ctx.Done():
 				return

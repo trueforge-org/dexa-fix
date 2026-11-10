@@ -119,6 +119,7 @@
     {{if .Connected}}<span class="status on">Connected</span>{{else if .Configured}}<span class="status">Not connected</span>{{else}}<span class="status">Not set up</span>{{end}}
   </div>
   {{if .Connected}}
+  {{if .AutoPaused}}<p class="notice" role="status">{{.AutoPaused}} They start again when you disconnect and connect Withings again, or when an administrator resumes them.</p>{{end}}
   <p class="help">Your Withings account is linked. Import fetches all your measurements: it fills days without readings and leaves days with manual readings alone. Disconnecting keeps the readings already imported.</p>
   <div class="integration">
     <form method="post" action="/u/{{$.User.ID}}/import/withings"><button type="submit">Import from Withings</button></form>
@@ -141,6 +142,7 @@
   </div>
   {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
   <p class="help">Your Strength Level e-mail and password are stored encrypted and used to add your weight and body fat to days that have none there. Only e-mail and password accounts work, not Google, Apple or Facebook sign-in.{{if .Saved}} Saved for <strong>{{.Email}}</strong>; the password is never shown.{{end}}</p>
+  {{if .AutoPaused}}<p class="notice" role="status">{{.AutoPaused}} They start again when you save your login again, or when an administrator resumes them.</p>{{end}}
   <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login" class="stack">
     <div class="form-row">
       <label>Strength Level e-mail <input type="email" name="email" maxlength="254" required autocomplete="off" value="{{.Email}}"></label>
@@ -168,7 +170,7 @@
 {{end}}
 <section class="card" id="export">
   <h2>Your data {{help "data-export"}}</h2>
-  <p class="help">Download a copy of what dexa-fix keeps about you, as JSON. Passwords, tokens and other credentials are not included; the files only say whether they exist.</p>
+  <p class="help">Download a copy of what DexaFix keeps about you, as JSON. Passwords, tokens and other credentials are not included; the files only say whether they exist.</p>
   <p class="form-actions">
     <a class="button secondary" href="/u/{{.User.ID}}/export/profile" download>Settings and personal details</a>
     <a class="button secondary" href="/u/{{.User.ID}}/export/data" download>DEXA scans and scale readings</a>

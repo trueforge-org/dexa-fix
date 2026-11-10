@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // PROXY protocol: the policy lives in pkg/shared/edge. See edge.ProxyListener.

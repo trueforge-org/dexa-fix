@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 	"golang.org/x/oauth2"
 )
 
@@ -194,7 +194,7 @@ func (s *Backend) fetchUserinfo(ctx context.Context, p models.AuthProvider, acce
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "dexa-fix")
+	req.Header.Set("User-Agent", "DexaFix")
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", nil, err

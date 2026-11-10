@@ -9,9 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 func newProxyServer(t *testing.T, proxies, base string) (*httptest.Server, *sqlstore.Store) {
@@ -21,10 +20,11 @@ func newProxyServer(t *testing.T, proxies, base string) (*httptest.Server, *sqls
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv, err := New(st, importer.NewRegistry())
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv.Close)
 	trusted, err := ParseTrustedProxies([]string{proxies})
 	if err != nil {
 		t.Fatal(err)

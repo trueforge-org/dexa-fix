@@ -7,10 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
 // serverWithReminder is a Backend whose key reminder in force is d.
@@ -100,10 +98,11 @@ func newKeyNoticeServer(t *testing.T) (*httptest.Server, *sqlstore.Store) {
 	if err := st.PutSetting(context.Background(), settingSignup, valueEnabled); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	srv, err := New(st)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv.Close)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	testServers.Store(ts, srv)

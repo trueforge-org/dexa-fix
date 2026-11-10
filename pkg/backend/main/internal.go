@@ -2,7 +2,6 @@ package mainbackend
 
 import (
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net"
@@ -13,11 +12,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The internal API, /internal/v1, is what the frontend calls. It is private to the deployment: only
@@ -59,7 +59,17 @@ func (s *Backend) InternalHandler() http.Handler {
 	if s.internalBudget != nil { // a separate backend: shed floods before any work is done
 		h = s.internalBudget.Middleware(h)
 	}
-	return s.serviceAuth(s.visitorContext(h))
+	pages := s.serviceAuth(s.visitorContext(h))
+	workers := s.workerHandler()
+	// Two doors with two secrets: the workers' endpoints take the worker secret only, everything else
+	// the frontend's service secret only.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, workerapi.Prefix+"/") {
+			workers.ServeHTTP(w, r)
+			return
+		}
+		pages.ServeHTTP(w, r)
+	})
 }
 
 // serviceAuth lets in only callers that present a service secret.
@@ -74,15 +84,7 @@ func (s *Backend) serviceAuth(next http.Handler) http.Handler {
 }
 
 func (s *Backend) validServiceSecret(presented string) bool {
-	if presented == "" {
-		return false
-	}
-	sum := sha256.Sum256([]byte(presented))
-	ok := 0
-	for _, h := range s.serviceSecrets { // all of them, so timing does not say which one matched
-		ok |= subtle.ConstantTimeCompare(sum[:], h[:])
-	}
-	return ok == 1
+	return matchSecret(s.serviceSecrets, presented)
 }
 
 // visitorContext puts the visitor's request back into r: cookies, address, host and scheme.
@@ -132,10 +134,9 @@ func internalError(w http.ResponseWriter, err error) {
 		internalFail(w, http.StatusConflict, apiclient.CodeExists, err.Error())
 	case errors.Is(err, store.ErrInvalid):
 		internalFail(w, http.StatusBadRequest, apiclient.CodeInvalid, err.Error())
-	case errors.Is(err, importer.ErrNotImplemented), errors.Is(err, importer.ErrNotConfigured):
-		internalFail(w, http.StatusNotImplemented, apiclient.CodeInvalid, err.Error())
-	case errors.Is(err, importer.ErrNotConnected):
-		internalFail(w, http.StatusConflict, apiclient.CodeInvalid, err.Error())
+	case errors.Is(err, bodyapi.ErrUnavailable):
+		log.Warn().Err(err).Msg("the body service is unavailable")
+		internalFail(w, http.StatusServiceUnavailable, apiclient.CodeUnavailable, "the readings and scans are unavailable, try again shortly")
 	default:
 		log.Error().Err(err).Msg("internal request failed")
 		internalFail(w, http.StatusInternalServerError, apiclient.CodeInternal, "internal error")
@@ -185,6 +186,8 @@ func (s *Backend) internalRoutes(mux *http.ServeMux) {
 	s.internalPasskeyRoutes(mux)
 	s.internalAdminRoutes(mux)
 	s.internalIntegrationRoutes(mux)
+	s.internalAdminWorkerRoutes(mux)
+	s.internalStatusRoutes(mux)
 }
 
 // ---- the frontend side ----

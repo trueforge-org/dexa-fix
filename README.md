@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="pkg/frontend/static/favicon.svg" width="96" alt="dexa-fix logo">
+  <img src="pkg/frontend/static/favicon.svg" width="96" alt="DexaFix logo">
 </p>
 
-<h1 align="center">dexa-fix</h1>
+<h1 align="center">DexaFix</h1>
 
 <p align="center">
   <em>Corrects smart-scale results using DEXA scan results.</em>
@@ -10,13 +10,13 @@
 
 <p align="center">
 
-[![CI](https://github.com/trueforge-org/dexa-fix/actions/workflows/ci.yaml/badge.svg)](https://github.com/trueforge-org/dexa-fix/actions/workflows/ci.yaml)
-[![codecov](https://codecov.io/gh/trueforge-org/dexa-fix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexa-fix)
-[![Go Report Card](https://goreportcard.com/badge/github.com/trueforge-org/dexa-fix)](https://goreportcard.com/report/github.com/trueforge-org/dexa-fix)
-[![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexa-fix)](https://github.com/trueforge-org/dexa-fix/releases/latest)
-[![License](https://img.shields.io/github/license/trueforge-org/dexa-fix)](LICENSE)
-[![Go version](https://img.shields.io/github/go-mod/go-version/trueforge-org/dexa-fix)](go.mod)
-[![Container image](https://img.shields.io/badge/ghcr.io-dexa--fix-2496ED?logo=docker&logoColor=white)](https://github.com/trueforge-org/dexa-fix/pkgs/container/dexa-fix)
+[![CI](https://github.com/trueforge-org/dexafix/actions/workflows/ci.yaml/badge.svg)](https://github.com/trueforge-org/dexafix/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/trueforge-org/dexafix/graph/badge.svg)](https://codecov.io/gh/trueforge-org/dexafix)
+[![Go Report Card](https://goreportcard.com/badge/github.com/trueforge-org/dexafix)](https://goreportcard.com/report/github.com/trueforge-org/dexafix)
+[![Latest release](https://img.shields.io/github/v/release/trueforge-org/dexafix)](https://github.com/trueforge-org/dexafix/releases/latest)
+[![License](https://img.shields.io/github/license/trueforge-org/dexafix)](LICENSE)
+[![Go version](https://img.shields.io/github/go-mod/go-version/trueforge-org/dexafix)](go.mod)
+[![Container image](https://img.shields.io/badge/ghcr.io-dexa--fix-2496ED?logo=docker&logoColor=white)](https://github.com/trueforge-org/dexafix/pkgs/container/dexafix)
 
 </p>
 
@@ -31,13 +31,13 @@
 
 ---
 
-dexa-fix is a Go web app that stores per-user DEXA scans and scale readings, and
+DexaFix is a Go web app that stores per-user DEXA scans and scale readings, and
 shows one estimated value per day. Each user has an account and sees only their
 own data. Users sign in with a password or with an external provider.
 
 > [!WARNING]
 > Read [Limitations and security](docs/14-limitations-and-security.md) before you
-> expose dexa-fix to the internet.
+> expose DexaFix to the internet.
 
 ## ✨ Features
 
@@ -74,21 +74,21 @@ the administrator.
 
 > [!IMPORTANT]
 > Unless `DEXAFIX_ENCRYPTION_KEY` is set, the first run creates the encryption
-> key file `dexa-fix.key`. Back it up: the server does not start without it.
+> key file `dexafix.key`. Back it up: the server does not start without it.
 
 Or run the container image. The key file is then inside the data volume, at
-`/data/dexa-fix.key`:
+`/config/dexafix.key`:
 
 ```bash
-docker run -p 8080:8080 -v dexa-fix-data:/data ghcr.io/trueforge-org/dexa-fix:latest
+docker run -p 8080:8080 -v dexafix-data:/config ghcr.io/trueforge-org/dexafix:latest
 ```
 
 Continue with [Getting started](docs/01-getting-started.md).
 
 ## 🧩 Running as two processes
 
-`dexa-fix serve web` runs the pages and the public listeners, and
-`dexa-fix serve api` runs the database and the security decisions. Each can be
+`dexafix serve web` runs the pages and the public listeners, and
+`dexafix serve api` runs the database and the security decisions. Each can be
 deployed separately. See [Split deployment](docs/15-split-deployment.md).
 
 ## 📚 Documentation
@@ -112,6 +112,8 @@ The full documentation starts at [docs/index.md](docs/index.md).
 | [13 · Development](docs/13-development.md) | Tests, project layout and schema changes. |
 | [14 · Limitations and security](docs/14-limitations-and-security.md) | Read before you expose the app. |
 | [15 · Split deployment](docs/15-split-deployment.md) | Running the frontend and the backend as two processes, with Compose and troubleshooting. |
+| [16 · Workers](docs/16-workers.md) | The processes that talk to Withings and Strength Level, and the Workers admin page. |
+| [17 · Body service](docs/17-body-service.md) | The readings, scans and estimates as a process of their own, with a database, key and secret of their own. |
 | [Key rotation](docs/key-rotation.md) | Design note on the key check and why rotation stays manual. |
 | [CI details](docs/ci.md) | The README badges, the secrets to configure and how to cut a release. |
 
@@ -132,13 +134,13 @@ The full documentation starts at [docs/index.md](docs/index.md).
 <summary><b>Read more</b></summary>
 
 - [Encryption](docs/08-encryption.md): what is encrypted, how the key is kept and how to rotate it.
-- [Limitations and security](docs/14-limitations-and-security.md): the threat model and what dexa-fix does not do.
+- [Limitations and security](docs/14-limitations-and-security.md): the threat model and what DexaFix does not do.
 - [Running behind a reverse proxy](docs/03-reverse-proxy.md): trusted proxies, the PROXY protocol and HTTPS, needed for correct client addresses.
 
 </details>
 
 To report a vulnerability or a bug, open an issue at
-[github.com/trueforge-org/dexa-fix/issues](https://github.com/trueforge-org/dexa-fix/issues).
+[github.com/trueforge-org/dexafix/issues](https://github.com/trueforge-org/dexafix/issues).
 
 ## 🤝 Contributing and development
 
@@ -147,9 +149,9 @@ Tests, the project layout and how to make schema changes are in
 in [CI and releases](docs/12-ci-and-releases.md).
 
 Ideas and questions are welcome as
-[GitHub issues](https://github.com/trueforge-org/dexa-fix/issues).
+[GitHub issues](https://github.com/trueforge-org/dexafix/issues).
 
 ## 📄 License
 
-dexa-fix is licensed under the GNU Affero General Public License, version 3.
+DexaFix is licensed under the GNU Affero General Public License, version 3.
 See [LICENSE](LICENSE).

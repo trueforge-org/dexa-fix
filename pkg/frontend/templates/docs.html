@@ -26,6 +26,7 @@
         <li><a href="#athlete-mode">Athlete mode</a></li>
         <li><a href="#calibration">Calibration</a></li>
         <li><a href="#estimate-range">Range and columns</a></li>
+        <li><a href="#estimate-cache">Estimate cache</a></li>
       </ul></li>
     <li><a href="#settings-page">Settings</a></li>
     <li><a href="#integrations">Integrations</a>
@@ -41,13 +42,33 @@
         <li><a href="#admin-network">Network and retention</a></li>
         <li><a href="#admin-email">E-mail</a></li>
         <li><a href="#admin-tls">HTTPS</a></li>
+        <li><a href="#admin-workers">Workers</a></li>
       </ul></li>
     <li><a href="#server-config">Server configuration</a></li>
     <li><a href="#reverse-proxy">Reverse proxy</a>
       <ul>
         <li><a href="#proxy-protocol">PROXY protocol</a></li>
         <li><a href="#https">HTTPS, HTTP/2 and HTTP/3</a></li>
+        <li><a href="#cdn">Behind a CDN or caching proxy</a></li>
+        <li><a href="#deploy">The recommended deployment: deploy/</a></li>
+        <li><a href="#status">Status and health checks</a></li>
+        <li><a href="#valkey">Valkey</a></li>
         <li><a href="#two-processes">Two processes</a></li>
+      </ul></li>
+    <li><a href="#body-service">Body service</a>
+      <ul>
+        <li><a href="#body-separation">What it separates</a></li>
+        <li><a href="#body-protection">How a call is protected</a></li>
+        <li><a href="#body-start">Start it</a></li>
+        <li><a href="#body-keys">Keys</a></li>
+        <li><a href="#body-rotation">Rotating the secret and the token key</a></li>
+        <li><a href="#body-mutual-tls">Mutual TLS</a></li>
+        <li><a href="#body-deleting">Deleting users</a></li>
+        <li><a href="#body-down">When the body service is down</a></li>
+        <li><a href="#body-management">Management commands</a></li>
+        <li><a href="#body-moving">Moving to this layout</a></li>
+        <li><a href="#body-limits">Limits</a></li>
+        <li><a href="#body-troubleshooting">Troubleshooting</a></li>
       </ul></li>
     <li><a href="#database">Database</a></li>
     <li><a href="#encryption">Encryption</a></li>
@@ -62,9 +83,9 @@
 
 <section id="getting-started">
 <h2>Getting started</h2>
-<p>dexa-fix corrects smart-scale results with DEXA scan results. A smart scale is convenient but biased. A DEXA scan is accurate but rare. The app uses the difference between the two on the days you have both, and applies it to the scale readings in between. You get one estimated value per day.</p>
+<p>DexaFix corrects smart-scale results with DEXA scan results. A smart scale is convenient but biased. A DEXA scan is accurate but rare. The app uses the difference between the two on the days you have both, and applies it to the scale readings in between. You get one estimated value per day.</p>
 <ol>
-  <li>Start the server with <code>dexa-fix serve</code> and open <code>http://localhost:8080</code>.</li>
+  <li>Start the server with <code>dexafix serve</code> and open <code>http://localhost:8080</code>.</li>
   <li><strong>Create the first account.</strong> It becomes the administrator. After that, new accounts are closed until an administrator allows sign-ups (see <a href="#registration">Signing up</a>).</li>
   <li>Enter your height under <a href="#settings-page">Settings</a> (needed for BMI, FMI and LMI).</li>
   <li>Add one or more <a href="#dexa-page">DEXA scans</a>.</li>
@@ -151,7 +172,8 @@
   <li><strong>Gotchas:</strong> the token is shown once, right after you create it, and only a hash is stored. The list shows the first characters, when it was created, last used and when it expires. Revoke a token to stop it working at once.</li>
   <li><strong>Changing the password</strong> revokes all your tokens. Tokens are created and revoked only on the website, not through the API.</li>
 </ul>
-<pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/1/estimates</code></pre>
+<p>Your user id is random. It is the number in the address of your pages, <code>/u/&lt;id&gt;/</code>. The examples assume <code>export DEXAFIX_USER=&lt;id&gt;</code>.</p>
+<pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/$DEXAFIX_USER/estimates</code></pre>
 
 <h3 id="api-auth">API authentication</h3>
 <p>Every API request except <code>GET /healthz</code> must be authenticated, with one of:</p>
@@ -240,7 +262,7 @@
 
 <section id="estimates-page">
 <h2>Estimates</h2>
-<p>Page: <code>/u/{id}/estimates</code> (the page you land on after sign-in). It shows an overview of the latest values with a trend chart, the daily table, and the calibrations in use. The estimates are cached in memory per user and invalidated automatically when your data or settings change, so the page is fast but never stale.</p>
+<p>Page: <code>/u/{id}/estimates</code> (the page you land on after sign-in). It shows an overview of the latest values with a trend chart, the daily table, and the calibrations in use. The estimates are computed by the <a href="#body-service">body service</a> and kept in a memory cache (see <a href="#estimate-cache">Estimate cache</a>).</p>
 
 <h3 id="how-estimates-work">How the daily estimates are computed</h3>
 <p>Each field is handled on its own. The estimated fields are weight, body fat, fat mass, fat-free mass, bone mass, lean mass, hydration, visceral fat index, BMI, FMI, LMI and the A/G ratio.</p>
@@ -293,6 +315,15 @@
 
 <h3 id="resync-day">Per-day Withings re-import and Strength Level</h3>
 <p>With Withings connected, an <strong>&#8635;</strong> button on each row re-imports that one day. It replaces that day's Withings data: adds its Withings readings (even when manual readings exist), updates changed ones, and removes stored Withings readings that Withings no longer returns. It never touches manual readings. With Strength Level enabled for you, a <strong>&#8682;</strong> button sends that day's weight and body fat to Strength Level (see <a href="#strengthlevel">Strength Level</a>).</p>
+
+<h3 id="estimate-cache">Estimate cache</h3>
+<p>Computing the estimates walks a user's whole history, so the result is kept in memory per user (for the 32 most recently used users), by the <a href="#body-service">body service</a> that computes it. It is reused until something it depends on changes, and there is no list of places that have to remember to clear it. The cache is tied to three things:</p>
+<ul>
+  <li>the user's body version, a counter in the database that every change to the user's scans and readings (web, API, imports) increments in the same transaction;</li>
+  <li>the settings the estimates depend on: time zone, height, method ranking and athlete default, which the api process sends with every call;</li>
+  <li>the date, since the series runs up to today.</li>
+</ul>
+<p>Because the counter lives in the database, a change made by another process or server sharing a Postgres database is seen at once as well. The cache starts empty after a restart or upgrade.</p>
 </section>
 
 <section id="settings-page">
@@ -326,6 +357,7 @@
   <li>As an administrator, enter the client id and secret in the <a href="#withings-app">Withings application</a> card on the Admin page. They are stored encrypted. The redirect URL defaults to this server's own callback address. Withings is configured only there; the old <code>DEXAFIX_WITHINGS_*</code> variables are ignored with a warning.</li>
 </ol>
 <p>Connecting works only when client id, secret and redirect URL are all set.</p>
+<p>A <a href="#admin-workers">worker</a> does the talking to Withings: connecting and importing are jobs in a queue, and wait there while no worker runs the <code>withings</code> provider. Automatic imports are off until an administrator gives <em>Withings import</em> an interval in hours on the Workers page of the Admin section. Each run fetches the last 14 days for every linked user. After the number of failed runs in a row that the administrator set, your automatic imports pause, until you disconnect and connect Withings again or an administrator resumes them.</p>
 <h4 id="withings-import">Connecting and importing (user)</h4>
 <ol>
   <li>On the Settings or Estimates page choose <strong>Connect Withings</strong> and grant access. Finish within 10 minutes.</li>
@@ -397,9 +429,9 @@
   <dt id="provider-client-secret">Client secret</dt>
   <dd>The secret of that application, stored encrypted. When editing, leave it empty to keep the saved one. For Apple, paste the contents of the <code>.p8</code> key file.</dd>
   <dt id="provider-apple">Apple team ID and key ID</dt>
-  <dd>Apple only. dexa-fix generates Apple's short-lived client secret from team id, key id, services id and the <code>.p8</code> key. Apple requires HTTPS.</dd>
+  <dd>Apple only. DexaFix generates Apple's short-lived client secret from team id, key id, services id and the <code>.p8</code> key. Apple requires HTTPS.</dd>
   <dt id="provider-oauth2">Authorisation, token and userinfo URL</dt>
-  <dd>Plain OAuth 2.0 only: the three endpoints of the provider. dexa-fix reads the account id and name from the userinfo response.</dd>
+  <dd>Plain OAuth 2.0 only: the three endpoints of the provider. DexaFix reads the account id and name from the userinfo response.</dd>
   <dt id="provider-subject-claim">Account ID field</dt>
   <dd>The field in the user information that uniquely and permanently identifies the account (the <em>subject</em>). Default <code>sub</code>. Change it for OAuth 2.0 providers that use another name, such as <code>id</code>. Never use something that can change, like an e-mail address.</dd>
   <dt id="provider-scopes">Scopes</dt>
@@ -426,13 +458,29 @@
 <p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links.</p>
 <h3 id="admin-tls">HTTPS, HTTP/2 and HTTP/3</h3>
 <p>An optional HTTPS listener on its own port, with an uploaded certificate or a generated self-signed one. The page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. See <a href="#https">HTTPS, HTTP/2 and HTTP/3</a>.</p>
+<h3 id="admin-workers">Workers</h3>
+<p>Imports and syncs with Withings and Strength Level run as jobs in a queue. Workers do them: processes without a database or key that ask the api process for a job, call the outside service, and report back. A user's credentials reach a worker only inside one job. <code>dexafix serve</code> runs the workers inside its own process. In a split deployment start them with <code>dexafix serve worker --backend-url http://api:8081 --worker-secret-file worker.secret --providers withings</code>; without one, jobs stay queued. Create the secret with <code>dexafix secrets worker-secret</code>; it must differ from the service secret and both the api process and the workers read it with <code>--worker-secret-file</code>. Other flags: <code>--providers</code> (<code>strengthlevel</code>, <code>withings</code>; empty runs both), <code>--concurrency</code> (1 to 64, default 2) and <code>--worker-id</code>.</p>
+<p>The <strong>Workers</strong> page of the Admin section holds the rest, applied without a restart: per kind of job whether it is on, the jobs at once, attempts, retry delay, time limit, the automatic run interval in hours (<code>0</code> is off), and when to pause: after a number of failed runs in a row for one user's schedule, and after a number in a row for the whole kind (the circuit breaker). A paused schedule starts again when the user reconnects or imports by hand, or when an administrator resumes it. It also sets the priority of new accounts and how long finished jobs are kept, and lists the running workers and the queue. An administrator sets each account's job priority on the Users list.</p>
+
 <h3 id="admin-audit">Audit log</h3>
 <p>The latest events on the page. See <a href="#audit-log">Audit log</a>.</p>
 </section>
 
 <section id="server-config">
 <h2>Server configuration</h2>
-<p>Commands: <code>dexa-fix serve</code> runs the web app, <code>dexa-fix db</code> manages the database, <code>dexa-fix user</code> recovers accounts, <code>dexa-fix settings</code> recovers from server settings that locked you out, <code>dexa-fix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+<p>Commands: <code>dexafix serve</code> runs the web app, <code>dexafix db</code> manages the database, <code>dexafix user</code> recovers accounts, <code>dexafix settings</code> recovers from server settings that locked you out, <code>dexafix info</code> prints information about the binary. Each flag has an environment variable. A flag on the command line overrides the variable.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>serve body</code></td><td>Run the <a href="#body-service">body service</a>: scale readings, DEXA scans and estimates, in a database of its own.</td></tr>
+    <tr><td><code>secrets body-secret</code></td><td>Print a new body secret of 64 hexadecimal characters for <code>serve api</code> and <code>serve body</code>. It must differ from the service and worker secrets.</td></tr>
+    <tr><td><code>secrets body-token-key</code></td><td>Print a new private key for the api process to sign body service tokens with. Keep it to that process.</td></tr>
+    <tr><td><code>secrets body-token-public --key-file FILE</code></td><td>Print the public key of that private key, for <code>serve body</code>.</td></tr>
+    <tr><td><code>healthcheck URL</code></td><td>Make one GET request and exit 0 if the answer is 2xx, 1 otherwise. For the container health check: the image has no shell and no curl. See <a href="#status">Status and health checks</a>.</td></tr>
+    <tr><td><code>secrets init</code></td><td>Create every secret and the mutual TLS certificates of the <a href="#deploy">Compose deployment</a> in directories you name (<code>--host-dir</code>, <code>--api-dir</code>, <code>--web-dir</code>, <code>--worker-dir</code>, <code>--body-dir</code>). It never replaces a password, key or shared secret that exists, and makes new certificates at every run (<code>--mtls-days</code>, default 397). <code>--chown uid:gid</code> hands the files to the containers' user. This is what the <code>init</code> container runs.</td></tr>
+    <tr><td><code>secrets mtls --link body</code></td><td>Create certificates for the link between the api process and the body service (see <a href="#body-mutual-tls">Mutual TLS</a>).</td></tr>
+  </tbody>
+</table></div>
 
 <h3 id="admin-settings">Settings on the Admin page</h3>
 <p>Some settings are not flags. The base URL, trusted proxies, PROXY protocol, audit log retention, the encryption key reminder, e-mail (SMTP) and HTTPS are stored in the database, encrypted, and take effect at once on the <a href="#admin-page">Admin page</a>. There are no flags or environment variables for them. If <code>DEXAFIX_TRUSTED_PROXIES</code>, <code>DEXAFIX_BASE_URL</code> or <code>DEXAFIX_AUDIT_RETENTION_DAYS</code> is still set, the server logs a warning that it is ignored. If a wrong setting locks you out, see <a href="#settings-reset-network"><code>settings reset-network</code></a>.</p>
@@ -442,27 +490,44 @@
   <tbody>
     <tr><td><code>--listen</code></td><td><code>DEXAFIX_LISTEN</code></td><td><code>:8080</code></td><td>Address to listen on. Behind a proxy use <code>127.0.0.1:8080</code>.</td></tr>
     <tr><td><code>--db-driver</code></td><td><code>DEXAFIX_DB_DRIVER</code></td><td><code>sqlite</code></td><td><code>sqlite</code> or <code>postgres</code>.</td></tr>
-    <tr><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Database connection string. A string that contains a password is rejected on the command line; use the environment variable or <code>--dsn-file</code>.</td></tr>
+    <tr><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexafix.db</code></td><td>Database connection string. A string that contains a password is rejected on the command line; use the environment variable or <code>--dsn-file</code>.</td></tr>
     <tr><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string, for strings with a password.</td></tr>
     <tr><td><code>--auto-migrate</code></td><td><code>DEXAFIX_AUTO_MIGRATE</code></td><td><code>true</code></td><td>Apply pending migrations at startup. When <code>false</code>, <code>serve</code> fails if any are pending.</td></tr>
     <tr><td><code>--force-password-login</code></td><td><code>DEXAFIX_FORCE_PASSWORD_LOGIN</code></td><td><code>false</code></td><td>Keep password sign-in on even if an administrator turned it off, to recover from a lockout. Only the exact value <code>true</code> turns it on; <code>1</code> or <code>TRUE</code> does not.</td></tr>
-    <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexa-fix.key</code></td><td>File with the encryption key. Created if missing, but only for a database without encrypted values. Unused when the key variable is set.</td></tr>
+    <tr><td><code>--encryption-key-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_FILE</code></td><td><code>dexafix.key</code></td><td>File with the encryption key. Created if missing, but only for a database without encrypted values. Unused when the key variable is set.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY</code></td><td>unset</td><td>The key itself: 32 bytes as 64 hex characters or base64. Takes precedence over the file.</td></tr>
     <tr><td><code>--encryption-key-previous-file</code></td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS_FILE</code></td><td>empty</td><td>File with earlier keys, one per line (blank lines and <code>#</code> comments are ignored), for a key rotation.</td></tr>
     <tr><td>(no flag)</td><td><code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS</code></td><td>unset</td><td>Earlier keys, comma separated, for a key rotation.</td></tr>
+    <tr><td><code>--without-body</code></td><td><code>DEXAFIX_WITHOUT_BODY</code></td><td><code>false</code></td><td><code>serve api</code> (needs <code>--body-url</code>) and the <code>db</code>, <code>user</code> and <code>settings</code> commands. This database does not hold the scale readings and DEXA scans because a body service of its own does; keeps the commands from creating their tables here.</td></tr>
+    <tr><td><code>--body-url</code></td><td><code>DEXAFIX_BODY_URL</code></td><td>empty</td><td><code>serve api</code> only. Address of a <a href="#body-service">body service</a> in its own process, such as <code>http://body:8082</code>. Empty runs the body service inside the api process.</td></tr>
+    <tr><td><code>--body-secret-file</code></td><td><code>DEXAFIX_BODY_SECRET_FILE</code></td><td>empty</td><td><code>serve api</code> with <code>--body-url</code>, and <code>serve body</code>. Secret they share, one per line (the api process sends the first, the body service accepts every line). Must differ from the service and worker secrets.</td></tr>
+    <tr><td><code>--body-token-key-file</code></td><td><code>DEXAFIX_BODY_TOKEN_KEY_FILE</code></td><td>empty</td><td><code>serve api</code> with <code>--body-url</code>. Private key that signs the tokens for the body service (<code>secrets body-token-key</code>).</td></tr>
+    <tr><td><code>--body-ca-file</code></td><td><code>DEXAFIX_BODY_CA_FILE</code></td><td>empty</td><td><code>serve api</code> only. CA that must have issued the body service's certificate. Use with an <code>https://</code> <code>--body-url</code>, together with the two files below.</td></tr>
+    <tr><td><code>--body-client-cert-file</code></td><td><code>DEXAFIX_BODY_CLIENT_CERT_FILE</code></td><td>empty</td><td><code>serve api</code> only. Client certificate that the api process presents to the body service.</td></tr>
+    <tr><td><code>--body-client-key-file</code></td><td><code>DEXAFIX_BODY_CLIENT_KEY_FILE</code></td><td>empty</td><td><code>serve api</code> only. Private key of the client certificate above.</td></tr>
+    <tr><td><code>--body-server-name</code></td><td><code>DEXAFIX_BODY_SERVER_NAME</code></td><td>empty</td><td><code>serve api</code> only. Name the body service's certificate must carry, if it is not the host of <code>--body-url</code>.</td></tr>
+    <tr><td><code>--listen</code> (<code>serve body</code>)</td><td><code>DEXAFIX_BODY_LISTEN</code></td><td><code>:8082</code></td><td><code>serve body</code> only. Address of the body service; keep it on a private network.</td></tr>
+    <tr><td><code>--health-listen</code></td><td><code>DEXAFIX_HEALTH_LISTEN</code></td><td>empty (off)</td><td><code>serve api</code>, <code>serve body</code> and <code>serve worker</code>. A listener that answers <code>/healthz</code> and <code>/readyz</code> only, for a container health check, such as <code>127.0.0.1:8083</code>. See <a href="#status">Status and health checks</a>.</td></tr>
+    <tr><td><code>--valkey-url</code></td><td><code>DEXAFIX_VALKEY_URL</code></td><td>empty (off)</td><td><code>serve api</code> only. Keep the failed sign-in counters, single-use values and sessions in Valkey (<code>redis://host:6379/0</code>, <code>rediss://</code> for TLS) instead of the database. A password in the URL is refused on the command line: use the file. See <a href="#valkey">Valkey</a>.</td></tr>
+    <tr><td><code>--valkey-url-file</code></td><td><code>DEXAFIX_VALKEY_URL_FILE</code></td><td>empty</td><td><code>serve api</code> only. File with the Valkey URL, which may hold the password: <code>redis://:password@host:6379/0</code>.</td></tr>
+    <tr><td><code>--body-token-public-key-file</code></td><td><code>DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Required. Public key(s) of the api process's token key, one per line (<code>secrets body-token-public</code>).</td></tr>
+    <tr><td><code>--body-tls-cert-file</code></td><td><code>DEXAFIX_BODY_TLS_CERT_FILE</code></td><td>empty</td><td><code>serve body</code> only. Serve over mutual TLS: certificate of the service. Set it with <code>--body-tls-key-file</code> and <code>--body-tls-client-ca-file</code>, or none.</td></tr>
+    <tr><td><code>--body-tls-key-file</code></td><td><code>DEXAFIX_BODY_TLS_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Private key of the certificate above.</td></tr>
+    <tr><td><code>--body-tls-client-ca-file</code></td><td><code>DEXAFIX_BODY_TLS_CLIENT_CA_FILE</code></td><td>empty</td><td><code>serve body</code> only. CA that issues the api process's client certificate.</td></tr>
   </tbody>
 </table></div>
+<p><code>serve body</code> takes the database and key flags too, for the database and key of the body service. It has no <code>--maintenance</code>, and its <code>--auto-migrate</code> migrates the body database only.</p>
 <p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
-<pre><code>dexa-fix serve --listen 127.0.0.1:8080
+<pre><code>dexafix serve --listen 127.0.0.1:8080
 export DEXAFIX_DSN='postgres://user:secret@localhost/dexafix'
-dexa-fix serve --db-driver postgres</code></pre>
+dexafix serve --db-driver postgres</code></pre>
 
-<h3 id="db-flags"><code>db migrate</code> and <code>db copy</code></h3>
+<h3 id="db-flags"><code>db migrate</code>, <code>db copy</code> and <code>db provision</code></h3>
 <div class="scroll"><table>
   <thead><tr><th>Command</th><th>Flag</th><th>Environment variable</th><th>Default</th><th>Meaning</th></tr></thead>
   <tbody>
     <tr><td><code>db migrate</code></td><td><code>--db-driver</code></td><td><code>DEXAFIX_DB_DRIVER</code></td><td><code>sqlite</code></td><td>Database driver.</td></tr>
-    <tr><td><code>db migrate</code></td><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexa-fix.db</code></td><td>Connection string (no password on the command line).</td></tr>
+    <tr><td><code>db migrate</code></td><td><code>--dsn</code></td><td><code>DEXAFIX_DSN</code></td><td><code>file:dexafix.db</code></td><td>Connection string (no password on the command line).</td></tr>
     <tr><td><code>db migrate</code></td><td><code>--dsn-file</code></td><td><code>DEXAFIX_DSN_FILE</code></td><td>empty</td><td>File holding the connection string.</td></tr>
     <tr><td><code>db migrate</code></td><td><code>--yes</code></td><td>(none)</td><td><code>false</code></td><td>Confirm a roll-back that drops tables and their data.</td></tr>
     <tr><td><code>db copy</code></td><td><code>--from-driver</code></td><td>(none)</td><td><code>sqlite</code></td><td>Source driver.</td></tr>
@@ -471,21 +536,25 @@ dexa-fix serve --db-driver postgres</code></pre>
     <tr><td><code>db copy</code></td><td><code>--to-driver</code></td><td><code>DEXAFIX_TO_DRIVER</code></td><td>empty</td><td>Target driver. Required.</td></tr>
     <tr><td><code>db copy</code></td><td><code>--to-dsn</code></td><td><code>DEXAFIX_TO_DSN</code></td><td>empty</td><td>Target connection string. Required (this or the file).</td></tr>
     <tr><td><code>db copy</code></td><td><code>--to-dsn-file</code></td><td><code>DEXAFIX_TO_DSN_FILE</code></td><td>empty</td><td>File holding the target string.</td></tr>
+    <tr><td><code>db provision</code></td><td><code>--admin-dsn</code></td><td><code>DEXAFIX_ADMIN_DSN</code></td><td>empty</td><td>PostgreSQL superuser connection string (no password on the command line).</td></tr>
+    <tr><td><code>db provision</code></td><td><code>--admin-dsn-file</code></td><td><code>DEXAFIX_ADMIN_DSN_FILE</code></td><td>empty</td><td>File holding the administrator's connection string.</td></tr>
+    <tr><td><code>db provision</code></td><td><code>--app-password-file</code></td><td><code>DEXAFIX_APP_PASSWORD_FILE</code></td><td>empty</td><td>File holding the password of the api's role <code>dexafix</code>. Required.</td></tr>
+    <tr><td><code>db provision</code></td><td><code>--body-password-file</code></td><td><code>DEXAFIX_BODY_PASSWORD_FILE</code></td><td>empty</td><td>File holding the password of the body service's role <code>dexafix_body</code>. Required.</td></tr>
   </tbody>
 </table></div>
 <p class="docs-note">Database strings that contain a password are rejected on the command line, because other users on the machine can read command lines. Use the environment variable or the file variant. A plain <code>--dsn file:path.db</code> without a password still works.</p>
 <h3 id="user-reset-2fa"><code>user reset-2fa</code></h3>
 <p>Removes two-step verification and the recovery codes of the account with that e-mail address, for when nobody can sign in to turn it off on the Admin page. It works on the database directly, so it takes the same <code>--db-driver</code>, <code>--dsn</code> (or <code>DEXAFIX_DSN</code>, <code>--dsn-file</code>) and encryption key settings as <code>serve</code>. The server does not have to be stopped, but the change is not written to the audit log. An administrator who requires two-step verification gets the user set up again at the next sign-in.</p>
-<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexa-fix user reset-2fa you@example.com --db-driver postgres</code></pre>
+<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexafix user reset-2fa you@example.com --db-driver postgres</code></pre>
 <h3 id="settings-reset-network"><code>settings reset-network</code></h3>
 <p>Clears the base URL, the trusted proxies and the PROXY protocol setting, for when a saved value leaves the Admin page unreachable, such as a base URL for an address you no longer use. It works on the database directly, so it takes the same database and encryption key settings as <code>serve</code>. The change is not written to the audit log. Restart the server afterwards.</p>
-<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexa-fix settings reset-network --db-driver postgres</code></pre>
+<pre><code>DEXAFIX_DSN=postgres://user:secret@localhost/dexafix dexafix settings reset-network --db-driver postgres</code></pre>
 </section>
 
 <section id="reverse-proxy">
 <h2>Running behind a reverse proxy</h2>
-<p>dexa-fix speaks plain HTTP. For HTTPS put a reverse proxy such as nginx, Caddy or Traefik in front, and bind dexa-fix to a private address so nobody can bypass the proxy: <code>--listen 127.0.0.1:8080</code>.</p>
-<p>A proxy hides who the visitor is and whether they used HTTPS. It passes both on in <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Anyone can send those headers, so dexa-fix only believes them on connections from the trusted proxies set on the Admin page; from everyone else they are ignored, and a warning is logged once.</p>
+<p>DexaFix speaks plain HTTP. For HTTPS put a reverse proxy such as nginx, Caddy or Traefik in front, and bind DexaFix to a private address so nobody can bypass the proxy: <code>--listen 127.0.0.1:8080</code>.</p>
+<p>A proxy hides who the visitor is and whether they used HTTPS. It passes both on in <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code>. Anyone can send those headers, so DexaFix only believes them on connections from the trusted proxies set on the Admin page; from everyone else they are ignored, and a warning is logged once.</p>
 <ul>
   <li><strong>Trusted proxies</strong> (Admin page, Network and retention): comma-separated addresses or CIDR ranges, for example <code>127.0.0.1,10.0.0.0/8</code>. The keyword <code>loopback</code> stands for <code>127.0.0.0/8</code> and <code>::1</code>; <code>private</code> adds the RFC 1918 ranges and <code>fc00::/7</code>. Empty trusts nobody.</li>
   <li><strong>Base URL</strong> (Admin page): the public address, scheme and host only (no path). Optional when the proxy forwards <code>Host</code> and <code>X-Forwarded-Proto</code> correctly; set it for a fixed address. Saving it is accepted only while you use that address, so a typo cannot lock you out.</li>
@@ -515,7 +584,7 @@ dexa.example.com {
 traefik.http.routers.dexa.rule=Host(`dexa.example.com`)
 traefik.http.routers.dexa.tls=true
 traefik.http.services.dexa.loadbalancer.server.port=8080</code></pre>
-<p class="docs-warn">dexa-fix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, the redirect URL on the Admin page has to be the public callback address.</p>
+<p class="docs-warn">DexaFix must be served from the root of its host. A sub-path such as <code>example.com/dexa/</code> is not supported. In Docker the proxy reaches the app from the network's bridge address: trust that network's range, or <code>private</code>, and only ranges nothing but your proxies can send from. For Withings, the redirect URL on the Admin page has to be the public callback address.</p>
 <h3 id="proxy-protocol">PROXY protocol</h3>
 <p>The PROXY protocol (HAProxy versions 1 and 2) passes the visitor's address on the TCP connection itself, before any HTTP. Use it with a balancer that works at TCP level and adds no <code>X-Forwarded-For</code>. Turn on <em>Accept the PROXY protocol from the trusted proxies</em> on the Admin page; it needs trusted proxies.</p>
 <ul>
@@ -535,7 +604,7 @@ backend dexa
     mode http
     server dexa 127.0.0.1:8080 send-proxy-v2
 
-# nginx.conf, stream context: dexa-fix serves HTTPS on port 8443
+# nginx.conf, stream context: DexaFix serves HTTPS on port 8443
 stream {
     server {
         listen 443;
@@ -543,32 +612,194 @@ stream {
         proxy_protocol on;
     }
 }</code></pre>
-<p>With an AWS Network Load Balancer, use a TCP listener on port 443 that forwards to a target group on port 8443 (dexa-fix serving HTTPS with a certificate you upload), and turn on <em>Proxy protocol v2</em> for the target group. Trust the address range the load balancer connects from.</p>
+<p>With an AWS Network Load Balancer, use a TCP listener on port 443 that forwards to a target group on port 8443 (DexaFix serving HTTPS with a certificate you upload), and turn on <em>Proxy protocol v2</em> for the target group. Trust the address range the load balancer connects from.</p>
 <h3 id="https">HTTPS, HTTP/2 and HTTP/3</h3>
-<p>dexa-fix can serve HTTPS itself. Behind a reverse proxy you usually leave this off. Plain HTTP stays on <code>--listen</code> (HTTP/1.1, and cleartext HTTP/2 for proxies that speak it). Set HTTPS on the Admin page, under <em>HTTPS, HTTP/2 and HTTP/3</em>:</p>
+<p>DexaFix can serve HTTPS itself. Behind a reverse proxy you usually leave this off. Plain HTTP stays on <code>--listen</code> (HTTP/1.1, and cleartext HTTP/2 for proxies that speak it). Set HTTPS on the Admin page, under <em>HTTPS, HTTP/2 and HTTP/3</em>:</p>
 <ul>
-  <li><strong>Certificate:</strong> upload a PEM certificate chain and a PEM private key (stored encrypted; the key is never shown again; leave both empty to keep the saved one), or let dexa-fix generate a self-signed one: ECDSA P-256, valid 365 days, renewed automatically 30 days before expiry. Its names are the ones you give, or else the base URL's host plus <code>localhost</code>, <code>127.0.0.1</code> and <code>::1</code>.</li>
+  <li><strong>Certificate:</strong> upload a PEM certificate chain and a PEM private key (stored encrypted; the key is never shown again; leave both empty to keep the saved one), or let DexaFix generate a self-signed one: ECDSA P-256, valid 365 days, renewed automatically 30 days before expiry. Its names are the ones you give, or else the base URL's host plus <code>localhost</code>, <code>127.0.0.1</code> and <code>::1</code>.</li>
   <li><strong>HTTPS port:</strong> 8443 by default, and it must differ from the plain port. HTTPS has its own listener, so a bad certificate or port cannot lock you out of the plain one. HTTP/2 and HTTP/1.1 are offered by ALPN, on TLS 1.2 and later.</li>
   <li><strong>Also serve HTTP/3 (QUIC):</strong> on the UDP port with the same number as the HTTPS port, advertised with an <code>Alt-Svc</code> header. The UDP port must be reachable.</li>
 </ul>
 <p>The Admin page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. With Docker, publish both ports: <code>-p 8443:8443 -p 8443:8443/udp</code>.</p>
 <p class="docs-note">Browsers and apps trust a self-signed certificate only once you add it, and browsers use HTTP/3 only with a trusted certificate. There is no HTTP to HTTPS redirect yet.</p>
-<h3 id="two-processes">Two processes: web and api</h3>
-<p>So that a flood of requests on one part cannot take down the other, dexa-fix can run as two processes from the same binary:</p>
+<h3 id="cdn">Behind a CDN or caching proxy</h3>
+<p>Everything DexaFix serves except <code>/static/</code> is personal: pages, exports, the JSON API and error pages. Every such response carries <code>Cache-Control: no-store</code>, <code>CDN-Cache-Control: no-store</code> and <code>Surrogate-Control: no-store</code>. The last two speak to CDNs such as Cloudflare, Fastly and Akamai directly. The one exception is the estimates endpoint of the API, which sends <code>Cache-Control: private, no-cache</code> with an ETag, so a browser may keep a copy and ask whether it is still good, while a shared cache may not keep it. Only <code>/static/</code> files with a <code>?v=</code> version may be cached for long; they hold no personal data.</p>
+<p>A CDN rule can override an origin's headers. A rule such as Cloudflare's <em>Cache Everything</em> with an <em>Edge Cache TTL</em> that overrides the origin would serve one visitor's page to another. To be safe:</p>
 <ul>
-  <li><code>dexa-fix serve web</code> renders the pages and serves the public HTTP, HTTPS and HTTP/3 listeners. It has no database. Flags: <code>--listen</code>, <code>--backend-url</code> (the internal address of the api process, such as <code>http://api:8081</code>), <code>--service-secret-file</code>, and optionally <code>--api-upstream</code> to pass <code>/api/</code> on to the api process.</li>
-  <li><code>dexa-fix serve api</code> owns the database and every security decision. <code>--listen</code> serves the JSON API (<code>/api/v1</code>) behind your reverse proxy; <code>--internal-listen</code> serves the internal API for the web process and must stay on a private network.</li>
+  <li>Cache <code>/static/*</code> only, and bypass the cache for everything else.</li>
+  <li>Do not let a rule override the origin's cache headers for paths other than <code>/static/*</code>.</li>
+  <li>Do not use a page-cache feature on a site that has sign-in.</li>
 </ul>
-<p>The two share a secret file: create it with <code>dexa-fix secrets service-secret &gt; service.secret</code> and give its path to both. The settings on the Admin page apply to both, and the web process picks changes up within seconds. In your reverse proxy send <code>/api/</code> to the api process and everything else to the web process. Plain <code>dexa-fix serve</code> still runs everything in one process. The page <em>Running as two processes</em> in the documentation folder has a Compose example and the details.</p>
+<p>For the visitor's address, add the CDN's address ranges to <strong>Trusted proxies</strong> (Cloudflare publishes its list at <code>https://www.cloudflare.com/ips/</code>). DexaFix then walks <code>X-Forwarded-For</code> from the right, past every trusted proxy, and takes the first address nobody trusted. A request that reaches the origin directly has its <code>X-Forwarded-*</code> headers ignored. Without the CDN's ranges in the list every visitor looks like the CDN, and the limit on failed sign-ins per address would lock out everybody together.</p>
+<h3 id="deploy">The recommended deployment: deploy/</h3>
+<p><code>deploy/docker-compose.yaml</code> runs everything as containers: PostgreSQL, Valkey, the api process, the body service, the web process and one worker container per provider. Every link between them is protected by a secret <em>and</em> by mutual TLS. Two short-lived containers prepare the rest: <code>init</code>, which is <code>dexafix secrets init</code> and makes every password, key, secret and certificate, and <code>db-setup</code>, which is <code>dexafix db provision</code> and makes the database roles and the schema.</p>
+<pre><code>cd deploy
+docker compose up -d</code></pre>
+<p>Open <a href="http://localhost:8080">http://localhost:8080</a> and create the first account: it becomes the administrator. There is nothing to prepare first: no file has to exist before <code>up</code>, because the containers read their secrets from volumes that <code>init</code> fills. <code>init</code> and <code>db-setup</code> run again at every <code>docker compose up -d</code>.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Where</th><th>What</th><th>When it changes</th></tr></thead>
+  <tbody>
+    <tr><td><code>./secrets/</code> on the host</td><td>The database passwords, the connection strings, the Valkey password and the two encryption keys (<code>encryption_key</code>, <code>body_encryption_key</code>)</td><td>Never: a file that exists is kept</td></tr>
+    <tr><td>Volume <code>secrets-api</code></td><td>The api's connection string and encryption key, the service, worker and body secrets, the body token signing key, the Valkey URL, the api's certificates</td><td>The secrets and the key are kept; the certificates are new at every run</td></tr>
+    <tr><td>Volumes <code>secrets-web</code>, <code>secrets-worker</code>, <code>secrets-body</code></td><td>Only what that container needs: its shared secret and its certificates (the body service also gets its connection string and encryption key, and the public half of the signing key)</td><td>As above</td></tr>
+    <tr><td>Volumes <code>secrets-db</code>, <code>secrets-dbsetup</code>, <code>secrets-valkey</code></td><td>The superuser's password (the database), the administrator's connection string and the two role passwords (<code>db-setup</code>), the Valkey password</td><td>They follow the files in <code>./secrets</code></td></tr>
+  </tbody>
+</table></div>
+<p class="docs-note"><strong>Back up <code>./secrets/encryption_key</code> and <code>./secrets/body_encryption_key</code> together with the database.</strong> Without an encryption key the encrypted values cannot be read again. They are on the host, so <code>docker compose down -v</code> does not delete them. <code>./secrets</code> is private to root; read it with <code>sudo</code>.</p>
+<p>The certificates are valid for 397 days and are replaced at every <code>docker compose up</code>, so run it at least once a year. The CA's private key is thrown away as soon as the certificates are made. The containers read changed certificate files again within 30 seconds and need no restart. While they do, a process may be briefly ahead of the others: expect one <code>bad certificate</code> line in the api's log and a <code>could not refresh the settings</code> warning in web's, which heal by themselves. The web process and the workers share one client certificate: it proves the link, and the service or worker secret proves the role. The link to the body service has a CA of its own, so a certificate of one link opens nothing of the other.</p>
+<p>The database image is <code>ghcr.io/trueforge-org/postgresql</code> (ContainerForge). It runs as uid 568 and keeps its data in <code>/config/18</code>, and so do the other images of this stack: DexaFix runs as uid 568 too and keeps its data in <code>/config</code>. The <code>db-setup</code> container runs <code>dexafix db provision</code> against it, so the application never runs as the superuser <code>postgres</code>. The api's role <code>dexafix</code> owns the database; the body service's role <code>dexafix_body</code> owns the schema <code>body</code> and can use nothing else. The image can make no roles from environment variables, so <code>db provision</code> does it. It can be repeated: what exists is kept and the passwords are set again, so a failed start is mended by the next <code>up</code>, and a password you changed in <code>./secrets</code> takes effect there too.</p>
+<h3 id="status">Status and health checks</h3>
+<p><strong>The status page.</strong> <a href="/status">/status</a> shows the health of each part: the web process itself, the api process, the database, the body service and the workers of each provider. It is the same for everybody, signed in or not, and shows a state per part and nothing else: no versions, host names, worker names or reasons. It answers 503 while a part is down, so a monitor needs no parsing, and 200 otherwise. Every response is <code>no-store</code> and the list is identical for all visitors, so a cache cannot mix them up.</p>
+<div class="scroll"><table>
+  <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Operational</td><td>It works.</td></tr>
+    <tr><td>Down</td><td>It does not answer. The api process cannot be reached, the database or the body service does not answer within 2 seconds, or workers of a provider registered in the last day but none has asked for work in the last 90 seconds.</td></tr>
+    <tr><td>Not in use</td><td>No worker of that provider has registered in the last day. That is not a fault: imports of that provider simply wait until one starts.</td></tr>
+  </tbody>
+</table></div>
+<p>A worker gets a new random name every time it starts, so workers of replaced containers stay on record for a day. They count for nothing once one worker of the provider is running. Give a worker a fixed <code>--worker-id</code> to keep its name. The api process keeps its answer for 5 seconds. Administrators also get <a href="/admin/status">/admin/status</a>, linked from the Admin page: the workers by name, version and last request, and the reason a part is down.</p>
+<p><strong>Health checks for containers.</strong> The images have no shell and no curl. <code>serve api</code>, <code>serve body</code> and <code>serve worker</code> take <code>--health-listen 127.0.0.1:8083</code>, a listener that answers <code>/healthz</code> (the process runs) and <code>/readyz</code> (it can do its work: the database answers, or for a worker the api process answered in the last 90 seconds) and nothing else. It needs no secret or certificate, so bind it to the loopback address. The web process needs no extra listener: <code>/healthz</code> and <code>/readyz</code> are on its normal one.</p>
+<pre><code>healthcheck:
+  test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 20s</code></pre>
+<p><code>dexafix healthcheck URL</code> makes one request and exits 0 for a 2xx answer. <code>deploy/docker-compose.yaml</code> uses it for every container and starts them in order: the database, the body service, the api process, then the web process and the workers, each when the one before is healthy.</p>
+<h3 id="valkey">Valkey</h3>
+<p>By default the failed sign-in counters, the single-use values (second-step codes, password reset links, and the like) and the sessions are rows in the database. Every wrong password is a write and every page of a signed-in visitor is a session lookup, so a flood of either is a flood of database work. With <a href="https://valkey.io">Valkey</a> (or any Redis-compatible server) the api process keeps them there instead and the database sees none of it. It is optional and only <code>serve api</code> takes it: <code>--valkey-url-file</code> with a file that holds <code>redis://:password@host:6379/0</code> (<code>rediss://</code> for TLS). A password on the command line is refused. At start the api process connects and checks that the server answers; if it does not, it stops.</p>
+<ul>
+  <li><strong>Held in Valkey:</strong> the failed-attempt counters (the same 15-minute sliding window as in the database), the single-use values and the sessions (one key each, which expires with the session, and an index of every user's sessions so that they can all be ended at once). A session holds only who signed in and how: the person's name and role are read from the database on every request, so a role change or a deleted account takes effect at once.</li>
+  <li><strong>Sessions end on purpose, not by a cache.</strong> Signing out, a changed password, a password set by an administrator, a reset link and a deleted account each end the sessions in Valkey themselves. For the password cases that happens before the password is written, so if Valkey cannot be reached the password is not changed and the old sessions are not left alive.</li>
+  <li><strong>Not held in Valkey:</strong> the job queue and everything else. The estimate cache and the sign-in provider discovery cache are in each process's memory, as before.</li>
+  <li><strong>The three are never mixed.</strong> With Valkey the tables <code>auth_failures</code>, <code>used_nonces</code> and <code>sessions</code> stay empty. Several api processes must all use it, or none. Turning it on or off forgets who failed lately and <strong>signs everybody out</strong>.</li>
+</ul>
+<p class="docs-note"><strong>It fails closed.</strong> While Valkey does not answer, every address counts as locked out, every single-use value as spent and no session can be read, so nobody can sign in or stays signed in (their sessions are there again when it is back). Pages that need no sign-in keep working, and <a href="#status">/status</a> shows Valkey as down. Run Valkey with <code>maxmemory-policy noeviction</code>: an evicted counter would let an attacker try again, and an evicted single-use value could be used twice, and an evicted session would sign somebody out. Keep the append-only file on a volume.</p>
+<p>The Compose example (<code>deploy/docker-compose.yaml</code>) has it: <code>init</code> makes the password and the URL, the <code>valkey</code> container is on a network that only the api container shares, and the api container waits for it to be healthy. To run the example without Valkey, remove the <code>valkey</code> service, the <code>DEXAFIX_VALKEY_URL_FILE</code> line of <code>api</code> and the <code>state</code> network; the same things are then rows in the database.</p>
+<h3 id="two-processes">Two processes: web and api</h3>
+<p>So that a flood of requests on one part cannot take down the other, DexaFix can run as two processes from the same binary:</p>
+<ul>
+  <li><code>dexafix serve web</code> renders the pages and serves the public HTTP, HTTPS and HTTP/3 listeners. It has no database. Flags: <code>--listen</code>, <code>--backend-url</code> (the internal address of the api process, such as <code>http://api:8081</code>), <code>--service-secret-file</code>, and optionally <code>--api-upstream</code> to pass <code>/api/</code> on to the api process.</li>
+  <li><code>dexafix serve api</code> owns the database and every security decision. <code>--listen</code> serves the JSON API (<code>/api/v1</code>) behind your reverse proxy; <code>--internal-listen</code> serves the internal API for the web process and must stay on a private network.</li>
+</ul>
+<p>The scale readings, DEXA scans and estimates are held by the <a href="#body-service">body service</a>, which runs inside the api process unless you start <code>serve body</code> and give <code>serve api</code> a <code>--body-url</code>.</p>
+<p>The two share a secret file: create it with <code>dexafix secrets service-secret &gt; service.secret</code> and give its path to both. The settings on the Admin page apply to both, and the web process picks changes up within seconds. In your reverse proxy send <code>/api/</code> to the api process and everything else to the web process. Plain <code>dexafix serve</code> still runs everything in one process. The page <em>Running as two processes</em> in the documentation folder has a Compose example and the details.</p>
+</section>
+
+<section id="body-service">
+<h2>Body service</h2>
+<p>The body service holds the scale readings and the DEXA scans, computes the <a href="#estimates-page">estimates</a> from them and decides what an import from Withings stores. It knows nothing about people: no sign-in, no sessions, no e-mail. The api process authenticates people and calls the body service for the data of one user at a time.</p>
+<p>You can ignore this page if you run <code>dexafix serve</code>, or <code>serve api</code> without <code>--body-url</code>. Then the body service runs inside that process, on the same database, and nothing needs to be set up. Run it as a process of its own when you want a leak of one database or one host to give away only half of the data.</p>
+
+<h3 id="body-separation">What it separates</h3>
+<div class="scroll"><table>
+  <thead><tr><th></th><th>api process (main backend)</th><th>body service</th></tr></thead>
+  <tbody>
+    <tr><td>Holds</td><td>users, sessions, settings, audit log, provider tokens, the job queue</td><td>scale readings, DEXA scans, the estimate cache</td></tr>
+    <tr><td>Database</td><td>the main database</td><td>its own PostgreSQL schema and role, or its own SQLite file</td></tr>
+    <tr><td>Encryption key</td><td>its own</td><td>its own</td></tr>
+    <tr><td>Can reach</td><td>both</td><td>only its own database</td></tr>
+  </tbody>
+</table></div>
+<ul>
+  <li>The readings and scans are encrypted with a key that the api process does not hold (see <a href="#body-keys">Keys</a>).</li>
+  <li>With PostgreSQL, the body service connects as a role that sees the schema <code>body</code> and nothing else, and the api role has no rights in that schema. The deployment example sets this up.</li>
+  <li>Heavy work (estimates over years of readings, imports) runs in the body service with its own limits, so it cannot slow down sign-in and the pages.</li>
+</ul>
+<p>A compromised api process still reaches all data, because it is the one that asks the body service for it. The separation protects against the leak of one database, one backup or one host, not against a break-in to the api process.</p>
+
+<h3 id="body-protection">How a call is protected</h3>
+<p>Every call from the api process to the body service carries two things:</p>
+<ul>
+  <li>the <strong>body secret</strong>, a file both processes share, like the service secret;</li>
+  <li>a <strong>token</strong> that the api process signs for that one call. It names one user and one scope (<code>read</code>, <code>write</code> or <code>admin</code>), lives for 60 seconds at most and carries the user's time zone, height, method ranking and athlete default, which the estimates need.</li>
+</ul>
+<p>The api process signs with a private key. The body service holds only the public key, so it can check tokens but never make one. A token for user 1 opens nothing of user 2, a <code>read</code> token cannot write, and only an <code>admin</code> token can remove a user's data. The two processes need clocks within a few seconds of each other.</p>
+
+<h3 id="body-start">Start it</h3>
+<p>The recommended way is the <a href="#deploy">recommended deployment</a>: its <code>init</code> container (<code>dexafix secrets init</code>) creates everything below, including the certificates, and its <code>db-setup</code> container (<code>dexafix db provision</code>) creates the PostgreSQL roles and schema. To run it by hand, make the secrets first. All of them are files:</p>
+<pre><code>dexafix secrets body-secret &gt; body.secret &amp;&amp; chmod 600 body.secret
+dexafix secrets body-token-key &gt; body-token.key &amp;&amp; chmod 600 body-token.key
+dexafix secrets body-token-public --key-file body-token.key &gt; body-token.pub</code></pre>
+<p><code>body-token.key</code> goes to the api process only. <code>body-token.pub</code> and <code>body.secret</code> go to the body service, and <code>body.secret</code> to the api process too. The body secret must differ from the service secret and from the worker secret: <code>serve api</code> refuses to start otherwise. The key files carry a label (<code>ed25519-private:</code> or <code>ed25519-public:</code>), and <code>serve body</code> refuses a private key where the public one belongs.</p>
+<p>Start the body service, with a database and an encryption key of its own:</p>
+<pre><code>dexafix serve body --listen :8082 \
+  --db-driver postgres --dsn-file body.dsn \
+  --encryption-key-file body.key \
+  --body-secret-file body.secret \
+  --body-token-public-key-file body-token.pub</code></pre>
+<p>Then point the api process at it:</p>
+<pre><code>dexafix serve api --internal-listen :8081 \
+  --service-secret-file service.secret --worker-secret-file worker.secret \
+  --db-driver postgres --dsn-file main.dsn --encryption-key-file main.key \
+  --body-url http://body:8082 \
+  --body-secret-file body.secret --body-token-key-file body-token.key</code></pre>
+<p>With <code>--body-url</code> the api process does not create or use the tables of the body service in its own database. Keep the body service's port on a network that only the api process can reach. All flags are in <a href="#serve-flags">Configuration</a>.</p>
+
+<h4 id="body-postgres">PostgreSQL role and schema</h4>
+<p>The Compose example creates them with <code>dexafix db provision</code> (the <code>db-setup</code> container). For a database that already exists you can run that command with an administrator's connection string, or run this once as the database owner, with your own password:</p>
+<pre><code>CREATE ROLE dexafix_body LOGIN PASSWORD '&lt;password&gt;';
+CREATE SCHEMA body AUTHORIZATION dexafix_body;
+ALTER ROLE dexafix_body SET search_path = body;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;</code></pre>
+<p>The body service's connection string then selects the schema, for example <code>postgres://dexafix_body:&lt;password&gt;@db:5432/dexafix?search_path=body&amp;sslmode=disable</code>. The service migrates its own tables into that schema on start, and keeps its migration count in its own table (<code>goose_body_version</code>).</p>
+<p>With SQLite, give the body service a file of its own, for example <code>--dsn file:/config/body.db</code>.</p>
+
+<h3 id="body-keys">Keys</h3>
+<p>In the combined process the key of the readings and scans is derived from the encryption key with HKDF, under a label of its own, so one key file covers both and <code>db rekey</code> rotates both. A value sealed for the readings does not open with the key of the rest.</p>
+<p>A body service in its own process has its own <code>--encryption-key-file</code> (or <code>DEXAFIX_ENCRYPTION_KEY</code>), checked against its database like the main key (see <a href="#encryption">Encryption</a>). Use the same file as the api process to get the same key, or a different one to keep a leak of one key from opening the other. A wrong key is refused at start with a message that says so. The body key is a second key to back up: <strong>without it the readings and scans cannot be read.</strong></p>
+<p>Rotate it with the body service stopped, pointing <code>--dsn</code> and the key flags at the body service's database and key:</p>
+<pre><code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt; DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt; \
+  dexafix db rekey --body --dsn-file body.dsn --dry-run</code></pre>
+<p>Run it again without <code>--dry-run</code> to re-encrypt. It completes or changes nothing, and can be repeated.</p>
+
+<h3 id="body-rotation">Rotating the secret and the token key</h3>
+<ul>
+  <li><strong>Body secret.</strong> Both files hold one secret per line. Add a new first line to the api process's file and keep the old line in the body service's file until all api processes use the new one: the api process sends the first line, the body service accepts every line. Then remove the old line.</li>
+  <li><strong>Token key.</strong> Make a new key pair. Add the new public key as another line in the body service's <code>body-token.pub</code>, restart it, switch the api process to the new private key, then remove the old public key line.</li>
+</ul>
+
+<h3 id="body-mutual-tls">Mutual TLS</h3>
+<p>The link can be wrapped in mutual TLS, on top of the secret and the tokens. Make a set for this link, with a CA of its own, so that a certificate of the link between web and api opens nothing here:</p>
+<pre><code>dexafix secrets mtls --link body --dir ./mtls-body --name body</code></pre>
+<p>It writes <code>ca.pem</code>, <code>body.pem</code>, <code>body.key</code>, <code>api-client.pem</code> and <code>api-client.key</code>. Give the body service <code>--body-tls-cert-file</code>, <code>--body-tls-key-file</code> and <code>--body-tls-client-ca-file</code>, and the api process an <code>https://</code> <code>--body-url</code> with <code>--body-ca-file</code>, <code>--body-client-cert-file</code> and <code>--body-client-key-file</code>. Either all three files are given or none, and an <code>https://</code> address needs all of them.</p>
+
+<h3 id="body-deleting">Deleting users</h3>
+<p>When an administrator deletes a user, the api process also removes the user's readings and scans from the body service. If the body service cannot be reached then, the data stays until the maintenance loop finds it: every six hours it compares the users that have data with the users that exist and removes the data of those that are gone. User ids are never reused, so this is safe.</p>
+
+<h3 id="body-down">When the body service is down</h3>
+<p>Everything that needs readings, scans or estimates answers with a 503 page or status: the Scale, DEXA and Estimates pages, the export, the readings and scans endpoints of the <a href="#json-api">JSON API</a>. A Withings import waits: the worker reports its result again until the body service answers, and the job is not lost. Signing in, settings, the admin pages and the rest keep working, and the Admin page shows the two counts as "Unavailable".</p>
+
+<h3 id="body-management">Management commands</h3>
+<p>The <code>db</code>, <code>user</code> and <code>settings</code> commands open the main database. When the body service has its own database, give them <code>--without-body</code> (or <code>DEXAFIX_WITHOUT_BODY=true</code>), or <code>db migrate up</code> creates empty body tables in the main database. <code>db copy</code> is for databases that hold both. The body service migrates its own database on start (<code>--auto-migrate</code>, on by default).</p>
+
+<h3 id="body-moving">Moving to this layout</h3>
+<p>A database from an earlier build is not migrated: the readings and scans are now stored in a different form, and a body database of its own starts empty. Export each user's data first and import it afterwards (see <a href="#data-export">Data export and GDPR</a>).</p>
+
+<h3 id="body-limits">Limits</h3>
+<ul>
+  <li>A call is not atomic across the two services. An import is applied in steps that can be repeated, so a run that stops half way is finished by running it again.</li>
+  <li>An export is built in memory in the body service and the api process.</li>
+  <li>Backups of the two databases are separate: restore them from the same moment, or readings of users who were deleted in between wait for the next sweep.</li>
+</ul>
+
+<h3 id="body-troubleshooting">Troubleshooting</h3>
+<ul>
+  <li><strong>401 from the body service, in the api log as "refused a call".</strong> The secrets differ, the public key does not belong to the private key, or the clocks differ by more than a few seconds. Check the files and the time.</li>
+  <li><strong>"the body encryption key does not match this database".</strong> Another key file than the one that made the readings. Restore the right one, or keep the old key as a previous key and run <code>db rekey --body</code>.</li>
+  <li><strong>"the readings and scans are unavailable".</strong> The api process cannot reach the body service: check <code>--body-url</code>, the network and that the service runs.</li>
+  <li><strong><code>serve api</code> says the secrets must differ.</strong> The service, worker and body secrets each open a different door. Create a new one with <code>dexafix secrets body-secret</code>.</li>
+</ul>
 </section>
 
 <section id="database">
 <h2>Database</h2>
 <p>SQLite (default) or Postgres, through one query path. Schema changes are versioned migrations, embedded per backend.</p>
 <ul>
-  <li><strong>SQLite:</strong> default DSN <code>file:dexa-fix.db</code>. Connections always enforce foreign keys and wait up to 5 seconds for locks, and file databases run in <strong>WAL mode</strong>, so the DSN needs no pragmas. The database file is created with mode <code>0600</code>, and a warning is logged if an existing file is readable by group or others. WAL mode also creates <code>-wal</code> and <code>-shm</code> files next to the database; back up all of them together, or use a SQLite-aware backup.</li>
+  <li><strong>SQLite:</strong> default DSN <code>file:dexafix.db</code>. Connections always enforce foreign keys and wait up to 5 seconds for locks, and file databases run in <strong>WAL mode</strong>, so the DSN needs no pragmas. The database file is created with mode <code>0600</code>, and a warning is logged if an existing file is readable by group or others. WAL mode also creates <code>-wal</code> and <code>-shm</code> files next to the database; back up all of them together, or use a SQLite-aware backup.</li>
   <li><strong>Postgres:</strong> supported version 18. Use <code>--db-driver postgres</code> and a DSN like <code>postgres://user:pass@host/dexafix</code>, given through <code>DEXAFIX_DSN</code> or <code>--dsn-file</code>.</li>
-  <li><strong>Migrations:</strong> <code>serve</code> applies pending migrations at startup unless <code>--auto-migrate=false</code>. It refuses to start if the database schema is newer than the binary, so upgrade dexa-fix first. Databases created by pre-1.0 builds carry a higher schema version and are refused; start from a fresh database.</li>
+  <li><strong>Migrations:</strong> <code>serve</code> applies pending migrations at startup unless <code>--auto-migrate=false</code>. It refuses to start if the database schema is newer than the binary, so upgrade DexaFix first. Databases created by pre-1.0 builds carry a higher schema version and are refused; start from a fresh database.</li>
 </ul>
 <div class="scroll"><table>
   <thead><tr><th>Command</th><th>Description</th></tr></thead>
@@ -579,25 +810,27 @@ stream {
     <tr><td><code>db migrate status</code></td><td>List every migration and whether it is applied.</td></tr>
     <tr><td><code>db migrate version</code></td><td>Print the current schema version.</td></tr>
     <tr><td><code>db copy</code></td><td>Copy all data to another database.</td></tr>
-    <tr><td><code>db rekey [--dry-run]</code></td><td>Re-encrypt all encrypted values with the current key. See <a href="#encryption">Encryption</a>.</td></tr>
+    <tr><td><code>db rekey [--dry-run] [--body]</code></td><td>Re-encrypt all encrypted values with the current key. With <code>--body</code>, the readings and scans of a body service's own database. See <a href="#encryption">Encryption</a>.</td></tr>
   </tbody>
 </table></div>
+<p><code>db rekey</code> takes the database and encryption key flags of <code>serve</code>. When a <a href="#body-service">body service</a> has its own database, give the <code>db</code>, <code>user</code> and <code>settings</code> commands <code>--without-body</code> for the main database.</p>
 <p class="docs-warn">Rolling back drops tables and the data in them. Take a backup first.</p>
 <h3 id="db-copy">Moving from SQLite to Postgres</h3>
 <pre><code>export DEXAFIX_TO_DSN='postgres://user:secret@localhost/dexafix'
-dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
-dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></pre>
+dexafix db copy --from-driver sqlite --from-dsn file:dexafix.db --to-driver postgres
+dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></pre>
 <p>The target is migrated to the latest schema first and must be empty. Ids are kept and Postgres sequences are reset. The copy is a single transaction, so a failure leaves the target untouched. The source is not changed but must already be fully migrated (<code>db migrate up</code>). Encrypted values are copied unchanged: the server on the target needs the <strong>same encryption key</strong>, or run <code>db rekey</code> on the target with the source key as a previous key (see <a href="#encryption">Encryption</a>).</p>
 </section>
 
 <section id="encryption">
 <h2>Encryption</h2>
-<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, and each user's two-step verification secret. Each value is tied to its row, so copying it to another row makes it unreadable. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
-<p class="docs-warn">Names, measurements and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those.</p>
+<p>These values are encrypted with AES-256-GCM before they are stored: each user's Withings tokens, the Strength Level login, sign-in provider secrets (including the Apple key), the Withings application credentials and other server settings, e-mail addresses, each user's two-step verification secret, and the values and notes of each user's scale readings and DEXA scans (the time, source and method of a measurement stay readable, because the database needs them to find and order rows). Each value is tied to its row, so copying it to another row makes it unreadable. The readings and scans have a key of their own, derived from the encryption key, so one key file covers both. Each e-mail address also gets a keyed hash so addresses can be searched and kept unique without decrypting them. Passwords, access tokens and recovery codes are stored only as hashes.</p>
+<p class="docs-warn">Names and height are <strong>not</strong> encrypted by the application. Use disk or database encryption for those. Without an encryption key nothing is encrypted; readings and scans written then are encrypted at the next start with a key.</p>
+<p>With a <a href="#body-service">body service</a> in its own process, the readings and scans have an encryption key of their own: <code>serve body</code> takes <code>--encryption-key-file</code> for it, checks it against its database and refuses a wrong one. Rotate it with <code>db rekey --body</code>. Back it up like the main key.</p>
 <p>The key comes from, in this order:</p>
 <ol>
   <li>The environment variable <code>DEXAFIX_ENCRYPTION_KEY</code>: 32 bytes as 64 hexadecimal characters or as base64. There is no command-line flag, because command lines are visible to other processes.</li>
-  <li>The key file (<code>--encryption-key-file</code> or <code>DEXAFIX_ENCRYPTION_KEY_FILE</code>, default <code>dexa-fix.key</code> in the working directory). If neither exists, dexa-fix creates the file with a new random key and mode <code>0600</code> and logs a warning, but only for a new database or one without encrypted values. If the database already holds encrypted values, a missing key file is an error and nothing is created, so a key file that did not mount is reported instead of replaced.</li>
+  <li>The key file (<code>--encryption-key-file</code> or <code>DEXAFIX_ENCRYPTION_KEY_FILE</code>, default <code>dexafix.key</code> in the working directory). If neither exists, DexaFix creates the file with a new random key and mode <code>0600</code> and logs a warning, but only for a new database or one without encrypted values. If the database already holds encrypted values, a missing key file is an error and nothing is created, so a key file that did not mount is reported instead of replaced.</li>
 </ol>
 <ul>
   <li>In containers, put the key file on a persistent volume or set the variable.</li>
@@ -612,8 +845,8 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
   <li>Stop the server and back up the database and the key file.</li>
   <li>Generate a new key, for example <code>openssl rand -hex 32</code>.</li>
   <li>Make it the current key and give the old one as a previous key: <code>DEXAFIX_ENCRYPTION_KEY=&lt;new&gt;</code> and <code>DEXAFIX_ENCRYPTION_KEY_PREVIOUS=&lt;old&gt;</code>, or a new key file plus <code>--encryption-key-previous-file</code>.</li>
-  <li>Run <code>dexa-fix db rekey --dry-run</code>. It reports how many values would change and fails if any value cannot be opened.</li>
-  <li>Run <code>dexa-fix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key), provider secrets and two-step verification secrets, recomputes the e-mail lookup hashes and stores the new check value. It prints a count for each kind, such as <code>two-step secrets re-encrypted: 2</code>. It either completes or changes nothing, and can be repeated.</li>
+  <li>Run <code>dexafix db rekey --dry-run</code>. It reports how many values would change and fails if any value cannot be opened.</li>
+  <li>Run <code>dexafix db rekey</code>. In one transaction it re-encrypts e-mail addresses, integrations, server settings (including the cookie key), provider secrets, two-step verification secrets and the scale readings and DEXA scans, recomputes the e-mail lookup hashes and stores the new check value. It prints a count for each kind, such as <code>two-step secrets re-encrypted: 2</code>. It either completes or changes nothing, and can be repeated.</li>
   <li>Start the server with only the new key. The cookie key does not change, so sessions stay valid.</li>
 </ol>
 <p>Between steps 3 and 5 the server still starts: it reads old values with the previous key, writes with the current one, and logs a warning until <code>db rekey</code> has run. Run <code>db rekey</code> with the server stopped.</p>
@@ -675,31 +908,31 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 </ul>
 <p>The response header <code>X-Next-Cursor</code> holds the cursor for the next page. It is absent on the last page. Pass it unchanged as <code>before</code>.</p>
 <pre><code>curl -si -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01'
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings?limit=500&amp;since=2026-01-01'
 # ... X-Next-Cursor: 1767254400000000000.42
 curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01&amp;before=1767254400000000000.42'</code></pre>
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings?limit=500&amp;since=2026-01-01&amp;before=1767254400000000000.42'</code></pre>
 <p>The audit endpoints use <code>limit</code>, <code>before_id</code> and (administrators) <code>user_id</code>.</p>
 <h3>Examples</h3>
 <pre><code>export DEXAFIX_TOKEN=dxf_...   # from Settings
 
-curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
   -d '{"measured_at": "2026-03-01T08:00:00Z", "weight_kg": 80.0, "fat_ratio_pct": 18.0}'
 
-curl -s -X POST localhost:8080/api/v1/users/1/scale-readings \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
   -d '[{"measured_at": "2026-03-01T07:00:00Z", "weight_kg": 82.0, "fat_ratio_pct": 20.0, "method": "scale", "athlete_mode": false}]'
 
 curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'</code></pre>
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/import/withings?day=2026-03-01'</code></pre>
 <p>An import returns counts: <code>{"provider":"withings","imported":3,"updated":0,"unchanged":12,"removed":0,"skipped":0}</code>, plus <code>skipped_days</code> when something was skipped. Status codes: 400 malformed <code>since</code> or <code>day</code>, 404 unknown provider or user, 409 the user has not connected the provider, 501 the server has no credentials for the provider.</p>
 </section>
 
 <section id="security">
 <h2>Security notes and limitations</h2>
 <ul>
-  <li><strong>Encryption is partial.</strong> Measurements, height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
+  <li><strong>Encryption is partial.</strong> Height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
   <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
   <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
   <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>
@@ -708,6 +941,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   <li><strong>Tokens</strong> are shown once and stored hashed; revoke any you no longer use. Prefer expiring tokens.</li>
   <li><strong>HTTPS certificates.</strong> A self-signed certificate is trusted by nobody until you add it, and browsers use HTTP/3 only with a trusted certificate. The private key is stored encrypted. There is no HTTP to HTTPS redirect yet.</li>
   <li><strong>Password reset links</strong> are bearer credentials: whoever reads the mailbox, or the link, can set a new password. Use STARTTLS or TLS for the SMTP server.</li>
+  <li><strong>Estimates are cached in memory</strong> by the body service, per user, for the 32 most recently used users, and recomputed when the data, the settings that matter or the date change. See <a href="#estimate-cache">Estimate cache</a>.</li>
   <li>This is a measurement tool, not a medical device. Estimates correct a scale by a DEXA offset and say nothing about health.</li>
 </ul>
 </section>

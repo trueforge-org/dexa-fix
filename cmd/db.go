@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trueforge-org/dexa-fix/pkg/store/sqlstore"
+	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
-const defaultSQLiteDSN = "file:dexa-fix.db"
+const defaultSQLiteDSN = "file:dexafix.db"
 
 // addDBFlags registers --db-driver, --dsn and --dsn-file (with their DEXAFIX_* environment
 // defaults) on c. A connection string with a password is refused on the command line.
@@ -18,6 +18,15 @@ func addDBFlags(c *cobra.Command) {
 	c.Flags().String("db-driver", envOr("DEXAFIX_DB_DRIVER", sqlstore.DriverSQLite), "database driver: sqlite or postgres")
 	c.Flags().String("dsn", envOr("DEXAFIX_DSN", defaultSQLiteDSN), "database connection string (without a password: use DEXAFIX_DSN or --dsn-file for those)")
 	c.Flags().String("dsn-file", envOr("DEXAFIX_DSN_FILE", ""), "file holding the database connection string, for strings with a password")
+	c.Flags().Bool("without-body", envOr("DEXAFIX_WITHOUT_BODY", "false") == "true", "this database does not hold the scale readings and DEXA scans because a body service of its own does (dexafix serve body); keeps the commands from creating their tables here")
+}
+
+// dbOptions adds the options the shared database flags ask for to opts.
+func dbOptions(c *cobra.Command, opts ...sqlstore.Option) []sqlstore.Option {
+	if without, _ := c.Flags().GetBool("without-body"); without {
+		opts = append(opts, sqlstore.WithoutBody())
+	}
+	return opts
 }
 
 func dbFlags(c *cobra.Command) (driver, dsn string, err error) {
@@ -40,9 +49,9 @@ latest one, "to N" migrates up or down to version N (0 = empty), "status" lists 
 
 Rolling back ("down", or "to" a lower version) drops the tables and columns those migrations created,
 and the data in them. It only runs with --yes, after showing what it would roll back.`,
-	Example: `dexa-fix db migrate status
-DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexa-fix db migrate up --db-driver postgres
-dexa-fix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
+	Example: `dexafix db migrate status
+DEXAFIX_DSN=postgres://user:pass@localhost/dexafix dexafix db migrate up --db-driver postgres
+dexafix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		driver, dsn, err := dbFlags(cmd)
@@ -53,7 +62,7 @@ dexa-fix db migrate up --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithoutMigrate())
+		st, err := sqlstore.Open(ctx, driver, dsn, dbOptions(cmd, sqlstore.WithoutMigrate())...)
 		if err != nil {
 			return err
 		}
@@ -163,8 +172,8 @@ var dbCopyCmd = &cobra.Command{
 	Long: `Copy every row from the source database to the target database, keeping ids. The target is migrated to
 the latest schema first and must be empty. The copy is a single transaction on the target.`,
 	Example: `DEXAFIX_TO_DSN=postgres://user:pass@localhost/dexafix \
-  dexa-fix db copy --from-driver sqlite --from-dsn file:dexa-fix.db --to-driver postgres
-dexa-fix db copy --from-dsn file:dexa-fix.db --to-driver postgres --to-dsn-file /run/secrets/target_dsn`,
+  dexafix db copy --from-driver sqlite --from-dsn file:dexafix.db --to-driver postgres
+dexafix db copy --from-dsn file:dexafix.db --to-driver postgres --to-dsn-file /run/secrets/target_dsn`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fromDriver, _ := cmd.Flags().GetString("from-driver")
@@ -214,6 +223,33 @@ dexa-fix db copy --from-dsn file:dexa-fix.db --to-driver postgres --to-dsn-file 
 	},
 }
 
+// rekeyBody re-encrypts the body data of a database that holds only that (the body service's own).
+// --dsn and the key flags are the body service's.
+func rekeyBody(ctx context.Context, cmd *cobra.Command, driver, dsn string, dryRun bool) error {
+	c, err := loadCipherFor(ctx, cmd, driver, dsn, func() (bool, error) { return sqlstore.HasEncryptedBodyValues(ctx, driver, dsn) })
+	if err != nil {
+		return err
+	}
+	st, err := sqlstore.OpenBody(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	stats, err := st.Rekey(ctx, dryRun)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	verb := "re-encrypted"
+	if dryRun {
+		verb = "to re-encrypt"
+		fmt.Fprintln(out, "dry run: nothing was changed")
+	}
+	fmt.Fprintf(out, "scale readings and DEXA scans %s: %d\n", verb, stats.Changed)
+	fmt.Fprintf(out, "already under the current key: %d\n", stats.Current)
+	return nil
+}
+
 var dbRekeyCmd = &cobra.Command{
 	Use:   "rekey",
 	Short: "Re-encrypt every encrypted value with the current encryption key",
@@ -223,9 +259,13 @@ already under the current key are skipped.
 
 The old keys must be given as previous keys (DEXAFIX_ENCRYPTION_KEY_PREVIOUS or
 --encryption-key-previous-file). Stop the server first and back up the database and the key.
---dry-run only reports how many values would change, and fails if any value cannot be opened.`,
-	Example: `DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey --dry-run
-DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db rekey`,
+--dry-run only reports how many values would change, and fails if any value cannot be opened.
+
+With a body service of its own, the scale readings and DEXA scans are in another database with a key
+of its own. Rotate that one with --body, pointing --dsn and the key flags at the body service's
+database and key; give the main database --without-body.`,
+	Example: `DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexafix db rekey --dry-run
+DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexafix db rekey`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		driver, dsn, err := dbFlags(cmd)
@@ -237,11 +277,14 @@ DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db r
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		if body, _ := cmd.Flags().GetBool("body"); body {
+			return rekeyBody(ctx, cmd, driver, dsn, dryRun)
+		}
 		c, err := loadCipher(ctx, cmd, driver, dsn)
 		if err != nil {
 			return err
 		}
-		st, err := sqlstore.Open(ctx, driver, dsn, sqlstore.WithCipher(c), sqlstore.RequireMigrated())
+		st, err := sqlstore.Open(ctx, driver, dsn, dbOptions(cmd, sqlstore.WithCipher(c), sqlstore.RequireMigrated())...)
 		if err != nil {
 			return err
 		}
@@ -262,17 +305,67 @@ DEXAFIX_ENCRYPTION_KEY=<new> DEXAFIX_ENCRYPTION_KEY_PREVIOUS=<old> dexa-fix db r
 		fmt.Fprintf(out, "settings %s:         %d\n", verb, stats.Settings)
 		fmt.Fprintf(out, "auth providers %s:   %d\n", verb, stats.Providers)
 		fmt.Fprintf(out, "two-step secrets %s: %d\n", verb, stats.TOTP)
+		fmt.Fprintf(out, "scale readings and DEXA scans %s: %d\n", verb, stats.Body)
 		fmt.Fprintf(out, "e-mail lookups recomputed: %d\n", stats.Lookups)
 		fmt.Fprintf(out, "already under the current key: %d\n", stats.Current)
 		return nil
 	},
 }
 
+var dbProvisionCmd = &cobra.Command{
+	Use:   "provision",
+	Short: "Create the PostgreSQL roles, database and body schema (superuser, safe to repeat)",
+	Long: `Create what the recommended deployment runs on, so that no service runs as a PostgreSQL superuser:
+the role "dexafix" (owns the database "dexafix"), the role "dexafix_body" (owns the schema "body" and
+nothing else) and that schema. What exists is kept and both passwords are set again, so a changed
+password file takes effect at the next run. Nothing is dropped.
+
+It connects as the administrator (--admin-dsn-file) and needs the two passwords as files. The
+Compose example runs it once at every start as the db-setup container. PostgreSQL only.`,
+	Example: `dexafix db provision --admin-dsn-file /secrets/admin_dsn \
+  --app-password-file /secrets/db_password --body-password-file /secrets/body_db_password`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		adminDSN, err := dsnFlag(cmd, "admin-dsn")
+		if err != nil {
+			return err
+		}
+		var pw [2]string
+		for i, flag := range []string{"app-password-file", "body-password-file"} {
+			path, _ := cmd.Flags().GetString(flag)
+			if path == "" {
+				return fmt.Errorf("--%s is required", flag)
+			}
+			if pw[i], err = readSecretFile(path); err != nil {
+				return err
+			}
+		}
+		if adminDSN == "" {
+			return fmt.Errorf("an administrator connection string is required (--admin-dsn-file or DEXAFIX_ADMIN_DSN)")
+		}
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := sqlstore.Provision(ctx, sqlstore.ProvisionOptions{AdminDSN: adminDSN, AppPassword: pw[0], BodyPassword: pw[1]}); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "roles %s and %s, database %s and schema %s are in place\n",
+			sqlstore.ProvisionAppRole, sqlstore.ProvisionBodyRole, sqlstore.ProvisionDatabase, sqlstore.ProvisionBodySchema)
+		return nil
+	},
+}
+
 func init() {
+	dbProvisionCmd.Flags().String("admin-dsn", envOr("DEXAFIX_ADMIN_DSN", ""), "PostgreSQL superuser connection string (without a password: use DEXAFIX_ADMIN_DSN or --admin-dsn-file for those)")
+	dbProvisionCmd.Flags().String("admin-dsn-file", envOr("DEXAFIX_ADMIN_DSN_FILE", ""), "file holding the administrator's connection string")
+	dbProvisionCmd.Flags().String("app-password-file", envOr("DEXAFIX_APP_PASSWORD_FILE", ""), "file holding the password of the api's role (dexafix)")
+	dbProvisionCmd.Flags().String("body-password-file", envOr("DEXAFIX_BODY_PASSWORD_FILE", ""), "file holding the password of the body service's role (dexafix_body)")
 	addDBFlags(dbMigrateCmd)
 	addDBFlags(dbRekeyCmd)
 	addKeyFlags(dbRekeyCmd)
 	dbRekeyCmd.Flags().Bool("dry-run", false, "only report what would change")
+	dbRekeyCmd.Flags().Bool("body", false, "rotate the key of the body service's own database (scale readings and DEXA scans); --dsn and the key flags are then that service's")
 	dbCopyCmd.Flags().String("from-driver", sqlstore.DriverSQLite, "source database driver: sqlite or postgres")
 	dbMigrateCmd.Flags().Bool("yes", false, "confirm rolling the schema back, which drops tables and their data")
 	dbCopyCmd.Flags().String("from-dsn", envOr("DEXAFIX_FROM_DSN", envOr("DEXAFIX_DSN", "")), "source connection string (without a password: use DEXAFIX_FROM_DSN or --from-dsn-file for those)")
@@ -280,6 +373,6 @@ func init() {
 	dbCopyCmd.Flags().String("to-driver", envOr("DEXAFIX_TO_DRIVER", ""), "target database driver: sqlite or postgres")
 	dbCopyCmd.Flags().String("to-dsn", envOr("DEXAFIX_TO_DSN", ""), "target connection string (without a password: use DEXAFIX_TO_DSN or --to-dsn-file for those)")
 	dbCopyCmd.Flags().String("to-dsn-file", envOr("DEXAFIX_TO_DSN_FILE", ""), "file holding the target connection string")
-	dbCmd.AddCommand(dbMigrateCmd, dbCopyCmd, dbRekeyCmd)
+	dbCmd.AddCommand(dbMigrateCmd, dbCopyCmd, dbRekeyCmd, dbProvisionCmd)
 	RootCmd.AddCommand(dbCmd)
 }

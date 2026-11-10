@@ -1,0 +1,1 @@
+../../.github/instructions/frontend-templates.instructions.md

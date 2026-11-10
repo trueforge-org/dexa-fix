@@ -5,7 +5,7 @@
   restart and are shared by all backend processes on it. On a public
   deployment, limit sign-in attempts at the reverse proxy too. See
   [Storage and rate limiting](07-accounts-and-sign-in.md#storage-and-rate-limiting).
-- **Measurements, height and names are not encrypted.** Protect the database
+- **Height and names are not encrypted.** Protect the database
   file or Postgres database and its backups with disk or database encryption.
   Losing the encryption key makes the encrypted values unreadable. See
   [Encryption](08-encryption.md).
@@ -27,15 +27,15 @@
   or a reset link shown on the Admin page, can set a new password. Use STARTTLS
   or TLS for the SMTP server; the `none` option is only for a server on
   localhost. See [Password reset](07-accounts-and-sign-in.md#password-reset).
-- **Estimates are cached in memory** per user, for the 32 most recently used
-  users, and recomputed when the data, the settings that matter or the date
-  change. See [Estimate cache](09-estimates.md#estimate-cache).
+- **Estimates are cached in memory** by the body service, per user, for the 32
+  most recently used users, and recomputed when the data, the settings that
+  matter or the date change. See [Estimate cache](09-estimates.md#estimate-cache).
 - **The internal link carries sessions, passwords and the TLS private key.** In
   a [split deployment](15-split-deployment.md) the web process calls the api
   process over it. The service secret says which web process may call, but it
   does not encrypt the link. Keep the link on a private network: a Docker or
   Compose internal network, or the Kubernetes cluster network. Across hosts, use
-  TLS through a service mesh or a tunnel. dexa-fix warns at start when the
+  TLS through a service mesh or a tunnel. DexaFix warns at start when the
   backend URL is plain HTTP to an address that is not private. The api process
   never trusts `X-Dexafix-*` headers on the public listener. Personal access
   tokens and Basic authentication work only on the public API. Sealed cookies

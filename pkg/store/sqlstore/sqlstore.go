@@ -4,12 +4,15 @@ package sqlstore
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
@@ -20,8 +23,8 @@ import (
 	"github.com/uptrace/bun/schema"
 	_ "modernc.org/sqlite" // pure-Go sqlite driver
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Supported database drivers.
@@ -36,9 +39,16 @@ type Store struct {
 	driver   string
 	maxConns int     // size of the connection pool
 	cipher   *Cipher // encrypts sensitive columns; nil leaves new values unencrypted
+
+	// BodyStore is the body domain (scans and readings) on the same connection pool, or nil when
+	// the store was opened WithoutBody: then another process holds that data. Its methods are
+	// promoted, so a combined process and the tests use one value for both domains; the main
+	// backend only sees the store.Store interface, which does not have them.
+	*BodyStore
 }
 
 var _ store.Store = (*Store)(nil)
+var _ store.BodyStore = (*Store)(nil)
 
 // MaxConns is the size of the connection pool. A server uses it to keep one class of requests from
 // taking every connection.
@@ -53,8 +63,9 @@ const (
 )
 
 type openConfig struct {
-	migrate migrateMode
-	cipher  *Cipher
+	migrate     migrateMode
+	cipher      *Cipher
+	withoutBody bool
 }
 
 // Option customises Open.
@@ -63,20 +74,20 @@ type Option func(*openConfig)
 // WithoutMigrate opens the database without touching the schema (used by the db management commands).
 func WithoutMigrate() Option { return func(c *openConfig) { c.migrate = migrateSkip } }
 
+// WithoutBody opens the main database without the body domain (scans and readings): its tables are
+// not created or migrated, and the BodyStore methods are not available. For a backend that calls a
+// body service of its own.
+func WithoutBody() Option { return func(c *openConfig) { c.withoutBody = true } }
+
 // RequireMigrated fails Open when there are pending migrations instead of applying them.
 func RequireMigrated() Option { return func(c *openConfig) { c.migrate = migrateRequire } }
 
-// Open connects to the database and, unless told otherwise, applies pending migrations.
-func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, error) {
-	cfg := openConfig{}
-	for _, o := range opts {
-		o(&cfg)
-	}
-
+// connect opens a pool for the driver and checks that the database answers. It returns the pool's
+// size, which a server uses to keep one class of requests from taking every connection.
+func connect(ctx context.Context, driver, dsn string) (db *bun.DB, maxConns int, err error) {
 	var (
 		sqlDB   *sql.DB
 		dialect schema.Dialect
-		err     error
 	)
 	switch driver {
 	case DriverSQLite:
@@ -87,12 +98,11 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		sqlDB, err = sql.Open("pgx", dsn)
 		dialect = pgdialect.New()
 	default:
-		return nil, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
+		return nil, 0, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	maxConns := 0
 	switch {
 	case driver == DriverSQLite && sqliteInMemory(dsn):
 		maxConns = 1
@@ -111,9 +121,29 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 	}
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
+		return nil, 0, err
+	}
+	return bun.NewDB(sqlDB, dialect), maxConns, nil
+}
+
+// Open connects to the database and, unless told otherwise, applies pending migrations.
+func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, error) {
+	cfg := openConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	db, maxConns, err := connect(ctx, driver, dsn)
+	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: bun.NewDB(sqlDB, dialect), driver: driver, maxConns: maxConns, cipher: cfg.cipher}
+	s := &Store{db: db, driver: driver, maxConns: maxConns, cipher: cfg.cipher}
+	if !cfg.withoutBody {
+		s.BodyStore = &BodyStore{db: db, driver: driver, maxConns: maxConns}
+		if cfg.cipher != nil {
+			s.BodyStore.cipher = cfg.cipher.bodyCipher() // derived: one key file covers both domains
+		}
+	}
 
 	switch cfg.migrate {
 	case migrateUp:
@@ -128,8 +158,8 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		}
 		if err == nil {
 			var pending bool
-			if pending, err = p.HasPending(ctx); err == nil && pending {
-				err = errors.New("database has pending migrations: run `dexa-fix db migrate up` or enable --auto-migrate")
+			if pending, err = s.HasPending(ctx); err == nil && pending {
+				err = errors.New("database has pending migrations: run `dexafix db migrate up` or enable --auto-migrate")
 			}
 		}
 		if err != nil {
@@ -138,13 +168,40 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 		}
 	}
 	if cfg.cipher != nil && cfg.migrate != migrateSkip {
-		if err := s.verifyKey(ctx); err != nil {
+		// Every domain decides whether the key is the right one before any of them writes a check, so
+		// a wrong key leaves none behind (the right key would be refused at the next start).
+		writes := make([]func() error, 0, 2)
+		write, err := s.verifyKey(ctx)
+		if err != nil {
 			s.Close()
 			return nil, err
+		}
+		writes = append(writes, write)
+		if s.BodyStore != nil {
+			if write, err = s.BodyStore.verifyKey(ctx); err != nil {
+				s.Close()
+				return nil, err
+			}
+			writes = append(writes, write)
+		}
+		for _, w := range writes {
+			if w == nil {
+				continue
+			}
+			if err := w(); err != nil {
+				s.Close()
+				return nil, err
+			}
 		}
 		if err := s.encryptExisting(ctx); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("encrypt existing data: %w", err)
+		}
+		if s.BodyStore != nil {
+			if err := s.BodyStore.encryptExisting(ctx); err != nil {
+				s.Close()
+				return nil, fmt.Errorf("encrypt existing readings and scans: %w", err)
+			}
 		}
 	}
 	return s, nil
@@ -227,9 +284,70 @@ func sqliteDSN(dsn string) string {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Ping checks that the database answers. It is defined here and not promoted from the BodyStore,
+// which is nil in a store opened WithoutBody.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
 func now() time.Time { return time.Now().UTC() }
 
 // ---- users ----
+
+// Ids are below 2^53, so an id stays exact as a JSON number and in JavaScript. Ids start at 1; 0
+// means "nobody" to the body service.
+// newUserID returns a uniformly random user id in [1, 2^53). Ids are random instead of counted so
+// that nobody can guess another user's id or tell how many users there are.
+func newUserID() (int64, error) {
+	var b [8]byte
+	for {
+		if _, err := crand.Read(b[:]); err != nil {
+			return 0, err
+		}
+		// 53 random bits, rejecting 0, so every id is equally likely.
+		if id := int64(binary.BigEndian.Uint64(b[:]) >> 11); id > 0 {
+			return id, nil
+		}
+	}
+}
+
+// userIDSource makes the ids; tests replace it to force collisions.
+var userIDSource = newUserID
+
+// sequentialUserIDs is only for tests, which read better with the ids 1, 2, 3.
+var sequentialUserIDs atomic.Bool
+
+// SequentialUserIDsForTests makes new users get the ids 1, 2, 3... instead of random ones. Call it
+// from TestMain of a test binary, never from production code: random ids are a defence.
+func SequentialUserIDsForTests() { sequentialUserIDs.Store(true) }
+
+// SetSequentialUserIDsForTests turns the sequential ids of SequentialUserIDsForTests on or off, for
+// the test that wants random ids in a binary that otherwise uses counted ones.
+func SetSequentialUserIDsForTests(on bool) { sequentialUserIDs.Store(on) }
+
+// freeUserID picks a random id that no user has yet. A collision is 1 in 10^15 for a store of
+// millions of users, so a few tries are plenty.
+func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
+	if sequentialUserIDs.Load() {
+		var max sql.NullInt64
+		if err := tx.NewSelect().Model((*userRow)(nil)).ColumnExpr("MAX(id)").Scan(ctx, &max); err != nil {
+			return 0, err
+		}
+		return max.Int64 + 1, nil
+	}
+	for range 5 {
+		id, err := userIDSource()
+		if err != nil {
+			return 0, err
+		}
+		taken, err := tx.NewSelect().Model((*userRow)(nil)).Where("id = ?", id).Exists(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if !taken {
+			return id, nil
+		}
+	}
+	return 0, errors.New("could not find a free user id")
+}
 
 func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
 	return s.createUser(ctx, name, "", nil)
@@ -252,7 +370,11 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if err != nil {
 			return err
 		}
-		row = userRow{Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email)}
+		uid, err := s.freeUserID(ctx, tx)
+		if err != nil {
+			return err
+		}
+		row = userRow{ID: uid, Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}
@@ -346,186 +468,6 @@ func (s *Store) GetUser(ctx context.Context, id int64) (models.User, error) {
 		return models.User{}, err
 	}
 	return s.userModel(&row)
-}
-
-// ---- dexa scans ----
-
-func (s *Store) CreateDexaScan(ctx context.Context, d *models.DexaScan) error {
-	d.MeasuredAt = d.MeasuredAt.UTC().Truncate(24 * time.Hour)
-	d.CreatedAt = now()
-	row := dexaRow{
-		UserID: d.UserID, MeasuredAt: d.MeasuredAt,
-		WeightKg: d.WeightKg, FatRatioPct: d.FatRatioPct, FatMassKg: d.FatMassKg, FatFreeMassKg: d.FatFreeMassKg,
-		LeanMassKg: d.LeanMassKg, BoneMassKg: d.BoneMassKg, VisceralFatMassKg: d.VisceralFatMassKg,
-		BMDGCm2: d.BMDGCm2, TScore: d.TScore, ZScore: d.ZScore, AndroidFatPct: d.AndroidFatPct, GynoidFatPct: d.GynoidFatPct,
-		Notes: d.Notes, CreatedAt: d.CreatedAt,
-	}
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
-			return err
-		}
-		return bumpVersion(ctx, tx, d.UserID)
-	})
-	if err != nil {
-		if isFK(err) {
-			return store.ErrNotFound
-		}
-		return err
-	}
-	d.ID = row.ID
-	return nil
-}
-
-// bumpVersion records that something the user's estimates depend on has changed. It runs in the
-// same transaction as the change, so a reader never sees new data under an old version or the
-// other way round. The version lives in the database, so every process sees it, whether the change
-// came from the web app, the API, an import or a command.
-func bumpVersion(ctx context.Context, db bun.IDB, userID int64) error {
-	_, err := db.ExecContext(ctx, `UPDATE users SET data_version = data_version + 1 WHERE id = ?`, userID)
-	return err
-}
-
-func (s *Store) ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error) {
-	var rows []dexaRow
-	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
-		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
-		return nil, err
-	}
-	var out []models.DexaScan
-	for i := range rows {
-		out = append(out, rows[i].toModel())
-	}
-	return out, nil
-}
-
-func (s *Store) DeleteDexaScan(ctx context.Context, userID, id int64) error {
-	return s.deleteOwned(ctx, (*dexaRow)(nil), userID, id)
-}
-
-// ---- scale readings ----
-
-// upsertChunk is how many readings go into one INSERT. 500 rows of 16 columns stay far below the
-// parameter limits of both SQLite and Postgres.
-const upsertChunk = 500
-
-func (s *Store) UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error) {
-	// Check everything first, so a bad reading late in a large batch fails before any work is done.
-	rows := make([]scaleRow, 0, len(rs))
-	for i := range rs {
-		r := &rs[i]
-		if r.MeasuredAt.IsZero() {
-			return 0, fmt.Errorf("%w: measured_at is required", store.ErrInvalid)
-		}
-		if r.Source == "" {
-			r.Source = models.SourceManual
-		}
-		if r.Method == "" {
-			r.Method = models.MethodScale
-		}
-		if !models.ValidMethod(r.Method) {
-			return 0, fmt.Errorf("%w: unknown method %q", store.ErrInvalid, r.Method)
-		}
-		rows = append(rows, scaleRow{
-			UserID: userID, MeasuredAt: r.MeasuredAt.UTC(),
-			WeightKg: r.WeightKg, FatRatioPct: r.FatRatioPct, FatMassKg: r.FatMassKg, FatFreeMassKg: r.FatFreeMassKg,
-			MuscleMassKg: r.MuscleMassKg, HydrationKg: r.HydrationKg, BoneMassKg: r.BoneMassKg, VisceralFatIndex: r.VisceralFatIndex,
-			Source: r.Source, Method: r.Method, AthleteMode: r.AthleteMode, ExternalID: r.ExternalID,
-			Notes: r.Notes, CreatedAt: now(),
-		})
-	}
-	rows = lastPerExternalID(rows)
-
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// A re-delivered reading without notes (every Withings import) must not wipe the note
-		// the user added in the app, so those rows are upserted without refreshing notes.
-		var withNotes, withoutNotes []scaleRow
-		for _, r := range rows {
-			if r.Notes == "" {
-				withoutNotes = append(withoutNotes, r)
-			} else {
-				withNotes = append(withNotes, r)
-			}
-		}
-		for _, part := range []struct {
-			rows []scaleRow
-			cols []string
-		}{{withNotes, scaleValueCols}, {withoutNotes, scaleValueColsKeepNotes}} {
-			for start := 0; start < len(part.rows); start += upsertChunk {
-				chunk := part.rows[start:min(start+upsertChunk, len(part.rows))]
-				q := tx.NewInsert().Model(&chunk).Returning("NULL").On("CONFLICT (user_id, source, external_id) DO UPDATE")
-				for _, c := range part.cols {
-					q = q.Set(c + " = EXCLUDED." + c)
-				}
-				if _, err := q.Exec(ctx); err != nil {
-					return err
-				}
-			}
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		return bumpVersion(ctx, tx, userID)
-	})
-	if err != nil {
-		if isFK(err) {
-			return 0, store.ErrNotFound
-		}
-		return 0, err
-	}
-	return len(rs), nil
-}
-
-// lastPerExternalID drops earlier readings that share (source, external id) with a later one in
-// the same batch. One INSERT must not touch the same row twice: Postgres refuses it, and SQLite
-// would silently apply them in order. Readings without an external id never conflict.
-func lastPerExternalID(rows []scaleRow) []scaleRow {
-	type key struct{ source, id string }
-	last := map[key]int{}
-	for i, r := range rows {
-		if r.ExternalID != nil {
-			last[key{r.Source, *r.ExternalID}] = i
-		}
-	}
-	if len(last) == 0 {
-		return rows
-	}
-	out := rows[:0:0]
-	for i, r := range rows {
-		if r.ExternalID == nil || last[key{r.Source, *r.ExternalID}] == i {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-func (s *Store) ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error) {
-	var rows []scaleRow
-	if err := s.db.NewSelect().Model(&rows).Where("user_id = ?", userID).
-		OrderExpr("measured_at DESC, id DESC").Scan(ctx); err != nil {
-		return nil, err
-	}
-	var out []models.ScaleReading
-	for i := range rows {
-		out = append(out, rows[i].toModel())
-	}
-	return out, nil
-}
-
-func (s *Store) DeleteScaleReading(ctx context.Context, userID, id int64) error {
-	return s.deleteOwned(ctx, (*scaleRow)(nil), userID, id)
-}
-
-func (s *Store) deleteOwned(ctx context.Context, model any, userID, id int64) error {
-	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		res, err := tx.NewDelete().Model(model).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx)
-		if err != nil {
-			return err
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return store.ErrNotFound
-		}
-		return bumpVersion(ctx, tx, userID)
-	})
 }
 
 // ---- integrations ----

@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // The Admin pages. The frontend parses the forms and renders the page; the backend (internal_admin.go)
@@ -39,6 +39,7 @@ func (s *Frontend) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users/{id}/delete", s.admin(s.adminDeleteUser))
 	mux.HandleFunc("POST /admin/password-login", s.admin(s.adminPasswordLogin))
 	s.adminSettingRoutes(mux)
+	s.adminWorkerRoutes(mux)
 	s.adminTLSRoutes(mux)
 	mux.HandleFunc("POST /admin/signup", s.admin(s.adminSignup))
 	mux.HandleFunc("POST /admin/providers", s.admin(s.adminSaveProvider))
@@ -130,7 +131,7 @@ func (s *Frontend) renderAdmin(w http.ResponseWriter, r *http.Request, u models.
 	if view.Version == "" {
 		view.Version = "dev"
 	}
-	s.render(w, "admin.html", http.StatusOK, pageData{Title: "Admin · dexa-fix", Tab: "admin", User: &u, Msg: flashParam(r), Admin: view})
+	s.render(w, "admin.html", http.StatusOK, pageData{Title: "Admin · DexaFix", Tab: "admin", User: &u, Msg: flashParam(r), Admin: view})
 }
 
 // targetID reads the user id of the path; it answers 404 when it is not a number.

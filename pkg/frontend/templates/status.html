@@ -1,0 +1,23 @@
+{{define "content"}}
+{{with .Status}}
+<div class="page-head"><h1>Status</h1></div>
+<p class="{{if eq .Overall "up"}}notice{{else}}error{{end}}" role="status">{{.OverallText}}</p>
+<section class="card" id="components">
+  <ul class="status-list">
+    {{range .Rows}}<li><span class="state state-{{.State}}">{{.StateText}}</span> <span>{{.Label}}</span>{{if .Note}} <small>{{.Note}}</small>{{end}}</li>{{end}}
+  </ul>
+  <p class="help">Checked {{.CheckedAt}}. The backend keeps an answer for a few seconds. The page answers 503 while something is down, for monitors.{{if .AdminLink}} <a href="/admin/status">Details for administrators</a>.{{end}}</p>
+</section>
+{{if .Detail}}
+<section class="card" id="workers">
+  <h2>Workers</h2>
+  {{if .Workers}}<div class="scroll"><table>
+    <thead><tr><th>Worker</th><th>Runs</th><th>Version</th><th>Last asked for work (UTC)</th><th>State</th></tr></thead>
+    <tbody>{{range .Workers}}<tr><td>{{.ID}}</td><td>{{range $i, $k := .Kinds}}{{if $i}}, {{end}}{{$k}}{{end}}</td><td>{{.Version}}</td><td>{{.LastSeen}}</td><td>{{if .Live}}running{{else}}silent{{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="help">No worker has asked for work in the last day.</p>{{end}}
+  <p class="help"><a href="/admin/workers">Worker settings and the queue</a></p>
+</section>
+{{end}}
+{{end}}
+{{end}}

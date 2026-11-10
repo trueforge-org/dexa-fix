@@ -9,7 +9,7 @@ import (
 
 func TestSQLiteFilePath(t *testing.T) {
 	for dsn, want := range map[string]string{
-		"file:dexa-fix.db":                        "dexa-fix.db",
+		"file:dexafix.db":                         "dexafix.db",
 		"file:/data/x.db?_pragma=busy_timeout(5)": "/data/x.db",
 		"file:///data/x.db":                       "/data/x.db",
 		"plain.db":                                "plain.db",

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/frontend"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/frontend"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // setProxyPolicy puts the PROXY protocol setting and the trusted peers in force in the combined

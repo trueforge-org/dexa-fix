@@ -37,26 +37,35 @@ DEXAFIX_TEST_SPLIT=1 go test ./pkg/backend/... ./pkg/frontend
   files, the page handlers (`handlers_*.go`), the public listeners (plain, HTTPS
   and HTTP/3), the config poller and the request limiter. It has no database
   and asks the main backend for everything through `apiclient.Client`.
-- `pkg/backend/main/`: package `mainbackend`, the main backend (`dexa-fix serve
+- `pkg/backend/main/`: package `mainbackend`, the main backend (`dexafix serve
   api`). The store, the keys and every security decision: the internal API under
   `/internal/v1` (`internal*.go`), the public API (`api.go`), importers,
-  maintenance and the in-memory estimate cache (`estcache.go`). `pkg/backend` is
-  a plain parent folder, so that the backend can later be split into more
-  services.
+  and maintenance. It reaches the scale readings, DEXA scans and estimates only
+  through `body.go`, a wrapper of the `bodyapi` client. `pkg/backend` is a plain
+  parent folder with a service in each subfolder.
+- `pkg/backend/body/`: package `bodybackend`, the body service (`dexafix serve
+  body`, or inside the api process through `NewInProcess`): the readings and
+  scans, the estimates and their cache (`estcache.go`) and the rules for
+  importing readings. It knows nothing about people and trusts only the signed
+  token of the api process. See [Body service](17-body-service.md).
 - `pkg/app/`: package `app`, the single-process mode. `app.New` builds the main
   backend and the frontend over `apiclient.InProcess`; `serve` uses it.
 - `pkg/shared/`: what both sides use, in small packages named by function:
   `edge/` (the visitor's address behind a proxy, the PROXY protocol, request
   limits, security headers), `apiclient/` (the contract between the two: the
   client, the DTOs, header and cookie names, error codes, and the in-process
-  transport), `tlsutil/` (certificate parsing), `timezones/` and `jobs/`.
+  transport), `bodyapi/` (the contract between the main backend and the body
+  service, with its tokens), `inproc/` (the in-process transport),
+  `tlsutil/` (certificate parsing), `timezones/` and `jobs/`.
 
 The rules are tests. `pkg/frontend/boundary_test.go` fails when the frontend
 imports (directly or not) anything under `pkg/backend/`, `pkg/store`, the
 importers, the mailer, Strength Level, a database driver, OIDC or WebAuthn.
 `pkg/shared/boundary_test.go` keeps `pkg/shared` independent of both sides and
-of the store. The main backend does not import the frontend (its tests may, to
-drive the HTML flows).
+of the store. The main backend does not import the frontend or the body service
+(its tests may, to drive the HTML flows and to run a body service next to it),
+and the body service does not import the main backend, the frontend, the workers,
+the mailer or a sign-in library.
 - `pkg/estimate/`: estimation logic.
 - `pkg/strengthlevel/`: the Strength Level entries built from the estimates
   (`strengthlevel.go`) and the sync client (`client/`).
@@ -67,8 +76,21 @@ drive the HTML flows).
 - `pkg/store/`: the `Store` interface. `sqlstore/` implements it with bun for
   SQLite and Postgres. Its goose migrations live under `migrations/`.
 
-The layout and conventions follow trueforge-org/forgetool. `dexa-fix info`
+The layout and conventions follow trueforge-org/forgetool. `dexafix info`
 reuses its `pkg/info`.
+
+## Guidance for AI coding agents
+
+`AGENTS.md` is the canonical, tool-agnostic instruction file. The rules for one
+area of the code are in `.github/instructions/<area>.instructions.md`, with
+`applyTo:` (read by GitHub Copilot) and `paths:` (read by Claude Code)
+frontmatter. `.claude/rules/` holds a symlink to each of them, plus
+`dexafix.md` with the Claude-only rules, and `.github/copilot-instructions.md`
+is a short summary. When you add an area, add its file, the symlink
+(`ln -s ../../.github/instructions/<area>.instructions.md .claude/rules/`) and
+a row in the table of `AGENTS.md`. `guidance_test.go` fails when the two path
+lists differ, a symlink is missing, a link is broken, or a path no longer
+matches any file after a directory moved.
 
 ## Schema changes
 

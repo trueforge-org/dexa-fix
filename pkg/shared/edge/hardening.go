@@ -22,6 +22,16 @@ const maxFormBody = 1 << 20
 const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 
+// NoStore tells every cache that the response is for one visitor only. Cache-Control is what
+// browsers and well-behaved proxies read. CDN-Cache-Control (RFC 9213, read by Cloudflare, Fastly and
+// Akamai) and Surrogate-Control speak to CDNs directly, and a CDN rule such as "cache everything" may
+// override Cache-Control but not these.
+func NoStore(h http.Header) {
+	h.Set("Cache-Control", "no-store")
+	h.Set("CDN-Cache-Control", "no-store")
+	h.Set("Surrogate-Control", "no-store")
+}
+
 // SecureHeaders adds the browser hardening headers to every response and keeps pages that can
 // hold personal data (or a freshly minted token) out of shared and back/forward caches.
 func SecureHeaders(next http.Handler) http.Handler {
@@ -35,7 +45,7 @@ func SecureHeaders(next http.Handler) http.Handler {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		if !strings.HasPrefix(r.URL.Path, "/static/") {
-			h.Set("Cache-Control", "no-store")
+			NoStore(h)
 		}
 		next.ServeHTTP(w, r)
 	})

@@ -1,0 +1,82 @@
+{{define "content"}}
+<div class="page-head"><h1>Workers</h1></div>
+<p><a href="/admin">&larr; Admin settings</a></p>
+{{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
+{{with .Workers}}
+<section class="card" id="online">
+  <h2>Running workers</h2>
+  <p class="help">Workers talk to Withings, Strength Level and the like for DexaFix: imports, syncs and connecting an account run in them, never in the server. Jobs wait in a queue until a worker takes them. Administrators' jobs go first, then users with a higher priority number (set on the <a href="/admin#users">users table</a>), then the oldest.</p>
+  {{if .Workers}}<div class="scroll"><table>
+    <thead><tr><th>Worker</th><th>Runs</th><th>Version</th><th>Last asked for work (UTC)</th></tr></thead>
+    <tbody>{{range .Workers}}<tr><td>{{.ID}}</td><td>{{range $i, $k := .Kinds}}{{if $i}}, {{end}}{{$k}}{{end}}</td><td>{{.Version}}</td><td>{{.LastSeen}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="notice" role="status">No worker has asked for work lately. Imports and syncs wait until one starts, and the buttons tell people so. See <a href="/docs#workers">Workers</a> in the documentation.</p>{{end}}
+</section>
+
+{{range .Providers}}
+<section class="card" id="provider-{{.Name}}">
+  <h2>{{.Label}}</h2>
+  {{range .Kinds}}
+  <h3>{{.Label}} <small><code>{{.Kind}}</code></small></h3>
+  <dl class="stats">
+    <div><dt>Waiting</dt><dd>{{.Queued}}</dd></div>
+    <div><dt>Running</dt><dd>{{.Running}}</dd></div>
+    <div><dt>Failed in the last 24 h</dt><dd>{{.Failed24h}}</dd></div>
+    <div><dt>Workers for it</dt><dd>{{.WorkersOnline}}</dd></div>
+    {{if .Schedulable}}<div><dt>Automatic runs paused for</dt><dd>{{.PausedSchedules}} user(s)</dd></div>{{end}}
+  </dl>
+  {{if not .Enabled}}<div class="notice" role="status">
+    <strong>Paused.</strong> {{if .PausedReason}}{{.PausedReason}}{{else}}An administrator turned it off. Nothing of this kind is queued or started while it is off.{{end}}
+    <form method="post" action="/admin/workers/kinds/{{.Kind}}/resume"><button type="submit">Turn it on</button></form>
+  </div>{{end}}
+  <form method="post" action="/admin/workers/kinds/{{.Kind}}" class="stack">
+    <div class="form-row">
+      <label class="check"><input type="checkbox" name="enabled" value="1"{{if .Enabled}} checked{{end}}> On</label>
+      <label>Jobs at once, in all workers <input type="number" name="max_running" value="{{.MaxRunning}}" min="0" max="100" required style="width:5rem"> <small>0: no limit</small></label>
+      <label>Attempts per job <input type="number" name="max_attempts" value="{{.MaxAttempts}}" min="1" max="10" required style="width:5rem"></label>
+    </div>
+    <div class="form-row">
+      <label>First retry after (seconds) <input type="number" name="retry_base_seconds" value="{{.RetryBaseSeconds}}" min="1" max="3600" required style="width:6rem"> <small>doubles each time, at most an hour</small></label>
+      <label>Time limit of one attempt (seconds) <input type="number" name="timeout_seconds" value="{{.TimeoutSeconds}}" min="10" max="86400" required style="width:6rem"></label>
+    </div>
+    <div class="form-row">
+      <label>Automatic run every (hours) <input type="number" name="schedule_hours" value="{{.ScheduleHours}}" min="0" max="720" required style="width:5rem"> <small>{{if .Schedulable}}0: off{{else}}not used by this kind{{end}}</small></label>
+      <label>Pause a user's automatic runs after (failures) <input type="number" name="pause_after" value="{{.PauseAfter}}" min="0" max="100" required style="width:5rem"> <small>0: never</small></label>
+      <label>Pause this kind after (failures in a row, all users) <input type="number" name="breaker" value="{{.Breaker}}" min="0" max="1000" required style="width:5rem"> <small>0: never</small></label>
+    </div>
+    {{if .Options}}<div class="form-row">{{range .Options}}
+      <label>{{.Label}}{{if .Millis}} (ms){{end}} <input type="number" name="opt_{{.Name}}" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" required style="width:6rem"></label>
+    {{end}}</div>{{end}}
+    <div class="form-actions"><button type="submit">Save {{.Label}}</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}
+
+<section class="card" id="global">
+  <h2>All workers</h2>
+  <form method="post" action="/admin/workers/global" class="stack">
+    <div class="form-row">
+      <label>Priority of new accounts (1-100) <input type="number" name="default_priority" value="{{.DefaultPriority}}" min="1" max="100" required style="width:5rem"></label>
+      <label>Keep finished jobs for (days) <input type="number" name="keep_history_days" value="{{.KeepHistoryDays}}" min="1" max="36500" required style="width:6rem"></label>
+    </div>
+    <p class="help">A higher priority number goes first. Administrators' jobs always go before everyone else's, whatever the number. A user's own priority is set on the users table.</p>
+    <div class="form-actions"><button type="submit">Save</button></div>
+  </form>
+</section>
+
+<section class="card flush" id="queue">
+  <div class="card-head"><h2>Queue</h2></div>
+  <p class="help">The latest {{len .Jobs}} jobs. A job that fails is tried again after a growing pause, up to the number of attempts above, and is then kept here as failed. A job nobody picks up in time is dropped, and one whose worker stops answering is taken back.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Created (UTC)</th><th>Job</th><th>User</th><th>Priority</th><th>State</th><th>Tries</th><th>From</th><th>Detail</th><th></th></tr></thead>
+    <tbody>{{range .Jobs}}<tr>
+      <td>{{.Created}}</td><td><code>{{.Kind}}</code></td><td>{{.User}}</td>
+      <td>{{if .UserIsAdmin}}admin{{else}}{{.Priority}}{{end}}</td>
+      <td>{{.State}}</td><td>{{.Attempts}} / {{.MaxAttempts}}</td><td>{{.Origin}}</td><td>{{.Error}}</td>
+      <td>{{if .Active}}<form method="post" action="/admin/workers/jobs/{{.ID}}/cancel"><button class="secondary" type="submit">Cancel</button></form>{{end}}</td>
+    </tr>{{else}}<tr><td colspan="9">No jobs yet.</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+{{end}}

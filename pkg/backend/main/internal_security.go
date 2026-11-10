@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/timezones"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/timezones"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Internal endpoints for the account section of the settings page: profile, password, access
@@ -119,13 +119,14 @@ func (s *Backend) internalPasswordChange(w http.ResponseWriter, r *http.Request,
 		internalFail(w, http.StatusUnprocessableEntity, apiclient.CodeInvalid, msg)
 		return
 	}
-	if err := s.setPassword(ctx, u.ID, in.Password); err != nil {
+	// A changed password signs out everywhere else and revokes API tokens, which would otherwise
+	// keep working for whoever stole the old session. The sessions go first: if that fails the
+	// password stays as it was, and it is never changed while the old sessions could be used.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
 		internalError(w, err)
 		return
 	}
-	// A changed password signs out everywhere else and revokes API tokens, which would otherwise
-	// keep working for whoever stole the old session.
-	if err := s.store.DeleteUserSessions(ctx, u.ID); err != nil {
+	if err := s.setPassword(ctx, u.ID, in.Password); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -231,7 +232,7 @@ func (s *Backend) internalLogout(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, u.ID, auditLogout, "")
 	}
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		if err := s.store.DeleteSession(r.Context(), hashToken(c.Value)); err != nil {
+		if err := s.sessions.DeleteSession(r.Context(), hashToken(c.Value)); err != nil {
 			internalError(w, err)
 			return
 		}

@@ -1,0 +1,1 @@
+../../.github/instructions/store.instructions.md

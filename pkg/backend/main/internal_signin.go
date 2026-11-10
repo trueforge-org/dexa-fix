@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Internal endpoints for signing in. A step answers with a SignInOutcome; the cookies it sets
@@ -123,7 +123,7 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
 		s.limiter.Fail(r.Context(), ipKey(r)) // repeated probing for registered addresses is throttled

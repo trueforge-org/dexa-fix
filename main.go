@@ -1,4 +1,4 @@
-// Command dexa-fix is the entry point of the binary. It sets up logging and runs the command line
+// Command dexafix is the entry point of the binary. It sets up logging and runs the command line
 // implemented in package cmd.
 package main
 
@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	_ "golang.org/x/crypto/x509roots/fallback" // CA roots for HTTPS when the image (scratch) has none
 
-	"github.com/trueforge-org/dexa-fix/cmd"
+	"github.com/trueforge-org/dexafix/cmd"
 )
 
 // Version is set at build time through ldflags.
@@ -21,7 +21,7 @@ var Version = "dev"
 func main() {
 	configureLogging()
 	cmd.Version = Version
-	fmt.Fprintf(os.Stderr, "---\ndexa-fix version: %s\n---\n", Version) // stderr: some commands print data on stdout
+	fmt.Fprintf(os.Stderr, "---\ndexafix version: %s\n---\n", Version) // stderr: some commands print data on stdout
 	if err := cmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute command")
 	}

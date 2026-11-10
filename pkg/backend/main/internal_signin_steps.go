@@ -12,9 +12,9 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // Internal endpoints for the rest of signing in: the second step, password reset and external
@@ -336,6 +336,12 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	// The reset signs the user out everywhere. The sessions table is emptied by CompletePasswordReset
+	// itself; in Valkey it is done here first, and the reset fails if it cannot be.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
+		internalError(w, err)
+		return
+	}
 	if _, err := s.store.CompletePasswordReset(ctx, hashToken(token), hash); errors.Is(err, store.ErrNotFound) {
 		resetStepPage(w, apiclient.ResetStep{Mode: "invalid"}, http.StatusNotFound) // used or expired a moment ago
 		return
@@ -488,7 +494,7 @@ func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Reques
 		signInFail(w, "No account is linked to this "+p.Label+" login. Sign in another way and link it in Settings.", http.StatusForbidden)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
+	u, err := s.createUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
 	if err == nil {
 		s.auditAs(r, u.ID, u.ID, auditSignup, slug)
 	}

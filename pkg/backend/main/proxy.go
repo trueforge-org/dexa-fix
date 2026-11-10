@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"net/url"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // Running behind a reverse proxy: the logic lives in pkg/shared/edge, which the frontend and the backend

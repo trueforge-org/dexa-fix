@@ -9,22 +9,22 @@ import (
 // The frontend has no database, no keys and no security decisions of its own: it asks the main
 // backend through the internal API, whose contract is pkg/shared/apiclient. This test makes the
 // rule fail the build instead of relying on review: no package the frontend is built from (test
-// files do not count) may be a backend, the store, an importer, or a library for databases, OIDC or
+// files do not count) may be a backend, the store, a worker, or a library for databases, OIDC or
 // WebAuthn.
 
-const module = "github.com/trueforge-org/dexa-fix/"
+const module = "github.com/trueforge-org/dexafix/"
 
 var forbidden = []string{
 	module + "pkg/backend", // every backend, including pkg/backend/main
 	module + "pkg/app",
+	module + "pkg/workers",
 	module + "pkg/store", // incl. sqlstore
-	module + "pkg/importer",
 	module + "pkg/mailer",
-	module + "pkg/strengthlevel",
 	"github.com/uptrace/bun",
 	"modernc.org/sqlite",
 	"github.com/jackc/pgx",
 	"github.com/pressly/goose",
+	"github.com/valkey-io", // the sign-in counters are the api process's
 	"github.com/coreos/go-oidc",
 	"github.com/go-webauthn",
 }

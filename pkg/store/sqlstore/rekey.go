@@ -8,7 +8,7 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // RekeyStats counts what Rekey changed (or, in a dry run, would change). Current counts values
@@ -19,13 +19,15 @@ type RekeyStats struct {
 	Settings     int
 	Providers    int
 	TOTP         int // two-step verification secrets re-encrypted
+	Jobs         int // queued or running worker jobs re-encrypted
+	Body         int // scale readings and DEXA scans re-encrypted
 	Lookups      int // e-mail lookup hashes recomputed
 	Current      int // encrypted values already under the current key
 }
 
 // Changed is the number of values that were or would be rewritten.
 func (r RekeyStats) Changed() int {
-	return r.Emails + r.Integrations + r.Settings + r.Providers + r.TOTP + r.Lookups
+	return r.Emails + r.Integrations + r.Settings + r.Providers + r.TOTP + r.Jobs + r.Body + r.Lookups
 }
 
 // Rekey re-encrypts every encrypted value with the current key, recomputes the e-mail lookup
@@ -145,6 +147,39 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 			}
 		}
 
+		// Ended jobs have no payload left and their result is only a summary, but all are resealed.
+		var jobs []jobRow
+		if err := tx.NewSelect().Model(&jobs).OrderExpr("id").Scan(ctx); err != nil {
+			return err
+		}
+		for _, r := range jobs {
+			payload, err := reseal("payload of job "+r.PublicID, r.Payload, jobPayloadContext(r.PublicID))
+			if err != nil {
+				return err
+			}
+			result, err := reseal("result of job "+r.PublicID, r.Result, jobResultContext(r.PublicID))
+			if err != nil {
+				return err
+			}
+			if payload == "" && result == "" {
+				continue
+			}
+			stats.Jobs++
+			if dryRun {
+				continue
+			}
+			q := tx.NewUpdate().Model((*jobRow)(nil)).Where("id = ?", r.ID)
+			if payload != "" {
+				q = q.Set("payload = ?", payload)
+			}
+			if result != "" {
+				q = q.Set("result = ?", result)
+			}
+			if _, err := q.Exec(ctx); err != nil {
+				return err
+			}
+		}
+
 		var users []userRow
 		if err := tx.NewSelect().Model(&users).OrderExpr("id").Scan(ctx); err != nil {
 			return err
@@ -195,6 +230,16 @@ func (s *Store) Rekey(ctx context.Context, dryRun bool) (RekeyStats, error) {
 	})
 	if err != nil {
 		return RekeyStats{}, err
+	}
+	// The body domain is a transaction of its own (it can live in another database). Each part
+	// completes or changes nothing and can be repeated, so a run that stops between them is resumed
+	// by running it again, with the previous key still configured.
+	if s.BodyStore != nil {
+		b, err := s.BodyStore.Rekey(ctx, dryRun)
+		if err != nil {
+			return RekeyStats{}, err
+		}
+		stats.Body, stats.Current = b.Changed, stats.Current+b.Current
 	}
 	return stats, nil
 }

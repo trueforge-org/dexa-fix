@@ -8,12 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/importer/withings"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
-func newInternalServer(t *testing.T) (*httptest.Server, *Server, *http.Cookie) {
+func newInternalServer(t *testing.T, opts ...Option) (*httptest.Server, *Server, *http.Cookie) {
 	t.Helper()
 	ts, _, st := newAuthServer(t)
 	form := url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
@@ -26,7 +24,7 @@ func newInternalServer(t *testing.T) (*httptest.Server, *Server, *http.Cookie) {
 	resp.Body.Close()
 	ck := sessionCookieOf(t, resp)
 
-	srv, err := New(st, importer.NewRegistry(withings.New(withings.Config{}, nil)))
+	srv, err := New(st, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

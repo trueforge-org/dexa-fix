@@ -55,3 +55,18 @@ func TestPrivateHost(t *testing.T) {
 		}
 	}
 }
+
+func TestWithoutBodyNeedsABodyService(t *testing.T) {
+	t.Cleanup(func() { // cobra keeps flag values between runs; later tests must not see these
+		serveCmd.Flags().Set("without-body", "false")
+		serveAPICmd.Flags().Set("without-body", "false")
+	})
+	secret := writeSecretFile(t, strings.Repeat("e", 40)+"\n")
+	err := runServe(t, "api", "--listen", "", "--internal-listen", ":0", "--service-secret-file", secret, "--without-body")
+	if err == nil || !strings.Contains(err.Error(), "--body-url") {
+		t.Errorf("api --without-body without a body url: %v", err)
+	}
+	if err := runServe(t, "--without-body"); err == nil || !strings.Contains(err.Error(), "combined") {
+		t.Errorf("serve --without-body: %v", err)
+	}
+}

@@ -28,7 +28,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 // WindowDays is the number of days on each side of a day that the rolling average covers

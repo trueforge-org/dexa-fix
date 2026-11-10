@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/estimate"
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 )
 
 const (

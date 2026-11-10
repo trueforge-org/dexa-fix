@@ -3,7 +3,7 @@ package frontend
 import (
 	"net/http"
 
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // Password reset.
@@ -36,7 +36,7 @@ func (s *Frontend) resetRoutes(mux *http.ServeMux) {
 func (s *Frontend) renderReset(w http.ResponseWriter, v resetView, status int) {
 	w.Header().Set("Referrer-Policy", "no-referrer") // the link carries the secret in its query
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "reset.html", status, pageData{Title: "Reset password · dexa-fix", Reset: &v})
+	s.render(w, "reset.html", status, pageData{Title: "Reset password · DexaFix", Reset: &v})
 }
 
 // ---- administrator ----

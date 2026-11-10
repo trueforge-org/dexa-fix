@@ -2,6 +2,8 @@ package mtls
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,7 +70,7 @@ func TestMutualTLSWorksBetweenTheTwoSides(t *testing.T) {
 	f := write(t, t.TempDir(), b)
 	ts := serve(t, f)
 	got, err := get(client(t, f.ca, f.cliCert, f.cliKey, ""), ts.URL) // 127.0.0.1 is among the names
-	if err != nil || got != "dexa-fix web" {
+	if err != nil || got != "DexaFix web" {
 		t.Fatalf("%q %v", got, err)
 	}
 	// A name that is not in the certificate is refused.
@@ -135,7 +137,7 @@ func TestRotatedFilesAreUsedWithoutRestart(t *testing.T) {
 	b2, _ := Generate(nil)
 	write(t, f.dir, b2)
 	c.CloseIdleConnections()
-	if got, err := get(c, ts.URL); err != nil || got != "dexa-fix web" {
+	if got, err := get(c, ts.URL); err != nil || got != "DexaFix web" {
 		t.Fatalf("after the rotation: %q %v", got, err)
 	}
 	// Half-written files do not break the link: the last good ones stay in use.
@@ -156,5 +158,25 @@ func TestConfigErrors(t *testing.T) {
 	}
 	if _, err := ServerConfig("/nonexistent/a", "/nonexistent/b", "/nonexistent/c"); err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Errorf("missing files: %v", err)
+	}
+}
+
+func TestGenerateValidSetsTheLeafLifetime(t *testing.T) {
+	b, err := GenerateValid([]string{"api"}, "srv", "cli", 30*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, pemText := range map[string]string{"server": b.ServerCert, "client": b.ClientCert} {
+		block, _ := pem.Decode([]byte(pemText))
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if life := c.NotAfter.Sub(c.NotBefore); life < 29*24*time.Hour || life > 31*24*time.Hour {
+			t.Errorf("%s certificate lives %v, want about 30 days", name, life)
+		}
+	}
+	if _, err := GenerateValid([]string{"api"}, "s", "c", 0); err == nil {
+		t.Error("a zero validity must be refused")
 	}
 }

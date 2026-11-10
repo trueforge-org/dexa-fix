@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/edge"
+	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 )
 
 // proxyPolicyServer is a Frontend that only needs the PROXY protocol settings.

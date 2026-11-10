@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/models"
 )
 
 var (
@@ -20,6 +20,9 @@ var (
 	ErrInvalid = errors.New("invalid input")
 	// ErrLastAdmin is returned when a change would leave no administrator.
 	ErrLastAdmin = errors.New("cannot remove the last administrator")
+	// ErrLeaseLost: the worker no longer holds the job (the lease ran out and the job was handed
+	// on, canceled or finished). It must stop working on it.
+	ErrLeaseLost = errors.New("lease lost")
 )
 
 // Stats summarises the contents of the database.
@@ -29,8 +32,6 @@ type Stats struct {
 	SchemaVersion  int64
 	Users          int
 	Admins         int
-	DexaScans      int
-	ScaleReadings  int
 	Sessions       int
 	AccessTokens   int
 	TwoFactorUsers int
@@ -38,6 +39,12 @@ type Stats struct {
 	KeyID       string    // id of the configured encryption key (empty when encryption is off)
 	KeySince    time.Time // when this key was introduced, at least (zero when unknown)
 	KeyPrevious bool      // the database still belongs to a previous key: `db rekey` is due
+}
+
+// BodyStats counts the body data: what the body domain (scans and readings) holds.
+type BodyStats struct {
+	DexaScans     int
+	ScaleReadings int
 }
 
 // Cursor marks a position in a listing that is sorted newest first, by measurement time and id.
@@ -81,7 +88,43 @@ type AuditFilter struct {
 	Limit    int   // at most this many; 0 means 100
 }
 
-// Store persists users, DEXA scans, scale readings and per-user integration data.
+// BodyStore is the body domain: DEXA scans and scale readings, and the per-user counter of their
+// changes. It is its own interface so that the domain can later move to a service of its own; for
+// now Store embeds it and one sqlstore.Store implements both.
+//
+// A user id is an opaque reference here. Nothing in this interface reads the users table.
+type BodyStore interface {
+	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
+	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
+	// ListDexaScansPage lists one page. The cursor is non-nil when there are older scans.
+	ListDexaScansPage(ctx context.Context, userID int64, f ListFilter) ([]models.DexaScan, *Cursor, error)
+	DeleteDexaScan(ctx context.Context, userID, id int64) error
+
+	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
+	// updated in place when (user, source, external_id) already exists. An update changes the
+	// measured values and notes only, so a reading keeps its method and athlete mode.
+	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
+	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
+	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
+	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
+	DeleteScaleReading(ctx context.Context, userID, id int64) error
+
+	// BodyVersion counts the changes to a user's scans and readings (0 when there are none). It
+	// grows in the same transaction as each change, so a reader never sees new data under an old
+	// version, whichever process made the change.
+	BodyVersion(ctx context.Context, userID int64) (int64, error)
+	// DeleteUserBodyData removes all of a user's scans and readings.
+	DeleteUserBodyData(ctx context.Context, userID int64) error
+	// BodyUserIDs lists the users that have body data, in id order.
+	BodyUserIDs(ctx context.Context) ([]int64, error)
+	BodyStats(ctx context.Context) (BodyStats, error)
+}
+
+// Store persists users, per-user integration data and everything else the main backend holds,
+// and, through BodyStore, DEXA scans and scale readings.
+//
+// It does not have the scans and readings: they belong to the body domain (BodyStore), which can be
+// served from another process, so the main backend reaches them only through the body service.
 type Store interface {
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
 	CreateUser(ctx context.Context, name string) (models.User, error)
@@ -112,21 +155,6 @@ type Store interface {
 	SetUserStrengthLevelBulk(ctx context.Context, userID int64, enabled bool) error
 	// UpdateUserHiddenColumns stores which daily table columns the user has hidden.
 	UpdateUserHiddenColumns(ctx context.Context, userID int64, keys []string) error
-
-	CreateDexaScan(ctx context.Context, s *models.DexaScan) error
-	ListDexaScans(ctx context.Context, userID int64) ([]models.DexaScan, error)
-	// ListDexaScansPage lists one page. The cursor is non-nil when there are older scans.
-	ListDexaScansPage(ctx context.Context, userID int64, f ListFilter) ([]models.DexaScan, *Cursor, error)
-	DeleteDexaScan(ctx context.Context, userID, id int64) error
-
-	// UpsertScaleReadings inserts readings; readings with a non-nil ExternalID are
-	// updated in place when (user, source, external_id) already exists. An update changes the
-	// measured values and notes only, so a reading keeps its method and athlete mode.
-	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
-	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
-	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
-	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
-	DeleteScaleReading(ctx context.Context, userID, id int64) error
 
 	// GetIntegration returns the provider data (e.g. OAuth tokens) stored for a user, or ErrNotFound.
 	GetIntegration(ctx context.Context, userID int64, provider string) ([]byte, error)
@@ -223,10 +251,33 @@ type Store interface {
 	ClearFailures(ctx context.Context, key string) error
 	PurgeFailures(ctx context.Context, before time.Time) (int64, error)
 
-	// PutStrengthLevelJob stores the status (a JSON document) of the user's Strength Level sync;
-	// GetStrengthLevelJob returns it with the time it was last written, or ErrNotFound.
-	PutStrengthLevelJob(ctx context.Context, userID int64, state string) error
-	GetStrengthLevelJob(ctx context.Context, userID int64) (state string, updatedAt time.Time, err error)
+	// The queue of work for the workers. See pkg/store/sqlstore/jobs.go for the rules; in short,
+	// every state change is conditional on the state and lease token it expects.
+	EnqueueJob(ctx context.Context, j models.NewJob) (job models.Job, created bool, err error)
+	GetJob(ctx context.Context, publicID string) (models.Job, error)
+	ListJobs(ctx context.Context, f models.JobFilter) ([]models.Job, error)
+	LastFinishedStates(ctx context.Context, kind string, n int, since time.Time) ([]string, error)
+	LeaseJob(ctx context.Context, req models.LeaseRequest, at time.Time) (job models.Job, ok bool, err error)
+	HeartbeatJob(ctx context.Context, publicID, tokenHash string, extend time.Duration, progress *string, at time.Time) (cancel bool, err error)
+	CompleteJob(ctx context.Context, publicID, tokenHash string, c models.Completion, at time.Time) (models.Job, error)
+	ReleaseJob(ctx context.Context, publicID, tokenHash string, at time.Time) error
+	CancelJob(ctx context.Context, publicID string, userID int64, at time.Time) (models.Job, error)
+	CancelJobs(ctx context.Context, userID int64, kinds []string, at time.Time) error
+	ReapExpiredLeases(ctx context.Context, at time.Time, backoff func(models.Job) time.Duration) ([]models.Job, error)
+	RunningJob(ctx context.Context, publicID, tokenHash string) (models.Job, error)
+	JobStats(ctx context.Context, failedSince time.Time) ([]models.JobKindStats, error)
+	ExpireQueuedJobs(ctx context.Context, at time.Time) (int64, error)
+	PurgeJobs(ctx context.Context, before time.Time) (int64, error)
+	TouchWorker(ctx context.Context, id string, kinds []string, version string, at time.Time) error
+	ListWorkers(ctx context.Context, since time.Time) ([]models.WorkerInstance, error)
+	PurgeWorkers(ctx context.Context, before time.Time) (int64, error)
+	GetJobSchedule(ctx context.Context, userID int64, kind string) (models.JobSchedule, error)
+	ListJobSchedules(ctx context.Context, kind string) ([]models.JobSchedule, error)
+	PutJobSchedule(ctx context.Context, j models.JobSchedule) error
+	DeleteJobSchedule(ctx context.Context, userID int64, kind string) error
+	ListUsersWithIntegration(ctx context.Context, provider string) ([]int64, error)
+	// SetUserJobPriority sets the 1-100 priority of a user's jobs (higher goes first).
+	SetUserJobPriority(ctx context.Context, userID int64, priority int) error
 
 	// PurgeAuditEvents deletes events older than the cutoff and returns how many.
 	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)

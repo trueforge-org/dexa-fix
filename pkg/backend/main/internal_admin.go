@@ -12,23 +12,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trueforge-org/dexa-fix/pkg/importer"
-	"github.com/trueforge-org/dexa-fix/pkg/mailer"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/tlsutil"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/rs/zerolog/log"
+
+	"github.com/trueforge-org/dexafix/pkg/mailer"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
+	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // The backend half of the Admin pages. Every endpoint is behind internalAdmin: an administrator who
 // passed the step-up check. Refusals the administrator can fix come back as a message in a normal
 // answer (the Admin page shows them as a flash text); real failures are errors.
-
-const (
-	settingWithingsClientID = "withings.client_id"
-	settingWithingsSecret   = "withings.client_secret"
-	settingWithingsRedirect = "withings.redirect_url"
-)
 
 var providerSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
@@ -99,6 +95,16 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		internalError(w, err)
 		return
 	}
+	// The page still works when the body service does not answer: its two counts say so.
+	body, bodyDown := bodyapi.Stats{}, false
+	if bs, berr := s.body.Stats(ctx); errors.Is(berr, bodyapi.ErrUnavailable) {
+		bodyDown = true
+	} else if berr != nil {
+		internalError(w, berr)
+		return
+	} else {
+		body = bs
+	}
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
 		internalError(w, err)
@@ -117,8 +123,8 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 	view := apiclient.AdminPage{
 		Status: apiclient.AdminStatus{
 			Driver: stats.Driver, Encrypted: stats.Encrypted, SchemaVersion: stats.SchemaVersion, Users: stats.Users,
-			Admins: stats.Admins, DexaScans: stats.DexaScans, ScaleReadings: stats.ScaleReadings,
-			Sessions: stats.Sessions, AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
+			Admins: stats.Admins, DexaScans: body.DexaScans, ScaleReadings: body.ScaleReadings, BodyUnavailable: bodyDown,
+			Sessions: s.liveSessions(ctx, stats.Sessions), AccessTokens: stats.AccessTokens, TwoFactorUsers: stats.TwoFactorUsers,
 		},
 		PasswordEnabled: s.passwordEnabled(ctx), PasswordForced: s.ForcePasswordLogin,
 		Withings: s.adminWithingsView(r), Key: s.keyView(stats), Require2FA: s.twoFactorPolicy(ctx),
@@ -153,7 +159,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		}
 		view.Users = append(view.Users, apiclient.AdminUser{ID: x.ID, Name: x.Name, Email: x.Email, Admin: x.IsAdmin(), Self: x.ID == u.ID,
 			Created: x.CreatedAt.UTC().Format(dateLayout), SignIn: signIn, StrengthLevel: x.StrengthLevelAuto,
-			StrengthLevelBulk: x.StrengthLevelBulk, TwoFactor: twoFactor[x.ID]})
+			StrengthLevelBulk: x.StrengthLevelBulk, TwoFactor: twoFactor[x.ID], JobPriority: x.JobPriority})
 	}
 	events, err := s.store.ListAuditEvents(ctx, store.AuditFilter{Limit: auditPageSize})
 	if err != nil {
@@ -203,7 +209,7 @@ func (s *Backend) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _
 		internalError(w, err)
 		return
 	}
-	u, err := s.store.CreateUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
 	case errors.Is(err, store.ErrExists):
 		adminMsg(w, "An account with that e-mail address already exists.")
@@ -282,7 +288,7 @@ func (s *Backend) internalAdminSetStrengthLevel(w http.ResponseWriter, r *http.R
 		adminMsg(w, t.Name+" may now store a Strength Level login and send single days.")
 		return
 	}
-	s.sl.stop(t.ID)
+	s.stopStrengthLevel(r.Context(), t.ID)
 	adminMsg(w, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
 }
 
@@ -308,7 +314,7 @@ func (s *Backend) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *ht
 		adminMsg(w, t.Name+" may now run the multi-day Strength Level sync from Settings.")
 		return
 	}
-	s.sl.stop(t.ID)
+	s.stopStrengthLevel(r.Context(), t.ID, kindStrengthLevelSync)
 	adminMsg(w, "The multi-day Strength Level sync is off for "+t.Name+".")
 }
 
@@ -326,11 +332,12 @@ func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ctx := r.Context()
-	if err := s.setPassword(ctx, t.ID, in.Password); err != nil {
+	// The sessions end first, so the password is never set while the old sessions could be used.
+	if err := s.sessions.DeleteUserSessions(ctx, t.ID); err != nil {
 		internalError(w, err)
 		return
 	}
-	if err := s.store.DeleteUserSessions(ctx, t.ID); err != nil {
+	if err := s.setPassword(ctx, t.ID, in.Password); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -357,6 +364,12 @@ func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request
 	case err != nil:
 		internalError(w, err)
 	default:
+		// With the sessions table the foreign key ended them already. In Valkey they are ended here; if
+		// that fails they are dead anyway, because the user row they point to is gone.
+		if err := s.sessions.DeleteUserSessions(r.Context(), t.ID); err != nil {
+			log.Warn().Err(err).Int64("user", t.ID).Msg("could not end the sessions of a deleted user")
+		}
+		s.deleteBodyData(r.Context(), t.ID)
 		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
 		adminMsg(w, t.Name+" and their data were deleted.")
 	}
@@ -606,42 +619,12 @@ func (s *Backend) internalAdminDeleteProvider(w http.ResponseWriter, r *http.Req
 
 // ---- Withings application credentials ----
 
-func (s *Backend) withingsConfigurable() (importer.Configurable, bool) {
-	imp, ok := s.importers.Get(providerWithings)
-	if !ok {
-		return nil, false
-	}
-	c, ok := imp.(importer.Configurable)
-	return c, ok
-}
-
 func (s *Backend) settingOrEmpty(ctx context.Context, name string) (string, error) {
 	v, err := s.store.GetSetting(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", nil
 	}
 	return v, err
-}
-
-// applyWithingsCredentials loads the credentials saved by an administrator into the importer.
-func (s *Backend) applyWithingsCredentials(ctx context.Context) error {
-	c, ok := s.withingsConfigurable()
-	if !ok {
-		return nil
-	}
-	var creds importer.Credentials
-	for _, f := range []struct {
-		name string
-		dst  *string
-	}{{settingWithingsClientID, &creds.ClientID}, {settingWithingsSecret, &creds.ClientSecret}, {settingWithingsRedirect, &creds.RedirectURL}} {
-		v, err := s.settingOrEmpty(ctx, f.name)
-		if err != nil {
-			return err
-		}
-		*f.dst = v
-	}
-	c.SetCredentials(creds)
-	return nil
 }
 
 // withingsCallback is this server's Withings OAuth callback URL, the one to register with Withings.
@@ -651,9 +634,6 @@ func withingsCallback(r *http.Request) string {
 
 func (s *Backend) adminWithingsView(r *http.Request) apiclient.AdminWithings {
 	ctx := r.Context()
-	if _, ok := s.withingsConfigurable(); !ok {
-		return apiclient.AdminWithings{}
-	}
 	id, _ := s.settingOrEmpty(ctx, settingWithingsClientID)
 	secret, _ := s.settingOrEmpty(ctx, settingWithingsSecret)
 	redirect, _ := s.settingOrEmpty(ctx, settingWithingsRedirect)
@@ -661,18 +641,12 @@ func (s *Backend) adminWithingsView(r *http.Request) apiclient.AdminWithings {
 		Available: true, ClientID: id, RedirectURL: redirect, DefaultRedirect: withingsCallback(r),
 		SecretSaved: secret != "",
 	}
-	if p, ok := s.oauthProvider(providerWithings); ok {
-		v.Configured = p.Configured()
-	}
+	_, v.Configured, _ = s.withingsApp(ctx)
 	return v
 }
 
 func (s *Backend) internalAdminSaveWithings(w http.ResponseWriter, r *http.Request, _ models.User) {
 	ctx := r.Context()
-	if _, ok := s.withingsConfigurable(); !ok {
-		internalFail(w, http.StatusNotFound, apiclient.CodeNotFound, "not found")
-		return
-	}
 	var in apiclient.WithingsForm
 	if !internalDecode(w, r, &in) {
 		return
@@ -699,9 +673,6 @@ func (s *Backend) internalAdminSaveWithings(w http.ResponseWriter, r *http.Reque
 		err = save(settingWithingsSecret, secret)
 	} else if err == nil && in.ClearSecret {
 		err = save(settingWithingsSecret, "")
-	}
-	if err == nil {
-		err = s.applyWithingsCredentials(ctx)
 	}
 	if err != nil {
 		internalError(w, err)
@@ -909,7 +880,7 @@ func (s *Backend) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
-	if err := m.Send(ctx, u.Email, "dexa-fix test e-mail", "This is a test e-mail from dexa-fix. E-mail is working.\n"); err != nil {
+	if err := m.Send(ctx, u.Email, "DexaFix test e-mail", "This is a test e-mail from DexaFix. E-mail is working.\n"); err != nil {
 		adminMsg(w, "Could not send the test e-mail: "+err.Error())
 		return
 	}

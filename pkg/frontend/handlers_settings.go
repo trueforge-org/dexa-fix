@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // rankRow is one method on the settings page with its 1-based rank.

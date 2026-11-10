@@ -16,9 +16,9 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/zerolog/log"
-	"github.com/trueforge-org/dexa-fix/pkg/models"
-	"github.com/trueforge-org/dexa-fix/pkg/shared/apiclient"
-	"github.com/trueforge-org/dexa-fix/pkg/store"
+	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -83,7 +83,7 @@ func (s *Backend) authSession(r *http.Request) (models.User, bool, error) {
 	if err != nil || c.Value == "" {
 		return models.User{}, false, nil
 	}
-	return foundUser(s.store.UserBySession(r.Context(), hashToken(c.Value)))
+	return foundUser(s.sessions.UserBySession(r.Context(), hashToken(c.Value)))
 }
 
 // authBearer accepts personal access tokens and ID tokens issued by a configured provider. Bearer
@@ -204,7 +204,7 @@ func foundUser(u models.User, err error) (models.User, bool, error) {
 var bcryptCost = 12
 
 var dummyHash = sync.OnceValue(func() []byte {
-	h, _ := bcrypt.GenerateFromPassword([]byte("dexa-fix-dummy"), bcryptCost)
+	h, _ := bcrypt.GenerateFromPassword([]byte("dexafix-dummy"), bcryptCost)
 	return h
 })
 
@@ -353,7 +353,7 @@ func (s *Backend) startSession(w http.ResponseWriter, r *http.Request, userID in
 		return err
 	}
 	expires := time.Now().Add(sessionTTL)
-	if err := s.store.CreateSession(r.Context(), hashToken(token), userID, method, expires); err != nil {
+	if err := s.sessions.CreateSession(r.Context(), hashToken(token), userID, method, expires); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
