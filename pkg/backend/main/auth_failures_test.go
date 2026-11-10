@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
@@ -72,6 +73,9 @@ func TestBasicCredentialsWaitForASlotAndGiveUpWhenTheClientDoes(t *testing.T) {
 	g := newRig(t)
 	uid, _ := g.signUp("alice")
 	path := fmt.Sprintf("/api/v1/users/%d/settings", uid)
+	old := bcryptWait
+	bcryptWait = time.Hour // the client must be what ends the wait
+	t.Cleanup(func() { bcryptWait = old })
 	for i := 0; i < cap(g.b.bcryptSlots); i++ {
 		g.b.bcryptSlots <- struct{}{}
 	}
