@@ -42,18 +42,19 @@ func (f *flakyStore) DeleteIntegration(ctx context.Context, userID int64, provid
 // administrator ("root", id 1), reached the way the web process reaches it. A test plays the
 // worker itself, so that it decides how a job ends and when.
 type jobRig struct {
-	t       *testing.T
-	st      *sqlstore.Store
-	flaky   *flakyStore
-	b       *Backend
-	api     *apiclient.Client
-	worker  *workerapi.Client
-	alice   context.Context // a request of alice's, for the apiclient
-	root    context.Context // a request of the administrator's
-	cookie  string          // alice's session cookie, as "name=value"
-	pub     *httptest.Server
-	token   string // alice's access token for the public API
-	rootTok string // the administrator's, once asked for
+	t        *testing.T
+	st       *sqlstore.Store
+	flaky    *flakyStore
+	b        *Backend
+	api      *apiclient.Client
+	worker   *workerapi.Client
+	alice    context.Context // a request of alice's, for the apiclient
+	root     context.Context // a request of the administrator's
+	cookie   string          // alice's session cookie, as "name=value"
+	pub      *httptest.Server
+	token    string           // alice's access token for the public API
+	rootTok  string           // the administrator's, once asked for
+	internal *httptest.Server // the internal API, for requests the frontend would never send
 }
 
 func newJobRig(t *testing.T) *jobRig {
@@ -81,7 +82,7 @@ func newJobRig(t *testing.T) *jobRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &jobRig{t: t, st: st, flaky: flaky, b: b, api: api, worker: wc}
+	r := &jobRig{t: t, st: st, flaky: flaky, b: b, api: api, worker: wc, internal: srv}
 	ctx := context.Background()
 	for i, name := range []string{"root", "alice"} {
 		u, err := st.CreateUser(ctx, name)
@@ -218,6 +219,23 @@ func (r *jobRig) pauseKind(kind string) {
 	if err := r.b.reloadSettings(context.Background()); err != nil {
 		r.t.Fatal(err)
 	}
+}
+
+// raw sends a request straight to the internal API as alice and returns the status.
+func (r *jobRig) raw(method, path, body string) int {
+	r.t.Helper()
+	req, err := http.NewRequest(method, r.internal.URL+apiclient.Prefix+path, strings.NewReader(body))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	req.Header.Set(apiclient.HeaderService, "service-secret-0123456789abcdef")
+	req.Header.Set(apiclient.HeaderCookie, r.cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
 }
 
 // impatient makes a page give up waiting for a job quickly.
