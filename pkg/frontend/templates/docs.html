@@ -49,6 +49,10 @@
       <ul>
         <li><a href="#proxy-protocol">PROXY protocol</a></li>
         <li><a href="#https">HTTPS, HTTP/2 and HTTP/3</a></li>
+        <li><a href="#cdn">Behind a CDN or caching proxy</a></li>
+        <li><a href="#deploy">The recommended deployment: deploy/</a></li>
+        <li><a href="#status">Status and health checks</a></li>
+        <li><a href="#valkey">Valkey</a></li>
         <li><a href="#two-processes">Two processes</a></li>
       </ul></li>
     <li><a href="#body-service">Body service</a>
@@ -168,7 +172,8 @@
   <li><strong>Gotchas:</strong> the token is shown once, right after you create it, and only a hash is stored. The list shows the first characters, when it was created, last used and when it expires. Revoke a token to stop it working at once.</li>
   <li><strong>Changing the password</strong> revokes all your tokens. Tokens are created and revoked only on the website, not through the API.</li>
 </ul>
-<pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/1/estimates</code></pre>
+<p>Your user id is random. It is the number in the address of your pages, <code>/u/&lt;id&gt;/</code>. The examples assume <code>export DEXAFIX_USER=&lt;id&gt;</code>.</p>
+<pre><code>curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" localhost:8080/api/v1/users/$DEXAFIX_USER/estimates</code></pre>
 
 <h3 id="api-auth">API authentication</h3>
 <p>Every API request except <code>GET /healthz</code> must be authenticated, with one of:</p>
@@ -471,6 +476,8 @@
     <tr><td><code>secrets body-secret</code></td><td>Print a new body secret of 64 hexadecimal characters for <code>serve api</code> and <code>serve body</code>. It must differ from the service and worker secrets.</td></tr>
     <tr><td><code>secrets body-token-key</code></td><td>Print a new private key for the api process to sign body service tokens with. Keep it to that process.</td></tr>
     <tr><td><code>secrets body-token-public --key-file FILE</code></td><td>Print the public key of that private key, for <code>serve body</code>.</td></tr>
+    <tr><td><code>healthcheck URL</code></td><td>Make one GET request and exit 0 if the answer is 2xx, 1 otherwise. For the container health check: the image has no shell and no curl. See <a href="#status">Status and health checks</a>.</td></tr>
+    <tr><td><code>secrets init</code></td><td>Create every secret and the mutual TLS certificates of the <a href="#deploy">Compose deployment</a> in directories you name (<code>--host-dir</code>, <code>--api-dir</code>, <code>--web-dir</code>, <code>--worker-dir</code>, <code>--body-dir</code>). It never replaces a password, key or shared secret that exists, and makes new certificates at every run (<code>--mtls-days</code>, default 397). <code>--chown uid:gid</code> hands the files to the containers' user. This is what the <code>init</code> container runs.</td></tr>
     <tr><td><code>secrets mtls --link body</code></td><td>Create certificates for the link between the api process and the body service (see <a href="#body-mutual-tls">Mutual TLS</a>).</td></tr>
   </tbody>
 </table></div>
@@ -500,6 +507,9 @@
     <tr><td><code>--body-client-key-file</code></td><td><code>DEXAFIX_BODY_CLIENT_KEY_FILE</code></td><td>empty</td><td><code>serve api</code> only. Private key of the client certificate above.</td></tr>
     <tr><td><code>--body-server-name</code></td><td><code>DEXAFIX_BODY_SERVER_NAME</code></td><td>empty</td><td><code>serve api</code> only. Name the body service's certificate must carry, if it is not the host of <code>--body-url</code>.</td></tr>
     <tr><td><code>--listen</code> (<code>serve body</code>)</td><td><code>DEXAFIX_BODY_LISTEN</code></td><td><code>:8082</code></td><td><code>serve body</code> only. Address of the body service; keep it on a private network.</td></tr>
+    <tr><td><code>--health-listen</code></td><td><code>DEXAFIX_HEALTH_LISTEN</code></td><td>empty (off)</td><td><code>serve api</code>, <code>serve body</code> and <code>serve worker</code>. A listener that answers <code>/healthz</code> and <code>/readyz</code> only, for a container health check, such as <code>127.0.0.1:8083</code>. See <a href="#status">Status and health checks</a>.</td></tr>
+    <tr><td><code>--valkey-url</code></td><td><code>DEXAFIX_VALKEY_URL</code></td><td>empty (off)</td><td><code>serve api</code> only. Keep the failed sign-in counters and single-use values in Valkey (<code>redis://host:6379/0</code>, <code>rediss://</code> for TLS) instead of the database. A password in the URL is refused on the command line: use the file. See <a href="#valkey">Valkey</a>.</td></tr>
+    <tr><td><code>--valkey-url-file</code></td><td><code>DEXAFIX_VALKEY_URL_FILE</code></td><td>empty</td><td><code>serve api</code> only. File with the Valkey URL, which may hold the password: <code>redis://:password@host:6379/0</code>.</td></tr>
     <tr><td><code>--body-token-public-key-file</code></td><td><code>DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Required. Public key(s) of the api process's token key, one per line (<code>secrets body-token-public</code>).</td></tr>
     <tr><td><code>--body-tls-cert-file</code></td><td><code>DEXAFIX_BODY_TLS_CERT_FILE</code></td><td>empty</td><td><code>serve body</code> only. Serve over mutual TLS: certificate of the service. Set it with <code>--body-tls-key-file</code> and <code>--body-tls-client-ca-file</code>, or none.</td></tr>
     <tr><td><code>--body-tls-key-file</code></td><td><code>DEXAFIX_BODY_TLS_KEY_FILE</code></td><td>empty</td><td><code>serve body</code> only. Private key of the certificate above.</td></tr>
@@ -608,6 +618,60 @@ stream {
 </ul>
 <p>The Admin page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. With Docker, publish both ports: <code>-p 8443:8443 -p 8443:8443/udp</code>.</p>
 <p class="docs-note">Browsers and apps trust a self-signed certificate only once you add it, and browsers use HTTP/3 only with a trusted certificate. There is no HTTP to HTTPS redirect yet.</p>
+<h3 id="cdn">Behind a CDN or caching proxy</h3>
+<p>Everything dexa-fix serves except <code>/static/</code> is personal: pages, exports, the JSON API and error pages. Every such response carries <code>Cache-Control: no-store</code>, <code>CDN-Cache-Control: no-store</code> and <code>Surrogate-Control: no-store</code>. The last two speak to CDNs such as Cloudflare, Fastly and Akamai directly. The one exception is the estimates endpoint of the API, which sends <code>Cache-Control: private, no-cache</code> with an ETag, so a browser may keep a copy and ask whether it is still good, while a shared cache may not keep it. Only <code>/static/</code> files with a <code>?v=</code> version may be cached for long; they hold no personal data.</p>
+<p>A CDN rule can override an origin's headers. A rule such as Cloudflare's <em>Cache Everything</em> with an <em>Edge Cache TTL</em> that overrides the origin would serve one visitor's page to another. To be safe:</p>
+<ul>
+  <li>Cache <code>/static/*</code> only, and bypass the cache for everything else.</li>
+  <li>Do not let a rule override the origin's cache headers for paths other than <code>/static/*</code>.</li>
+  <li>Do not use a page-cache feature on a site that has sign-in.</li>
+</ul>
+<p>For the visitor's address, add the CDN's address ranges to <strong>Trusted proxies</strong> (Cloudflare publishes its list at <code>https://www.cloudflare.com/ips/</code>). dexa-fix then walks <code>X-Forwarded-For</code> from the right, past every trusted proxy, and takes the first address nobody trusted. A request that reaches the origin directly has its <code>X-Forwarded-*</code> headers ignored. Without the CDN's ranges in the list every visitor looks like the CDN, and the limit on failed sign-ins per address would lock out everybody together.</p>
+<h3 id="deploy">The recommended deployment: deploy/</h3>
+<p><code>deploy/docker-compose.yaml</code> runs everything as containers: PostgreSQL, the api process, the body service, the web process and one worker container per provider. Every link between them is protected by a secret <em>and</em> by mutual TLS. An <code>init</code> container, which is <code>dexa-fix secrets init</code>, makes every password, key, secret and certificate the others need.</p>
+<pre><code>cd deploy
+docker compose run --rm init   # once: makes ./secrets
+docker compose up -d</code></pre>
+<p>Open <a href="http://localhost:8080">http://localhost:8080</a> and create the first account: it becomes the administrator. The first command is needed once because Compose checks that the files in <code>./secrets</code> exist before it starts any container. <code>init</code> also runs at every <code>docker compose up -d</code>.</p>
+<div class="scroll"><table>
+  <thead><tr><th>Where</th><th>What</th><th>When it changes</th></tr></thead>
+  <tbody>
+    <tr><td><code>./secrets/</code> on the host</td><td>The database passwords, the two connection strings and the two encryption keys (<code>encryption_key</code>, <code>body_encryption_key</code>)</td><td>Never: a file that exists is kept</td></tr>
+    <tr><td>Volume <code>secrets-api</code></td><td>The service, worker and body secrets, the body token signing key, the api's certificates</td><td>The secrets and the key are kept; the certificates are new at every run</td></tr>
+    <tr><td>Volumes <code>secrets-web</code>, <code>secrets-worker</code>, <code>secrets-body</code></td><td>Only what that container needs: its shared secret and its certificates (the body service gets the public half of the signing key)</td><td>As above</td></tr>
+  </tbody>
+</table></div>
+<p class="docs-note"><strong>Back up <code>./secrets/encryption_key</code> and <code>./secrets/body_encryption_key</code> together with the database.</strong> Without an encryption key the encrypted values cannot be read again. They are on the host, so <code>docker compose down -v</code> does not delete them. <code>./secrets</code> is private to root; read it with <code>sudo</code>.</p>
+<p>The certificates are valid for 397 days and are replaced at every <code>docker compose up</code>, so run it at least once a year. The CA's private key is thrown away as soon as the certificates are made. The containers read changed certificate files again within 30 seconds and need no restart. While they do, a process may be briefly ahead of the others: expect one <code>bad certificate</code> line in the api's log and a <code>could not refresh the settings</code> warning in web's, which heal by themselves. The web process and the workers share one client certificate: it proves the link, and the service or worker secret proves the role. The link to the body service has a CA of its own, so a certificate of one link opens nothing of the other.</p>
+<p>The database image is <code>ghcr.io/trueforge-org/postgresql</code> (ContainerForge). It runs as uid 568 and keeps its data in <code>/config/18</code>. On first start <code>deploy/postgres/initdb/01-roles.sh</code> creates the roles: the application never runs as the superuser <code>postgres</code>. The api's role <code>dexafix</code> owns the database; the body service's role <code>dexafix_body</code> owns the schema <code>body</code> and can use nothing else. If that script fails, the image restarts over the half-made cluster and skips initialization: run <code>docker compose down -v</code> and start again.</p>
+<h3 id="status">Status and health checks</h3>
+<p><strong>The status page.</strong> <a href="/status">/status</a> shows the health of each part: the web process itself, the api process, the database, the body service and the workers of each provider. It is the same for everybody, signed in or not, and shows a state per part and nothing else: no versions, host names, worker names or reasons. It answers 503 while a part is down, so a monitor needs no parsing, and 200 otherwise. Every response is <code>no-store</code> and the list is identical for all visitors, so a cache cannot mix them up.</p>
+<div class="scroll"><table>
+  <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Operational</td><td>It works.</td></tr>
+    <tr><td>Down</td><td>It does not answer. The api process cannot be reached, the database or the body service does not answer within 2 seconds, or workers of a provider registered in the last day but none has asked for work in the last 90 seconds.</td></tr>
+    <tr><td>Not in use</td><td>No worker of that provider has registered in the last day. That is not a fault: imports of that provider simply wait until one starts.</td></tr>
+  </tbody>
+</table></div>
+<p>A worker gets a new random name every time it starts, so workers of replaced containers stay on record for a day. They count for nothing once one worker of the provider is running. Give a worker a fixed <code>--worker-id</code> to keep its name. The api process keeps its answer for 5 seconds. Administrators also get <a href="/admin/status">/admin/status</a>, linked from the Admin page: the workers by name, version and last request, and the reason a part is down.</p>
+<p><strong>Health checks for containers.</strong> The images have no shell and no curl. <code>serve api</code>, <code>serve body</code> and <code>serve worker</code> take <code>--health-listen 127.0.0.1:8083</code>, a listener that answers <code>/healthz</code> (the process runs) and <code>/readyz</code> (it can do its work: the database answers, or for a worker the api process answered in the last 90 seconds) and nothing else. It needs no secret or certificate, so bind it to the loopback address. The web process needs no extra listener: <code>/healthz</code> and <code>/readyz</code> are on its normal one.</p>
+<pre><code>healthcheck:
+  test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 20s</code></pre>
+<p><code>dexa-fix healthcheck URL</code> makes one request and exits 0 for a 2xx answer. <code>deploy/docker-compose.yaml</code> uses it for every container and starts them in order: the database, the body service, the api process, then the web process and the workers, each when the one before is healthy.</p>
+<h3 id="valkey">Valkey</h3>
+<p>By default the failed sign-in counters and the single-use values (second-step codes, password reset links, and the like) are rows in the database. Every wrong password is a write, so a flood of them is a flood of database writes. With <a href="https://valkey.io">Valkey</a> (or any Redis-compatible server) the api process keeps them there instead and the database sees none of it. It is optional and only <code>serve api</code> takes it: <code>--valkey-url-file</code> with a file that holds <code>redis://:password@host:6379/0</code> (<code>rediss://</code> for TLS). A password on the command line is refused. At start the api process connects and checks that the server answers; if it does not, it stops.</p>
+<ul>
+  <li><strong>Held in Valkey:</strong> the failed-attempt counters (the same 15-minute sliding window as in the database) and the single-use values.</li>
+  <li><strong>Not held in Valkey:</strong> sessions, the job queue and everything else. A cached session would outlive a password reset or a deleted user unless every way of ending one also reached the cache, so sessions stay in the database.</li>
+  <li><strong>The two are never mixed.</strong> With Valkey the tables <code>auth_failures</code> and <code>used_nonces</code> stay empty. Several api processes must all use it, or none.</li>
+</ul>
+<p class="docs-note"><strong>It fails closed.</strong> While Valkey does not answer, every address counts as locked out and every single-use value as spent, so nobody can sign in. Pages that need no sign-in keep working, and <a href="#status">/status</a> shows Valkey as down. Run Valkey with <code>maxmemory-policy noeviction</code>: an evicted counter would let an attacker try again, and an evicted single-use value could be used twice. Keep the append-only file on a volume.</p>
+<p>The Compose example has it as an option: <code>docker compose -f docker-compose.yaml -f docker-compose.valkey.yaml up -d</code>. <code>init</code> makes the password and the URL, the <code>valkey</code> container is on a network that only the api container shares, and the api container waits for it to be healthy.</p>
 <h3 id="two-processes">Two processes: web and api</h3>
 <p>So that a flood of requests on one part cannot take down the other, dexa-fix can run as two processes from the same binary:</p>
 <ul>
@@ -649,7 +713,7 @@ stream {
 <p>The api process signs with a private key. The body service holds only the public key, so it can check tokens but never make one. A token for user 1 opens nothing of user 2, a <code>read</code> token cannot write, and only an <code>admin</code> token can remove a user's data. The two processes need clocks within a few seconds of each other.</p>
 
 <h3 id="body-start">Start it</h3>
-<p>The recommended way is the Compose example: <code>deploy/init-secrets.sh</code> creates everything below and <code>deploy/initdb/</code> creates the PostgreSQL role and schema. To run it by hand, make the secrets first. All of them are files:</p>
+<p>The recommended way is the <a href="#deploy">recommended deployment</a>: its <code>init</code> container (<code>dexa-fix secrets init</code>) creates everything below, including the certificates, and <code>deploy/postgres/initdb/</code> creates the PostgreSQL roles and schema. To run it by hand, make the secrets first. All of them are files:</p>
 <pre><code>dexa-fix secrets body-secret &gt; body.secret &amp;&amp; chmod 600 body.secret
 dexa-fix secrets body-token-key &gt; body-token.key &amp;&amp; chmod 600 body-token.key
 dexa-fix secrets body-token-public --key-file body-token.key &gt; body-token.pub</code></pre>
@@ -669,7 +733,7 @@ dexa-fix secrets body-token-public --key-file body-token.key &gt; body-token.pub
 <p>With <code>--body-url</code> the api process does not create or use the tables of the body service in its own database. Keep the body service's port on a network that only the api process can reach. All flags are in <a href="#serve-flags">Configuration</a>.</p>
 
 <h4 id="body-postgres">PostgreSQL role and schema</h4>
-<p>The Compose example creates them when the database is first created (<code>deploy/initdb/01-body-database.sh</code>, which needs <code>body_db_password</code>). For a database that already exists, run this once as the database owner, with your own password:</p>
+<p>The Compose example creates them when the database is first created (<code>deploy/postgres/initdb/01-roles.sh</code>, which needs <code>body_db_password</code>). For a database that already exists, run this once as the database owner, with your own password:</p>
 <pre><code>CREATE ROLE dexafix_body LOGIN PASSWORD '&lt;password&gt;';
 CREATE SCHEMA body AUTHORIZATION dexafix_body;
 ALTER ROLE dexafix_body SET search_path = body;
@@ -839,24 +903,24 @@ dexa-fix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></
 </ul>
 <p>The response header <code>X-Next-Cursor</code> holds the cursor for the next page. It is absent on the last page. Pass it unchanged as <code>before</code>.</p>
 <pre><code>curl -si -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01'
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings?limit=500&amp;since=2026-01-01'
 # ... X-Next-Cursor: 1767254400000000000.42
 curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/scale-readings?limit=500&amp;since=2026-01-01&amp;before=1767254400000000000.42'</code></pre>
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings?limit=500&amp;since=2026-01-01&amp;before=1767254400000000000.42'</code></pre>
 <p>The audit endpoints use <code>limit</code>, <code>before_id</code> and (administrators) <code>user_id</code>.</p>
 <h3>Examples</h3>
 <pre><code>export DEXAFIX_TOKEN=dxf_...   # from Settings
 
-curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
   -d '{"measured_at": "2026-03-01T08:00:00Z", "weight_kg": 80.0, "fat_ratio_pct": 18.0}'
 
-curl -s -X POST localhost:8080/api/v1/users/1/scale-readings \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" -H 'Content-Type: application/json' \
   -d '[{"measured_at": "2026-03-01T07:00:00Z", "weight_kg": 82.0, "fat_ratio_pct": 20.0, "method": "scale", "athlete_mode": false}]'
 
 curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'</code></pre>
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/import/withings?day=2026-03-01'</code></pre>
 <p>An import returns counts: <code>{"provider":"withings","imported":3,"updated":0,"unchanged":12,"removed":0,"skipped":0}</code>, plus <code>skipped_days</code> when something was skipped. Status codes: 400 malformed <code>since</code> or <code>day</code>, 404 unknown provider or user, 409 the user has not connected the provider, 501 the server has no credentials for the provider.</p>
 </section>
 

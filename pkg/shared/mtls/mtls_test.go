@@ -2,6 +2,8 @@ package mtls
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -156,5 +158,25 @@ func TestConfigErrors(t *testing.T) {
 	}
 	if _, err := ServerConfig("/nonexistent/a", "/nonexistent/b", "/nonexistent/c"); err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Errorf("missing files: %v", err)
+	}
+}
+
+func TestGenerateValidSetsTheLeafLifetime(t *testing.T) {
+	b, err := GenerateValid([]string{"api"}, "srv", "cli", 30*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, pemText := range map[string]string{"server": b.ServerCert, "client": b.ClientCert} {
+		block, _ := pem.Decode([]byte(pemText))
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if life := c.NotAfter.Sub(c.NotBefore); life < 29*24*time.Hour || life > 31*24*time.Hour {
+			t.Errorf("%s certificate lives %v, want about 30 days", name, life)
+		}
+	}
+	if _, err := GenerateValid([]string{"api"}, "s", "c", 0); err == nil {
+		t.Error("a zero validity must be refused")
 	}
 }

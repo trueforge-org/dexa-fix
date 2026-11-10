@@ -24,6 +24,7 @@ var forbidden = []string{
 	"modernc.org/sqlite",
 	"github.com/jackc/pgx",
 	"github.com/pressly/goose",
+	"github.com/valkey-io", // the sign-in counters are the api process's
 	"github.com/coreos/go-oidc",
 	"github.com/go-webauthn",
 }

@@ -29,6 +29,9 @@ type BodyStore struct {
 
 var _ store.BodyStore = (*BodyStore)(nil)
 
+// Ping checks that the database answers.
+func (b *BodyStore) Ping(ctx context.Context) error { return b.db.PingContext(ctx) }
+
 // bodyMigrationTable is the goose version table of the body domain, so that its migrations and the
 // main database's count separately even in one database.
 const bodyMigrationTable = "goose_body_version"

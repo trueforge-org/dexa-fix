@@ -15,7 +15,7 @@ import (
 type userRow struct {
 	bun.BaseModel `bun:"table:users"`
 
-	ID                int64     `bun:"id,pk,autoincrement"`
+	ID                int64     `bun:"id,pk"` // random, see newUserID
 	Name              string    `bun:"name"`
 	Role              string    `bun:"role"`
 	Email             string    `bun:"email"`

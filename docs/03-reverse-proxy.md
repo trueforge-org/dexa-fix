@@ -182,6 +182,33 @@ no redirect from HTTP to HTTPS yet.
 Passkeys belong to the address you open, port included. Use the HTTPS address
 for them, such as `https://dexa.example.com:8443`, and not the plain HTTP one.
 
+## Behind a CDN or caching proxy
+
+Everything dexa-fix serves except `/static/` is personal: pages, exports, the JSON API and error pages. Every
+such response carries `Cache-Control: no-store`, `CDN-Cache-Control: no-store` and `Surrogate-Control: no-store`.
+The last two speak to CDNs such as Cloudflare, Fastly and Akamai directly. The one exception is the estimates
+endpoint of the API, which sends `Cache-Control: private, no-cache` with an ETag, so a browser may keep a copy
+and ask whether it is still good, while a shared cache may not keep it. A test (`cache_test.go`) checks this on
+pages, redirects, errors and the API, and that `/static/` lists no directory.
+
+Only `/static/` files with a `?v=` version may be cached for long. They hold no personal data.
+
+A CDN rule can override an origin's headers. A rule such as Cloudflare's *Cache Everything* with an *Edge Cache
+TTL* that overrides the origin would serve one visitor's page to another. To be safe:
+
+- Cache `/static/*` only, and bypass the cache for everything else. Do not use *Cache Everything* on the whole site.
+- Do not let a rule override the origin's cache headers for paths other than `/static/*`.
+- Do not use a page-cache feature on a site that has sign-in.
+
+I have not tested this against a real CDN account; the headers and the test above are what the code does.
+
+For the visitor's address, add the CDN's address ranges to **Trusted proxies** (Cloudflare publishes its list at
+`https://www.cloudflare.com/ips/`). dexa-fix then walks `X-Forwarded-For` from the right, past every trusted proxy,
+and takes the first address nobody trusted. A visitor cannot make up their address that way, and a request that
+reaches the origin directly, not through the CDN, has its `X-Forwarded-*` headers ignored. Without the CDN's
+ranges in the list every visitor looks like the CDN, and the limit on failed sign-ins per address (60 in 15
+minutes) would lock out everybody together.
+
 ## Two processes: path split
 
 With the [split deployment](15-split-deployment.md), the proxy sends `/api/` to

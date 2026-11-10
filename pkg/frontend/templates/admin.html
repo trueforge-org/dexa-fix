@@ -24,6 +24,7 @@
     <div><dt>Access tokens</dt><dd>{{.Status.AccessTokens}}</dd></div>
     <div><dt>Withings</dt><dd>{{if .Withings.Configured}}Configured{{else}}Not set up{{end}}</dd></div>
     <div><dt>Workers</dt><dd><a href="/admin/workers">Settings, queue and priorities</a></dd></div>
+    <div><dt>Health</dt><dd><a href="/admin/status">Status of every part</a></dd></div>
   </dl>
   {{if .Key.Rekey}}<p class="notice" role="status">The database is still encrypted with a previous key. Stop the server and run <code>dexa-fix db rekey</code>; see <a href="/docs#encryption">Rotating the key</a>.</p>
   {{else if .Key.Due}}<p class="notice" role="status">The encryption key is {{.Key.AgeDays}} days old, past your reminder. Rotation is manual: see <a href="/docs#encryption">Rotating the key</a>.</p>{{end}}

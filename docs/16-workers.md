@@ -47,6 +47,11 @@ and `--backend-server-name` flags. Over plain HTTP at an address that is not
 private, the worker logs a warning, because the link carries credentials of
 users' accounts at the providers.
 
+The Compose deployment in `deploy/` turns mutual TLS on for the workers: its
+`init` container makes the client certificate (the one web uses) and the worker
+secret, and gives them to the worker containers only. See
+[The recommended deployment](15-split-deployment.md#the-recommended-deployment-deploy).
+
 | Flag                   | Environment variable          | Default | Description                                                              |
 | ---------------------- | ----------------------------- | ------- | ------------------------------------------------------------------------ |
 | `--backend-url`        | `DEXAFIX_BACKEND_URL`         | empty   | Required. Internal address of the api process.                           |

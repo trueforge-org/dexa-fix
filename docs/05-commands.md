@@ -9,11 +9,13 @@
 | `serve api`               | Run the backend of a split deployment: database, keys, public API, internal API and maintenance. |
 | `serve worker`            | Run a [worker](16-workers.md): it talks to Withings and Strength Level for the api process. No database. |
 | `serve body`              | Run the [body service](17-body-service.md): scale readings, DEXA scans and estimates, in a database of its own. |
+| `healthcheck URL`         | Make one GET request and exit 0 if the answer is 2xx, 1 otherwise. For the container health check: the image has no shell and no curl. See [Status and health checks](15-split-deployment.md#status-and-health-checks). |
 | `secrets service-secret`  | Print a new service secret of 64 hexadecimal characters for `serve web` and `serve api`. |
 | `secrets worker-secret`   | Print a new worker secret of 64 hexadecimal characters for `serve api` and `serve worker`. It must differ from the service secret. |
 | `secrets body-secret`     | Print a new body secret of 64 hexadecimal characters for `serve api` and `serve body`. It must differ from the service and worker secrets. |
 | `secrets body-token-key`  | Print a new private key for the api process to sign body service tokens with. Keep it to that process. |
 | `secrets body-token-public --key-file FILE` | Print the public key of that private key, for `serve body`. |
+| `secrets init`            | Create every secret and the mutual TLS certificates of the [Compose deployment](15-split-deployment.md#the-recommended-deployment-deploy) in directories you name (`--host-dir`, `--api-dir`, `--web-dir`, `--worker-dir`, `--body-dir`). It never replaces a password, key or shared secret that exists, and makes new certificates at every run (`--mtls-days`, default 397). `--chown uid:gid` hands the files to the containers' user. It also makes the password and URL of the optional [Valkey](15-split-deployment.md#valkey) server (`--valkey-host`). This is what the `init` container runs. |
 | `secrets mtls`            | Create certificates for [mTLS](15-split-deployment.md#mutual-tls-between-web-and-api). With `--link body`, for the link between the api process and the [body service](17-body-service.md#mutual-tls). |
 
 Create the service secret file and keep it private:

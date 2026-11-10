@@ -315,10 +315,19 @@ func (s *Frontend) SetAPIUpstream(u *url.URL) {
 				"Referrer-Policy", "Strict-Transport-Security"} {
 				resp.Header.Del(h)
 			}
+			// The API chooses its own browser caching (the estimates are "private, no-cache" with an
+			// ETag), but nothing it answers may reach a shared cache, and a missing or public value
+			// from a misbehaving upstream must not either.
+			if cc := strings.ToLower(resp.Header.Get("Cache-Control")); cc == "" || strings.Contains(cc, "public") {
+				resp.Header.Set("Cache-Control", "no-store")
+			}
+			resp.Header.Set("CDN-Cache-Control", "no-store")
+			resp.Header.Set("Surrogate-Control", "no-store")
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Error().Err(err).Msg("the API upstream failed")
+			edge.NoStore(w.Header()) // the mux removed the header the proxy would have replaced
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the API is temporarily unavailable"})
 		},
 	}

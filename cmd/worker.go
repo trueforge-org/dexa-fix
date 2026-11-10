@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -55,7 +58,7 @@ job to exactly one.`,
 		if v, _ := cmd.Flags().GetString("providers"); v != "" {
 			names = strings.Split(v, ",")
 		}
-		for _, name := range []string{"DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY", "DEXAFIX_ENCRYPTION_KEY_FILE", "DEXAFIX_SERVICE_SECRET_FILE"} {
+		for _, name := range []string{"DEXAFIX_DSN_FILE", "DEXAFIX_ENCRYPTION_KEY", "DEXAFIX_ENCRYPTION_KEY_FILE", "DEXAFIX_SERVICE_SECRET_FILE", "DEXAFIX_VALKEY_URL", "DEXAFIX_VALKEY_URL_FILE"} {
 			if os.Getenv(name) != "" {
 				log.Warn().Str("variable", name).Msg("ignored: a worker has no database, no keys and no service secret")
 			}
@@ -79,6 +82,17 @@ job to exactly one.`,
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		healthErr := make(chan error, 1)
+		health, err := startHealth(cmd, func(context.Context) error { return r.Ready(workerReadyAge) }, healthErr)
+		if err != nil {
+			return err
+		}
+		defer shutdown(health)
+		go func() { // a health listener that dies is logged; the worker itself carries on
+			if err := <-healthErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error().Err(err).Msg("the health listener stopped")
+			}
+		}()
 		log.Info().Str("backend", backend).Str("id", r.ID()).Int("concurrency", concurrency).Msg("running the worker")
 		if err := r.Run(ctx); err != nil {
 			return fmt.Errorf("worker: %w", err)
@@ -87,6 +101,11 @@ job to exactly one.`,
 	},
 }
 
+// workerReadyAge is how long a worker may go without an answer from the api process and still be
+// ready. It is the time the api process counts a silent worker as running (90 s); a worker that waits
+// for a job asks again every 25 s, so a longer silence means the link or the api process is down.
+const workerReadyAge = 90 * time.Second
+
 func init() {
 	serveWorkerCmd.Flags().String("backend-url", envOr("DEXAFIX_BACKEND_URL", ""), "internal address of the api process, such as http://api:8081")
 	addWorkerSecretFlag(serveWorkerCmd, "file with the secret the api process and its workers share, one per line (the first is the one sent); create one with `dexa-fix secrets worker-secret`")
@@ -94,5 +113,6 @@ func init() {
 	serveWorkerCmd.Flags().Int("concurrency", envInt("DEXAFIX_WORKER_CONCURRENCY", 2), "jobs this process runs at once (1-64)")
 	serveWorkerCmd.Flags().String("worker-id", envOr("DEXAFIX_WORKER_ID", ""), "name of this worker in the Admin page (default: random)")
 	addBackendTLSFlags(serveWorkerCmd)
+	addHealthFlag(serveWorkerCmd)
 	serveCmd.AddCommand(serveWorkerCmd)
 }

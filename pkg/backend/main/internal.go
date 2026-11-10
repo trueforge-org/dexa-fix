@@ -187,6 +187,7 @@ func (s *Backend) internalRoutes(mux *http.ServeMux) {
 	s.internalAdminRoutes(mux)
 	s.internalIntegrationRoutes(mux)
 	s.internalAdminWorkerRoutes(mux)
+	s.internalStatusRoutes(mux)
 }
 
 // ---- the frontend side ----

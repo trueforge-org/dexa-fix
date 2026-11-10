@@ -611,7 +611,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 // the others are asked for an address at their next sign-in.
 func (s *Store) backfillEmails(ctx context.Context, tx bun.Tx) error {
 	var users []userRow
-	if err := tx.NewSelect().Model(&users).OrderExpr("id").Scan(ctx); err != nil {
+	if err := tx.NewSelect().Model(&users).OrderExpr("created_at, id").Scan(ctx); err != nil {
 		return err
 	}
 	seen := map[string]bool{}

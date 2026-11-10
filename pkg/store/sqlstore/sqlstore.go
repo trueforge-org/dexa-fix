@@ -4,12 +4,15 @@ package sqlstore
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
@@ -281,9 +284,70 @@ func sqliteDSN(dsn string) string {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Ping checks that the database answers. It is defined here and not promoted from the BodyStore,
+// which is nil in a store opened WithoutBody.
+func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
 func now() time.Time { return time.Now().UTC() }
 
 // ---- users ----
+
+// Ids are below 2^53, so an id stays exact as a JSON number and in JavaScript. Ids start at 1; 0
+// means "nobody" to the body service.
+// newUserID returns a uniformly random user id in [1, 2^53). Ids are random instead of counted so
+// that nobody can guess another user's id or tell how many users there are.
+func newUserID() (int64, error) {
+	var b [8]byte
+	for {
+		if _, err := crand.Read(b[:]); err != nil {
+			return 0, err
+		}
+		// 53 random bits, rejecting 0, so every id is equally likely.
+		if id := int64(binary.BigEndian.Uint64(b[:]) >> 11); id > 0 {
+			return id, nil
+		}
+	}
+}
+
+// userIDSource makes the ids; tests replace it to force collisions.
+var userIDSource = newUserID
+
+// sequentialUserIDs is only for tests, which read better with the ids 1, 2, 3.
+var sequentialUserIDs atomic.Bool
+
+// SequentialUserIDsForTests makes new users get the ids 1, 2, 3... instead of random ones. Call it
+// from TestMain of a test binary, never from production code: random ids are a defence.
+func SequentialUserIDsForTests() { sequentialUserIDs.Store(true) }
+
+// SetSequentialUserIDsForTests turns the sequential ids of SequentialUserIDsForTests on or off, for
+// the test that wants random ids in a binary that otherwise uses counted ones.
+func SetSequentialUserIDsForTests(on bool) { sequentialUserIDs.Store(on) }
+
+// freeUserID picks a random id that no user has yet. A collision is 1 in 10^15 for a store of
+// millions of users, so a few tries are plenty.
+func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
+	if sequentialUserIDs.Load() {
+		var max sql.NullInt64
+		if err := tx.NewSelect().Model((*userRow)(nil)).ColumnExpr("MAX(id)").Scan(ctx, &max); err != nil {
+			return 0, err
+		}
+		return max.Int64 + 1, nil
+	}
+	for range 5 {
+		id, err := userIDSource()
+		if err != nil {
+			return 0, err
+		}
+		taken, err := tx.NewSelect().Model((*userRow)(nil)).Where("id = ?", id).Exists(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if !taken {
+			return id, nil
+		}
+	}
+	return 0, errors.New("could not find a free user id")
+}
 
 func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
 	return s.createUser(ctx, name, "", nil)
@@ -306,7 +370,11 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if err != nil {
 			return err
 		}
-		row = userRow{Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
+		uid, err := s.freeUserID(ctx, tx)
+		if err != nil {
+			return err
+		}
+		row = userRow{ID: uid, Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}

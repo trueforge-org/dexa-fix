@@ -46,6 +46,30 @@ func New(base string, hc *http.Client, secret string, signer *Signer) (*Client, 
 	return &Client{base: u, hc: hc, secret: secret, signer: signer, now: time.Now}, nil
 }
 
+// Health asks the service whether it is up. Its /healthz needs no secret or token, so a wrong secret
+// or key shows up on the first real call, not here.
+func (c *Client) Health(ctx context.Context) error {
+	u := *c.base
+	u.Path = c.base.Path + Prefix + "/healthz"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return &Error{Status: http.StatusServiceUnavailable, Code: CodeUnavailable, Message: "the body service cannot be reached"}
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return &Error{Status: resp.StatusCode, Code: CodeUnavailable, Message: fmt.Sprintf("the body service answered %d", resp.StatusCode)}
+	}
+	return nil
+}
+
 // call makes one request. in is sent as JSON when not nil; a successful answer is decoded into out
 // when that is not nil. It returns the response so a caller can read headers; the body is closed.
 func (c *Client) call(ctx context.Context, method, path string, q url.Values, subject int64, scope Scope, params *EstimateParams, header http.Header, in, out any) (*http.Response, error) {

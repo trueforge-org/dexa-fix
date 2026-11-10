@@ -36,6 +36,10 @@ func staticHandler(fsys fs.FS, versions map[string]string) http.Handler {
 	files := http.StripPrefix("/static/", http.FileServerFS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/static/")
+		if name == "" || strings.HasSuffix(name, "/") {
+			http.NotFound(w, r) // no directory listings
+			return
+		}
 		if v, ok := versions[name]; ok {
 			w.Header().Set("ETag", `"`+v+`"`)
 			if r.URL.Query().Get("v") == v {

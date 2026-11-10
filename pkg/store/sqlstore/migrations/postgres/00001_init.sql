@@ -1,6 +1,7 @@
 -- +goose Up
 CREATE TABLE users (
-  id BIGSERIAL PRIMARY KEY,
+  -- Random, not sequential (see newUserID), so that ids cannot be guessed or counted.
+  id BIGINT PRIMARY KEY,
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL,
   athlete_default BOOLEAN NOT NULL DEFAULT FALSE,

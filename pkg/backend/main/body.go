@@ -25,6 +25,9 @@ func WithBody(c *bodyapi.Client) Option { return func(s *Backend) { s.body = bod
 // the service's errors into the ones the handlers already understand.
 type bodyService struct{ c *bodyapi.Client }
 
+// health asks the service whether it is up.
+func (b bodyService) health(ctx context.Context) error { return b.c.Health(ctx) }
+
 func (b bodyService) subject(u models.User) bodyapi.Subject {
 	return bodyapi.Subject{ID: u.ID, Params: bodyapi.EstimateParams{
 		Timezone: u.Timezone, Ranking: u.MethodRanking, AthleteDefault: u.AthleteDefault, HeightCm: u.HeightCm,

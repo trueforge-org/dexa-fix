@@ -1,6 +1,7 @@
 -- +goose Up
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Random, not sequential (see newUserID), so that ids cannot be guessed or counted.
+  id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL,
   athlete_default INTEGER NOT NULL DEFAULT 0,

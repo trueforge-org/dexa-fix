@@ -51,9 +51,9 @@ user's data. The two processes need clocks within a few seconds of each other.
 ## Start it
 
 The recommended way is the
-[Compose example](15-split-deployment.md#compose-example): `deploy/init-secrets.sh`
-creates everything below and `deploy/initdb/` creates the PostgreSQL role and
-schema. To run it by hand, make the secrets first. All of them are files:
+[recommended deployment](15-split-deployment.md#the-recommended-deployment-deploy):
+its `init` container (`dexa-fix secrets init`) creates everything below, including the
+certificates, and `deploy/postgres/initdb/` creates the PostgreSQL roles and schema. To run it by hand, make the secrets first. All of them are files:
 
 ```bash
 dexa-fix secrets body-secret > body.secret && chmod 600 body.secret
@@ -95,7 +95,7 @@ the api process can reach. All flags are in [Configuration](02-configuration.md)
 ### PostgreSQL role and schema
 
 The Compose example creates them when the database is first created
-(`deploy/initdb/01-body-database.sh`, which needs `body_db_password`). For a
+(`deploy/postgres/initdb/01-roles.sh`, which needs `body_db_password`). For a
 database that already exists, run this once as the database owner, with your
 own password:
 

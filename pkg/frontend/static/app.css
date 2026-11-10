@@ -14,6 +14,8 @@
   --err: #b42318;
   --err-soft: #fdecea;
   --ok-soft: #e0f3f0;
+  --warn: #8a5a00;
+  --warn-soft: #fdf3dc;
   --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 4px 16px rgb(16 24 40 / 5%);
   --radius: 14px;
   --radius-sm: 9px;
@@ -35,6 +37,8 @@
     --err: #ff9a8f;
     --err-soft: #3a1e1c;
     --ok-soft: #123532;
+    --warn: #f5c76b;
+    --warn-soft: #3a2c10;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 20%);
   }
 }
@@ -311,6 +315,16 @@ form.measure.card > * + * { margin-top: 0; }
 }
 .error { background: var(--err-soft); color: var(--err); }
 .notice { background: var(--ok-soft); color: var(--fg); }
+
+/* The status page */
+.status-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .65rem; }
+.status-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .85rem; }
+.status-list small { color: var(--muted); }
+.state { min-width: 7.5rem; padding: .15rem .65rem; border-radius: 999px; font-size: .8rem; font-weight: 600; text-align: center; }
+.state-up { background: var(--ok-soft); color: var(--fg); }
+.state-degraded { background: var(--warn-soft); color: var(--warn); }
+.state-down { background: var(--err-soft); color: var(--err); }
+.state-off { background: var(--line); color: var(--muted); }
 
 .empty { padding: 2rem 1.25rem; color: var(--muted); text-align: center; }
 .empty p { margin: 0; }

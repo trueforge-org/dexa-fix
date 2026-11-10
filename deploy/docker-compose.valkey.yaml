@@ -1,0 +1,66 @@
+# OPTIONAL: keep the failed sign-in counters and the single-use values in Valkey instead of the
+# database. A flood of wrong passwords then costs the database nothing: without this each failed
+# attempt is a row written to PostgreSQL.
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.valkey.yaml up -d
+#
+# What changes:
+#   - a "valkey" container (ghcr.io/trueforge-org/valkey, ContainerForge) on a network of its own,
+#     "state", shared with the api container only. It needs a password (made by init).
+#   - the api container gets DEXAFIX_VALKEY_URL_FILE, and waits for Valkey to be healthy.
+#
+# It fails closed: while Valkey does not answer, nobody can sign in (every address counts as locked
+# out and every single-use value as spent), and /status shows it as down. Pages that need no sign-in
+# keep working. The data is on a volume (append-only file), so a restart keeps the counters; losing it
+# only forgets who failed lately.
+#
+# --maxmemory-policy noeviction is required: a counter that was evicted would let an attacker try
+# again, and a nonce that was evicted would let a one-time value be used twice. A full server refuses
+# writes instead, which fails closed. 256mb holds some millions of counters; raise it if /status
+# shows Valkey down with "OOM" in the api log.
+#
+# Documentation: docs/15-split-deployment.md#valkey
+
+services:
+  valkey:
+    image: ghcr.io/trueforge-org/valkey:9@sha256:bc2f4df96ee1e33d95b44fc0ca1ab8d1c561e4f3e0c58eebbb108e939662a561
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # The image takes the password from the environment only; reading it from the secret file here
+    # keeps it out of this file and out of `docker inspect`.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - export VALKEY_PASSWORD="$$(cat /run/secrets/valkey_password)"; exec /usr/bin/tini -- /entrypoint.sh "$$@"
+      - entrypoint
+    command: ["/start.sh", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    secrets: [valkey_password]
+    volumes:
+      - valkey-data:/config
+    networks: [state]
+    healthcheck:
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=\"$$(cat /run/secrets/valkey_password)\" valkey-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    environment:
+      DEXAFIX_VALKEY_URL_FILE: /secrets/api/valkey_url
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks: [state]
+
+networks:
+  state:
+    internal: true # the api and Valkey only
+
+volumes:
+  valkey-data: {}
+
+secrets:
+  valkey_password:
+    file: ./secrets/valkey_password

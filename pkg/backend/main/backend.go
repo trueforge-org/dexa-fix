@@ -96,16 +96,33 @@ type Backend struct {
 
 	auditNoise *auditNoise
 	proxy      edge.Proxy
-	limiter    *dbLimiter // failed sign-in attempts, counted in the database
-	nonces     nonceStore // sealed values that were already used, recorded in the database
-	noCertGen  bool       // do not generate or renew the self-signed certificate on our own
+	limiter    *failureLimiter // failed sign-in attempts, counted in the database or in Valkey
+	nonces     nonceStore      // sealed values that were already used, recorded in the database
+	noCertGen  bool            // do not generate or renew the self-signed certificate on our own
 
 	oidcMu    sync.Mutex
 	oidcCache map[string]*oidc.Provider
+
+	statusCache statusCache // the last answer of /status, kept for a few seconds
+	state       StateServer // the Valkey server of WithState, or nil: then the database holds the state
 }
 
 // Option changes how NewBackend builds a backend.
 type Option func(*Backend)
+
+// WithState keeps the failed-attempt counters and the single-use nonces on a server of their own
+// (Valkey) instead of in the database, so that a flood of wrong passwords costs the database
+// nothing. It fails closed like the database does: when the server does not answer, every address
+// counts as locked out and every nonce as spent. The server must not evict keys
+// (maxmemory-policy noeviction), or a counter or nonce could vanish and let an attacker try again or
+// replay a value. /status shows it, and Close of the backend does not close it: the caller owns it.
+func WithState(v StateServer) Option {
+	return func(s *Backend) {
+		s.limiter = newFailureLimiter(v)
+		s.nonces = spentNonces{v}
+		s.state = v
+	}
+}
 
 // WithoutCertificateGeneration makes the backend only load the stored self-signed certificate. It
 // never generates or renews one by itself (the maintenance backend does); only an administrator's
@@ -124,8 +141,8 @@ func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 		store:       st,
 		httpClient:  &http.Client{Timeout: providerTimeout},
 		oidcCache:   map[string]*oidc.Provider{},
-		limiter:     newDBLimiter(st),
-		nonces:      dbNonces{st},
+		limiter:     newFailureLimiter(st),
+		nonces:      spentNonces{st},
 		leasePolls:  make(chan struct{}, maxLeasePolls),
 		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
 		auditNoise:  newAuditNoise(),

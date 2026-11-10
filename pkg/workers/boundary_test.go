@@ -13,7 +13,7 @@ func TestWorkersDoNotDependOnTheDatabaseOrEitherSide(t *testing.T) {
 	const module = "github.com/trueforge-org/dexa-fix/"
 	forbidden := []string{
 		module + "pkg/frontend", module + "pkg/backend", module + "pkg/app", module + "pkg/store",
-		"database/sql", "github.com/uptrace/bun", "github.com/jackc/pgx", "modernc.org/sqlite", "github.com/pressly/goose",
+		"database/sql", "github.com/uptrace/bun", "github.com/jackc/pgx", "modernc.org/sqlite", "github.com/pressly/goose", "github.com/valkey-io",
 	}
 	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", "./...").Output()
 	if err != nil {

@@ -1,14 +1,16 @@
 # dexa-fix as separate containers and PostgreSQL: the recommended way to run it when it faces the
 # internet. A flood of requests on the web container cannot take down the api container, and the
-# database is reachable from the api container only. The workers are the only containers that talk
-# to Withings and Strength Level; they have no database and the api container needs no internet.
+# database is reachable from the api and body containers only. The workers are the only containers
+# that talk to Withings and Strength Level; they have no database and the api container needs no
+# internet. Every link between the containers is protected twice: by a secret and by mutual TLS.
 #
 #   internet --> web (pages, HTTP/HTTPS/HTTP3, no database)
-#                  |  internal network "link", authenticated with the service secret
+#                  |  internal network "link": service secret + mutual TLS
 #                  v
 #                api ("main backend": database, keys, every security decision, the job queue)
-#                  |  internal network "data"    |  internal network "bodylink"   ^  internal network "link",
-#                  |                             |  body secret + signed tokens   |  authenticated with the worker secret
+#                  |  internal network "data"    |  internal network "bodylink"   ^  internal network "link":
+#                  |                             |  body secret + signed tokens   |  worker secret + mutual TLS
+#                  |                             |  + mutual TLS                  |
 #                  |                             v                                |
 #                  |                          body (scale readings, DEXA scans,   worker-withings, worker-strengthlevel
 #                  |                          estimates; own role, schema, key)   (no database)
@@ -17,18 +19,30 @@
 #                                                                       Withings, Strength Level
 #
 # Start:
-#   ./init-secrets.sh        # once: creates ./secrets (database passwords, encryption keys, the service, worker and body secrets, the token key pair)
+#   docker compose run --rm init   # once: creates ./secrets (see below). Compose needs those files to exist.
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
-# Back up ./secrets/encryption_key and ./secrets/body_encryption_key together with the database:
-# encrypted values (stored passwords, keys, tokens, the readings and scans) cannot be read without them.
+# The "init" container makes every secret and certificate (it is `dexa-fix secrets init`) and runs
+# again at every `docker compose up`:
+#   ./secrets/               passwords, connection strings and the two encryption keys, created only
+#                            when missing and never replaced. BACK UP encryption_key and
+#                            body_encryption_key together with the database: without them the encrypted
+#                            values (stored passwords, keys, tokens, the readings and scans) cannot be
+#                            read. The directory is private to root; read it with sudo.
+#   volumes secrets-api, -web, -worker, -body
+#                            what each container needs and nothing more: the shared secrets (kept once)
+#                            and the mutual TLS certificates (new at every run, valid 397 days). The
+#                            containers read changed certificates again within 30 seconds.
 #
 # The scale readings and DEXA scans are held by the body container, in the PostgreSQL schema "body"
 # with a role and an encryption key of their own: the api cannot read them except by asking the body
-# container, and the body container cannot read the users or the sessions. ./initdb/ creates the role
-# and the schema when the database is first created; see docs/17-body-service.md for a database that
-# already exists.
+# container, and the body container cannot read the users or the sessions. ./postgres/initdb creates
+# the roles and the schema when the database is first created; see docs/17-body-service.md for a
+# database that already exists.
+#
+# The database image is ghcr.io/trueforge-org/postgresql (ContainerForge). It runs as uid 568, keeps
+# its data in /config/18 and upgrades the data of the previous major version by itself.
 #
 # Pin the version for production, for example DEXAFIX_VERSION=1.2.3 in a .env file next to this file.
 # All containers must run the same version.
@@ -36,34 +50,85 @@
 
 name: dexa-fix
 
+x-image: &image ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+
 x-hardened: &hardened
   restart: unless-stopped
   read_only: true
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
 
+# The images are `scratch` (no shell, no curl), so the checks run `dexa-fix healthcheck` in the
+# container itself. api, body and the workers answer on a small listener of their own on the
+# loopback address (--health-listen): their real listeners need a secret or a client certificate.
+# /readyz means "can do its work": the database answers (api, body), or the api answers (workers).
+x-health: &health
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+# Every container that reads secrets waits for init, so it never starts with old certificates.
+x-after-init: &after-init
+  init:
+    condition: service_completed_successfully
+
 services:
-  db:
-    image: postgres:18
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: dexafix
-      POSTGRES_DB: dexafix
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-    secrets: [db_password, body_db_password]
+  # Makes the secrets and certificates, then exits. It needs no network. It runs as root with two
+  # capabilities only: to write ./secrets (owned by root) and to hand the files in the volumes to the
+  # unprivileged user (65532) of the other containers.
+  init:
+    image: *image
+    restart: "no"
+    read_only: true
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
+    command:
+      - secrets
+      - init
+      - --host-dir=/secrets/host
+      - --api-dir=/secrets/api
+      - --web-dir=/secrets/web
+      - --worker-dir=/secrets/worker
+      - --body-dir=/secrets/body
+      - --chown=65532:65532
     volumes:
-      - db-data:/var/lib/postgresql # PostgreSQL 18 keeps its data below this directory
-      - ./initdb:/docker-entrypoint-initdb.d:ro # the role and schema of the body service, on first start
+      - ./secrets:/secrets/host
+      - secrets-api:/secrets/api
+      - secrets-web:/secrets/web
+      - secrets-worker:/secrets/worker
+      - secrets-body:/secrets/body
+
+  db:
+    image: ghcr.io/trueforge-org/postgresql:18@sha256:ebc55059b971628b4db5105c28558e53693709eb65879015701848052c0c2106
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # The image takes the superuser's password from the environment only. Reading it from the secret
+    # file here keeps it out of this file and out of `docker inspect`.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - export POSTGRES_PASSWORD="$$(cat /run/secrets/db_admin_password)"; exec /usr/bin/tini -- /entrypoint.sh "$$@"
+      - entrypoint
+    command: ["postgres", "-c", "unix_socket_directories=/tmp"]
+    secrets: [db_admin_password, db_password, body_db_password]
+    volumes:
+      - db-data:/config # the data directory is /config/18
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro # the roles and the schema, on first start
     networks: [data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dexafix -d dexafix"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U dexafix -d dexafix"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   api:
     <<: *hardened
-    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    image: *image
     # --listen= turns the public JSON API (/api/v1) off: the pages do not use it, and the less is
     # exposed the better. To offer it to scripts and apps, remove the flag, publish port 8080 of
     # this service behind your reverse proxy (route /api/ to it) or set DEXAFIX_API_UPSTREAM on web.
@@ -72,58 +137,94 @@ services:
       DEXAFIX_DB_DRIVER: postgres
       DEXAFIX_DSN_FILE: /run/secrets/dsn
       DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
-      DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
-      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
+      DEXAFIX_SERVICE_SECRET_FILE: /secrets/api/service_secret
+      DEXAFIX_WORKER_SECRET_FILE: /secrets/api/worker_secret
       DEXAFIX_INTERNAL_LISTEN: ":8081"
+      DEXAFIX_HEALTH_LISTEN: "127.0.0.1:8083"
+      # Mutual TLS for web and the workers: only a client certificate from init's CA gets in.
+      DEXAFIX_INTERNAL_TLS_CERT_FILE: /secrets/api/mtls_cert
+      DEXAFIX_INTERNAL_TLS_KEY_FILE: /secrets/api/mtls_key
+      DEXAFIX_INTERNAL_TLS_CLIENT_CA_FILE: /secrets/api/mtls_ca
       # The scans, readings and estimates are the body container's. The api signs a short-lived
-      # token for every call with the private key; the body secret is the second proof.
-      DEXAFIX_BODY_URL: http://body:8082
-      DEXAFIX_BODY_SECRET_FILE: /run/secrets/body_secret
-      DEXAFIX_BODY_TOKEN_KEY_FILE: /run/secrets/body_token_key
+      # token for every call with the private key; the body secret and mutual TLS are two more proofs.
+      DEXAFIX_BODY_URL: https://body:8082
+      DEXAFIX_BODY_SECRET_FILE: /secrets/api/body_secret
+      DEXAFIX_BODY_TOKEN_KEY_FILE: /secrets/api/body_token_key
+      DEXAFIX_BODY_CA_FILE: /secrets/api/body_mtls_ca
+      DEXAFIX_BODY_CLIENT_CERT_FILE: /secrets/api/body_mtls_cert
+      DEXAFIX_BODY_CLIENT_KEY_FILE: /secrets/api/body_mtls_key
       # With several api containers on the same database run the maintenance loop (audit log
       # purge, certificate renewal, the job sweeps and the scheduler) in one of them only:
       # DEXAFIX_MAINTENANCE: "false" on the rest.
-    secrets: [dsn, encryption_key, service_secret, worker_secret, body_secret, body_token_key]
+    secrets: [dsn, encryption_key]
+    volumes:
+      - secrets-api:/secrets/api:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
+      <<: *after-init
       db:
         condition: service_healthy
       body:
-        condition: service_started
+        condition: service_healthy
     networks: [data, link, bodylink]
 
   # The body service: scale readings, DEXA scans (encrypted with a key of its own) and the
   # estimates computed from them. It knows nothing about people: it trusts the signed tokens of the
   # api and holds only the public key, so it can check them but never make one. Its database role
-  # sees the schema "body" and nothing else. Only the api can reach it (network "bodylink").
+  # sees the schema "body" and nothing else. Only the api can reach it (network "bodylink"), and only
+  # with the api's client certificate.
   body:
     <<: *hardened
-    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    image: *image
     command: ["serve", "body"]
     environment:
       DEXAFIX_DB_DRIVER: postgres
       DEXAFIX_DSN_FILE: /run/secrets/body_dsn
       DEXAFIX_ENCRYPTION_KEY_FILE: /run/secrets/body_encryption_key
-      DEXAFIX_BODY_SECRET_FILE: /run/secrets/body_secret
-      DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE: /run/secrets/body_token_pub
+      DEXAFIX_BODY_SECRET_FILE: /secrets/body/body_secret
+      DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE: /secrets/body/body_token_pub
       DEXAFIX_BODY_LISTEN: ":8082"
-    secrets: [body_dsn, body_encryption_key, body_secret, body_token_pub]
+      DEXAFIX_HEALTH_LISTEN: "127.0.0.1:8083"
+      DEXAFIX_BODY_TLS_CERT_FILE: /secrets/body/mtls_cert
+      DEXAFIX_BODY_TLS_KEY_FILE: /secrets/body/mtls_key
+      DEXAFIX_BODY_TLS_CLIENT_CA_FILE: /secrets/body/mtls_ca
+    secrets: [body_dsn, body_encryption_key]
+    volumes:
+      - secrets-body:/secrets/body:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
     depends_on:
+      <<: *after-init
       db:
         condition: service_healthy
     networks: [data, bodylink]
 
   web:
     <<: *hardened
-    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    image: *image
     command: ["serve", "web"]
     environment:
-      DEXAFIX_BACKEND_URL: http://api:8081
-      DEXAFIX_SERVICE_SECRET_FILE: /run/secrets/service_secret
+      DEXAFIX_BACKEND_URL: https://api:8081
+      DEXAFIX_SERVICE_SECRET_FILE: /secrets/web/service_secret
+      DEXAFIX_BACKEND_CA_FILE: /secrets/web/mtls_ca
+      DEXAFIX_BACKEND_CLIENT_CERT_FILE: /secrets/web/mtls_cert
+      DEXAFIX_BACKEND_CLIENT_KEY_FILE: /secrets/web/mtls_key
       # To pass /api/ on to the api container (it must listen on :8080 then, see above) when no
       # reverse proxy routes by path:
       # DEXAFIX_API_UPSTREAM: http://api:8080
-    secrets: [service_secret]
-    depends_on: [api]
+    volumes:
+      - secrets-web:/secrets/web:ro
+    healthcheck:
+      <<: *health
+      # /readyz asks the api process through the mutual TLS link, so it also proves the link works.
+      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8080/readyz"]
+    depends_on:
+      <<: *after-init
+      api:
+        condition: service_healthy
     ports:
       - "8080:8080" # plain HTTP, for your reverse proxy or for trying it out
       # HTTPS and HTTP/3 are set up on the Admin page and served by this container, 8443 by default:
@@ -136,32 +237,49 @@ services:
   # container hands every job to exactly one. A worker has no database and no encryption key; it
   # gets a user's credentials only inside the job it works on. Which providers a worker runs is
   # chosen here (--providers); everything else (time limits, retries, pauses, priorities) is on the
-  # Admin page, under Workers.
+  # Admin page, under Workers. The workers use the web container's client certificate: it proves the
+  # link, and the worker secret proves the role.
   worker-withings:
     <<: *hardened
-    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    image: *image
     command: ["serve", "worker", "--providers", "withings"]
-    environment:
-      DEXAFIX_BACKEND_URL: http://api:8081
-      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
-    secrets: [worker_secret]
-    depends_on: [api]
+    environment: &worker-env
+      DEXAFIX_BACKEND_URL: https://api:8081
+      DEXAFIX_WORKER_SECRET_FILE: /secrets/worker/worker_secret
+      DEXAFIX_HEALTH_LISTEN: "127.0.0.1:8083"
+      DEXAFIX_BACKEND_CA_FILE: /secrets/worker/mtls_ca
+      DEXAFIX_BACKEND_CLIENT_CERT_FILE: /secrets/worker/mtls_cert
+      DEXAFIX_BACKEND_CLIENT_KEY_FILE: /secrets/worker/mtls_key
+    volumes:
+      - secrets-worker:/secrets/worker:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+    depends_on:
+      <<: *after-init
+      api:
+        condition: service_healthy
     networks: [link, egress]
 
   worker-strengthlevel:
     <<: *hardened
-    image: ${DEXAFIX_IMAGE:-ghcr.io/trueforge-org/dexa-fix}:${DEXAFIX_VERSION:-latest}
+    image: *image
     command: ["serve", "worker", "--providers", "strengthlevel"]
-    environment:
-      DEXAFIX_BACKEND_URL: http://api:8081
-      DEXAFIX_WORKER_SECRET_FILE: /run/secrets/worker_secret
-    secrets: [worker_secret]
-    depends_on: [api]
+    environment: *worker-env
+    volumes:
+      - secrets-worker:/secrets/worker:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/dexa-fix", "healthcheck", "http://127.0.0.1:8083/readyz"]
+    depends_on:
+      <<: *after-init
+      api:
+        condition: service_healthy
     networks: [link, egress]
 
 networks:
   data:
-    internal: true # the database has no way out and no way in except through api
+    internal: true # the database has no way out and no way in except through api and body
   link:
     internal: true # web, workers and api talk here; nothing else can reach api's internal port
   bodylink:
@@ -171,71 +289,27 @@ networks:
 
 volumes:
   db-data: {}
+  # Filled by init, one per container, so a container can read only its own secrets.
+  secrets-api: {}
+  secrets-web: {}
+  secrets-worker: {}
+  secrets-body: {}
 
-# Files created by ./init-secrets.sh. They are mounted read-only into the containers that need them.
+# Files that init keeps in ./secrets. They are mounted read-only, file by file, into the containers
+# that need them. `docker compose run --rm init` once before the first `up`: Compose creates every
+# container before it starts any, so these files must exist by then.
 secrets:
+  db_admin_password:
+    file: ./secrets/db_admin_password
   db_password:
     file: ./secrets/db_password
   dsn:
     file: ./secrets/dsn
   encryption_key:
     file: ./secrets/encryption_key
-  service_secret:
-    file: ./secrets/service_secret
-  worker_secret:
-    file: ./secrets/worker_secret
   body_db_password:
     file: ./secrets/body_db_password
   body_dsn:
     file: ./secrets/body_dsn
   body_encryption_key:
     file: ./secrets/body_encryption_key
-  body_secret:
-    file: ./secrets/body_secret
-  body_token_key:
-    file: ./secrets/body_token_key
-  body_token_pub:
-    file: ./secrets/body_token_pub
-
-# OPTIONAL: mutual TLS between web and api (docs/15-split-deployment.md#mutual-tls-between-web-and-api).
-# Without it the internal link is protected by the service secret alone. Leave this block commented
-# out to keep that. To turn mTLS on:
-#
-# 1. Create the certificates once, with the image. The image runs as uid 65532, which cannot write
-#    into ./secrets (it belongs to you, mode 0700), so run the command as your own user:
-#      docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/secrets:/out" \
-#        ghcr.io/trueforge-org/dexa-fix:<tag> secrets mtls --dir /out/mtls --name api
-#    "--name api" is the service name that web reaches as api:8081. Add --name for other names.
-#    Then make the keys readable by the containers, as init-secrets.sh does for the other secrets
-#    (the directory ./secrets/mtls stays private on the host):
-#      chmod 444 secrets/mtls/*.key
-#
-# 2. In the api service, add these lines to its environment (uncomment them, keeping the
-#    indentation), and replace its secrets line with the one below:
-#      DEXAFIX_INTERNAL_TLS_CERT_FILE: /run/secrets/mtls_api_cert
-#      DEXAFIX_INTERNAL_TLS_KEY_FILE: /run/secrets/mtls_api_key
-#      DEXAFIX_INTERNAL_TLS_CLIENT_CA_FILE: /run/secrets/mtls_ca
-#    secrets: [dsn, encryption_key, service_secret, mtls_ca, mtls_api_cert, mtls_api_key]
-#
-# 3. In the web service, replace the DEXAFIX_BACKEND_URL line with the https one, add the other
-#    lines to its environment, and replace its secrets line with the one below:
-#      DEXAFIX_BACKEND_URL: https://api:8081
-#      DEXAFIX_BACKEND_CA_FILE: /run/secrets/mtls_ca
-#      DEXAFIX_BACKEND_CLIENT_CERT_FILE: /run/secrets/mtls_web_cert
-#      DEXAFIX_BACKEND_CLIENT_KEY_FILE: /run/secrets/mtls_web_key
-#    secrets: [service_secret, mtls_ca, mtls_web_cert, mtls_web_key]
-#    The workers connect to the same internal listener, so each worker service needs the same four
-#    lines (with secrets: [worker_secret, mtls_ca, mtls_web_cert, mtls_web_key]); the client
-#    certificate proves the link, the worker secret proves the role.
-#
-# 4. Add the new files to the top-level secrets block:
-#  mtls_ca:
-#    file: ./secrets/mtls/ca.pem
-#  mtls_api_cert:
-#    file: ./secrets/mtls/api.pem
-#  mtls_api_key:
-#    file: ./secrets/mtls/api.key
-#  mtls_web_cert:
-#    file: ./secrets/mtls/web.pem
-#  mtls_web_key:
-#    file: ./secrets/mtls/web.key

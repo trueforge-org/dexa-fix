@@ -31,6 +31,10 @@ description: "Rules for the command line and process wiring: flags and environme
 
 `serveCmd` has `Args: cobra.NoArgs` so that a typo (`serve wbe`) cannot start the combined server.
 
+## Health
+
+`serve api`, `serve body` and `serve worker` take `--health-listen` (`cmd/health.go`): a listener that answers `/healthz` and `/readyz` only, off unless set, for the container health check `dexa-fix healthcheck <url>` (the image has no shell). Its readiness is a function the command passes in (`srv.Ready`, the store's `Ping`, `runner.Ready`); a reason goes to the debug log, never to the answer. A new process type gets the flag and a test.
+
 ## The body service flags
 
 `bodyClient` (`cmd/body.go`) validates the `--body-*` client flags: without `--body-url` any of the others is an error; with it the secret and the signing key are required, `https://` needs the three TLS files and `http://` refuses them. The management commands (`db`, `user`, `settings`) open the main database through `dbOptions`, which adds `sqlstore.WithoutBody` for `--without-body`: a new command that opens the main database must use it, or on a deployment with a body service it creates empty body tables there. `db rekey --body` and `serve body` use `loadCipherFor` with `HasEncryptedBodyValues`. Tests that set flags on the shared commands must reset them with `t.Cleanup` (cobra keeps flag values between runs).

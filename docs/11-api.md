@@ -58,24 +58,25 @@ the default order.
 
 ```bash
 export DEXAFIX_TOKEN=dxf_...   # personal access token from Settings
+export DEXAFIX_USER=...        # your user id: the number in the address of your pages, /u/<id>/
 
 curl -s -X POST localhost:8080/api/v1/users \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name": "Alice", "email": "alice@example.com"}'
 
-curl -s -X POST localhost:8080/api/v1/users/1/dexa-scans \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"measured_at": "2026-03-01T08:00:00Z", "weight_kg": 80.0}'
 
-curl -s -X POST localhost:8080/api/v1/users/1/scale-readings \
+curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/scale-readings \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '[{"measured_at": "2026-03-01T07:00:00Z", "weight_kg": 82.0}]'
 
 curl -s -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  localhost:8080/api/v1/users/1/estimates
+  localhost:8080/api/v1/users/$DEXAFIX_USER/estimates
 ```
 
 ## Authentication
@@ -93,7 +94,7 @@ Send one of these with each request:
   on:
 
   ```bash
-  curl -s -u you@example.com:password localhost:8080/api/v1/users/1/estimates
+  curl -s -u you@example.com:password localhost:8080/api/v1/users/$DEXAFIX_USER/estimates
   ```
 
   This is refused for an account with two-step verification on, or required by
@@ -109,9 +110,9 @@ A user can reach only their own `/users/{id}/...` routes. Other ids answer 404.
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/import/withings?since=2026-01-01T00:00:00Z'
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/import/withings?since=2026-01-01T00:00:00Z'
 curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
-  'localhost:8080/api/v1/users/1/import/withings?day=2026-03-01'
+  'localhost:8080/api/v1/users/$DEXAFIX_USER/import/withings?day=2026-03-01'
 ```
 
 - `since` is an RFC 3339 timestamp. It limits a bulk import to measurements at

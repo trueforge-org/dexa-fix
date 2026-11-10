@@ -5,8 +5,10 @@
 # instead of `docker exec`. Pinned by digest; the docker Dependabot ecosystem keeps it current.
 
 # Build-only helper stage: creates the /data directory with the right owner (scratch has no mkdir/chown).
+# /secrets/<process> are the mount points of the volumes `secrets init` fills (deploy/): a new named
+# volume copies the owner of its mount point, so the processes can read what init puts there.
 FROM --platform=$BUILDPLATFORM busybox:1.37-musl@sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478 AS data
-RUN mkdir -p /out/data
+RUN mkdir -p /out/data /out/secrets/api /out/secrets/web /out/secrets/worker /out/secrets/body
 
 FROM scratch
 
@@ -15,6 +17,7 @@ COPY dexa-fix /dexa-fix
 # The app runs as uid/gid 65532. The /data volume must be writable by that user: with a bind mount
 # run `chown 65532:65532 <dir>`; named volumes copy the image ownership.
 COPY --from=data --chown=65532:65532 /out/data /data
+COPY --from=data --chown=65532:65532 /out/secrets /secrets
 USER 65532:65532
 WORKDIR /data
 VOLUME /data

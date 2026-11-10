@@ -307,3 +307,36 @@ func TestRunnerNeedsHandlers(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+// Ready is what a worker's health check asks: registered, and in contact with the backend lately.
+func TestRunnerReady(t *testing.T) {
+	_, c := newFake(t, "x.kind")
+	r := New(c, Options{ID: "w1", Concurrency: 1, Poll: 50 * time.Millisecond, ConfigEvery: time.Hour})
+	r.Handle("x.kind", func(context.Context, *Job) (any, error) { return nil, nil })
+	if err := r.Ready(time.Minute); err == nil {
+		t.Fatal("a worker that has not registered is not ready")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); r.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	deadline := time.Now().Add(5 * time.Second)
+	for r.Ready(time.Minute) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the worker never became ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// It keeps asking for work, so it stays in contact; a limit shorter than the silence fails.
+	time.Sleep(120 * time.Millisecond)
+	if err := r.Ready(time.Second); err != nil {
+		t.Errorf("a worker that keeps asking for work must stay ready: %v", err)
+	}
+	cancel()
+	<-done
+	time.Sleep(60 * time.Millisecond)
+	if err := r.Ready(30 * time.Millisecond); err == nil {
+		t.Error("a worker that heard nothing for longer than the limit is not ready")
+	}
+}

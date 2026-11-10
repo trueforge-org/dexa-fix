@@ -250,8 +250,12 @@ dexa-fix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/
 		if tlsConfig != nil {
 			wrap = func(l net.Listener) net.Listener { return tls.NewListener(l, tlsConfig) }
 		}
-		errCh := make(chan error, 1)
+		errCh := make(chan error, 2)
 		if err := listenAndServe(srv, wrap, errCh); err != nil {
+			return err
+		}
+		health, err := startHealth(cmd, st.Ping, errCh)
+		if err != nil {
 			return err
 		}
 		log.Info().Str("listen", listen).Str("db", driver).Bool("mutual_tls", tlsConfig != nil).Int("trusted_keys", len(pubs)).Msg("serving the body service")
@@ -259,7 +263,7 @@ dexa-fix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
-			return shutdown(srv)
+			return shutdown(srv, health)
 		}
 	},
 }
@@ -326,6 +330,7 @@ func init() {
 	addBodySecretFlag(serveBodyCmd, "file with the secret the api process and this service share, one per line (every line is accepted); create one with `dexa-fix secrets body-secret`")
 	serveBodyCmd.Flags().String("body-token-public-key-file", envOr("DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE", ""), "file with the public key(s) of the api process's token signing key, one per line; create one with `dexa-fix secrets body-token-public`")
 	addBodyServerTLSFlags(serveBodyCmd)
+	addHealthFlag(serveBodyCmd)
 	addDBFlags(serveBodyCmd)
 	serveBodyCmd.Flags().Bool("auto-migrate", envOr("DEXAFIX_AUTO_MIGRATE", "true") != "false", "apply pending database migrations on startup (otherwise fail if any are pending)")
 	addKeyFlags(serveBodyCmd)

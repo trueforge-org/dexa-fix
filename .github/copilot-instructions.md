@@ -19,7 +19,7 @@ dexa-fix is one Go binary that corrects smart-scale readings with DEXA scans. It
 - Keep changes minimal and within the requested area.
 - The frontend never imports the backend, the store, a database library, `go-oidc` or `go-webauthn` (tests enforce it). Data comes through `pkg/shared/apiclient` from an internal API endpoint.
 - The backend authorises and validates every request again and never trusts the frontend or a worker; it never imports the frontend, the workers or the body service. The body service never imports the backend. It never calls an outside service: it queues a job. Workers never import the backend, the store or a database library, and see a user's credentials only inside one job's lease.
-- State that must agree across processes (single-use nonces, failed-attempt counters, the job queue) lives in the database, not in memory. Security checks fail closed.
+- State that must agree across processes lives in the database, not in memory: the job queue always; single-use nonces and failed-attempt counters in the database or, with `--valkey-url` on `serve api`, in Valkey (`pkg/store/valkeystate`, never both). Security checks fail closed, with Valkey down nobody signs in. Sessions stay in the database.
 - Settings live on the Admin page (stored in the database), not in flags or environment variables. A flag is only for boot-critical things: addresses, database, key and secret files, backend URL, TLS files.
 - Secrets are never flag values or URL parts; flags take file paths. Do not log secrets, tokens or cookies.
 - No migration files before 1.0: edit `00001_init.sql` for both SQLite and PostgreSQL, in step.

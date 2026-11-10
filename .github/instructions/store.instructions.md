@@ -15,6 +15,10 @@ description: "Rules for the Store interface, the SQL implementation, migrations 
 - Add the table, its row type (`rows.go` or the file of the area) and the interface method together.
 - Existing databases are not migrated by this: say so in the PR when the change would break a database created by an earlier build.
 
+## User ids
+
+User ids are **random** integers in [1, 2^53), made by `newUserID` and checked for a collision in the transaction (`freeUserID`); there is no sequence. Do not assume the first user is 1 or that ids are ordered: sort by `created_at`. Tests that want 1, 2, 3 call `sqlstore.SequentialUserIDsForTests()` from `TestMain`. Other ids (scans, readings, tokens, audit) stay counted.
+
 ## Queries
 
 - Use bind placeholders (`?`); never build SQL from values. Identifiers come from code, not from requests.
@@ -36,7 +40,7 @@ Sensitive columns (settings values, secrets, TOTP seeds, tokens) go through the 
 
 ## Settings and counters
 
-`PutSetting` and `DeleteSetting` bump the settings generation in the same transaction; processes compare `SettingsGeneration` to know when to reload. Shared state tables (`used_nonces`, `auth_failures`) are purged by the backend's maintenance loop; so are finished jobs (`worker_jobs`, after the retention an administrator set) and workers not seen for a day (`worker_instances`).
+`PutSetting` and `DeleteSetting` bump the settings generation in the same transaction; processes compare `SettingsGeneration` to know when to reload. Shared state tables (`used_nonces`, `auth_failures`) are purged by the backend's maintenance loop (they stay empty when Valkey holds that state: `pkg/store/valkeystate` has the same methods with the same meaning, sliding-window counters as sorted sets and nonces as `SET NX PX`, and must keep them in step; the server needs `maxmemory-policy noeviction`); so are finished jobs (`worker_jobs`, after the retention an administrator set) and workers not seen for a day (`worker_instances`).
 
 ## The job queue
 

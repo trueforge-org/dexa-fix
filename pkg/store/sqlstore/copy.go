@@ -118,7 +118,7 @@ func Copy(ctx context.Context, src, dst *Store) (CopyStats, error) {
 		}
 		if dst.driver == DriverPostgres {
 			// Explicit ids do not advance the serial sequences; align them so new inserts do not collide.
-			seqTables := []string{"users", "access_tokens", "audit_log"}
+			seqTables := []string{"access_tokens", "audit_log"} // users have random ids, no sequence
 			if withBody {
 				seqTables = append(seqTables, "dexa_scans", "scale_readings")
 			}

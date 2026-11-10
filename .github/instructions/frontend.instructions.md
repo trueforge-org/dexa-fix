@@ -28,6 +28,8 @@ It renders pages and owns the public listeners (plain HTTP, HTTPS, HTTP/3). It h
 - Request limits (`frontendLimiter`: concurrency cap plus per-address rate, stricter for unauthenticated POSTs) protect the backend. Do not bypass them; tests turn them off with `DisableLimits`.
 - The listeners (`StartListeners`, `applyListeners`, `startHTTPS`, `startHTTP3`) follow the settings; a wrong certificate or port must never take down the plain listener.
 - `/healthz` never calls the backend; `/readyz` does.
+- **`/status` is the same for everybody** (a state per part: web, api, database, body, workers per provider; 503 while one is down) and holds no version, name or reason. The detail is a separate page, `/admin/status`, behind the admin guard. The backend decides what each may see (`GET /internal/v1/status`, `/admin/status`); never merge the two into one URL that varies by cookie.
+- **Nothing personal may be cached by a shared cache or a CDN.** `edge.SecureHeaders` sets `Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control` to `no-store` on everything except `/static/` (use `edge.NoStore` for a response you write by hand, such as an error). The API proxy keeps the upstream's browser caching but never lets `public` or nothing through. `cache_test.go` in `pkg/backend/main` asserts it for every kind of route; add a case when you add a kind of response.
 - `/api/` is not served here: it is passed to the backend only when `--api-upstream` is set (`SetAPIUpstream`), with forwarded headers rebuilt from what this process settled, never copied.
 
 ## Tests

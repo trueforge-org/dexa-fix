@@ -119,6 +119,7 @@ type Runner struct {
 	opt      Options
 	handlers map[string]Handler
 	cfg      atomic.Pointer[workerapi.Config]
+	lastOK   atomic.Int64 // unix nanoseconds of the last answer from the backend; 0 before the first
 }
 
 // New returns a Runner. Register the handlers with Handle before Run.
@@ -136,6 +137,24 @@ func New(client *workerapi.Client, opt Options) *Runner {
 		opt.ConfigEvery = 15 * time.Second
 	}
 	return &Runner{client: client, opt: opt, handlers: map[string]Handler{}}
+}
+
+// contacted notes that the backend answered.
+func (r *Runner) contacted() { r.lastOK.Store(time.Now().UnixNano()) }
+
+// Ready reports whether the worker is registered and has heard from the backend within maxAge: the
+// readiness check of the worker's health listener. A worker that waits for a job is in contact all
+// the time (it asks, and the backend answers when there is none), so a long silence means the
+// backend or the link is down.
+func (r *Runner) Ready(maxAge time.Duration) error {
+	last := r.lastOK.Load()
+	if last == 0 {
+		return errors.New("not registered with the backend yet")
+	}
+	if age := time.Since(time.Unix(0, last)); age > maxAge {
+		return fmt.Errorf("no answer from the backend for %s", age.Round(time.Second))
+	}
+	return nil
 }
 
 // Handle registers the handler of a kind of job.
@@ -176,6 +195,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		cfg, err := r.client.Register(ctx, workerapi.RegisterRequest{ID: r.opt.ID, Version: r.opt.Version, Kinds: r.kinds()})
 		if err == nil {
 			r.cfg.Store(&cfg)
+			r.contacted()
 			break
 		}
 		if ctx.Err() != nil {
@@ -219,6 +239,7 @@ func (r *Runner) followConfig(ctx context.Context) {
 		if err != nil {
 			continue // keep the last configuration
 		}
+		r.contacted()
 		if old := r.cfg.Load(); old == nil || cfg.Generation != old.Generation {
 			r.cfg.Store(&cfg)
 		}
@@ -262,6 +283,7 @@ func (r *Runner) loop(ctx context.Context) {
 			continue
 		}
 		wait = time.Second
+		r.contacted()
 		if lease == nil {
 			continue
 		}

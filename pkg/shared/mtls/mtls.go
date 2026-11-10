@@ -49,6 +49,16 @@ func Generate(serverNames []string) (Bundle, error) {
 // two certificates (nothing checks them; the CA and the server names are what is verified). Every
 // link should have a CA of its own, so that a certificate of one link opens nothing of another.
 func GenerateFor(serverNames []string, serverCN, clientCN string) (Bundle, error) {
+	return GenerateValid(serverNames, serverCN, clientCN, leafValidity)
+}
+
+// GenerateValid is GenerateFor with the validity of the two certificates (the CA's is always ten
+// years: its key is thrown away, so it cannot issue anything else). A deployment that makes a new
+// set at every start can use a short one.
+func GenerateValid(serverNames []string, serverCN, clientCN string, validity time.Duration) (Bundle, error) {
+	if validity <= 0 {
+		return Bundle{}, errors.New("the certificate validity must be positive")
+	}
 	now := time.Now().Add(-5 * time.Minute) // tolerate small clock differences between hosts
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -80,7 +90,7 @@ func GenerateFor(serverNames []string, serverCN, clientCN string) (Bundle, error
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: serverCN},
 		NotBefore:    now,
-		NotAfter:     now.Add(leafValidity),
+		NotAfter:     now.Add(validity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -105,7 +115,7 @@ func GenerateFor(serverNames []string, serverCN, clientCN string) (Bundle, error
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: clientCN},
 		NotBefore:    now,
-		NotAfter:     now.Add(leafValidity),
+		NotAfter:     now.Add(validity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
