@@ -163,7 +163,7 @@ func forwardedClient(r *http.Request, trusted []netip.Prefix) (netip.Addr, bool)
 		}
 		return netip.Addr{}, false
 	}
-	for i := len(chain) - 1; i >= 0; i-- {
+	for i := len(chain) - 1; ; i-- { // ends at the latest at i == 0
 		a, err := netip.ParseAddr(strings.TrimSpace(chain[i]))
 		if err != nil {
 			return netip.Addr{}, false // garbage: keep the proxy's own address
@@ -173,7 +173,6 @@ func forwardedClient(r *http.Request, trusted []netip.Prefix) (netip.Addr, bool)
 			return a, true
 		}
 	}
-	return netip.Addr{}, false
 }
 
 // LastForwarded returns the last value of a forwarding header: the one the nearest proxy added.
