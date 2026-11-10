@@ -17,6 +17,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -110,16 +111,12 @@ func credentialID(id []byte) string { return base64.RawURLEncoding.EncodeToStrin
 
 // ---- the signed cookie ----
 
-func (s *Backend) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) error {
-	sealed, _, err := s.sealValue(purpose, c, passkeyTTL)
-	if err != nil {
-		return err
-	}
+func (s *Backend) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) {
+	sealed, _ := must.Value2(s.sealValue(purpose, c, passkeyTTL)) // cannot fail: the ceremony state is a plain struct
 	http.SetCookie(w, &http.Cookie{
 		Name: passkeyCookie, Value: sealed, Path: "/", MaxAge: int(passkeyTTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isSecure(r),
 	})
-	return nil
 }
 
 func clearPasskeyCookie(w http.ResponseWriter, r *http.Request) {
@@ -228,10 +225,7 @@ func (s *Backend) internalPasskeyRegisterBegin(w http.ResponseWriter, r *http.Re
 		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
 		return
 	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyRegister, passkeyCeremony{UID: u.ID, Name: name, Session: *session}); err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	s.setPasskeyCookie(w, r, sealPasskeyRegister, passkeyCeremony{UID: u.ID, Name: name, Session: *session})
 	internalJSON(w, http.StatusOK, creation)
 }
 
@@ -377,10 +371,7 @@ func (s *Backend) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Reque
 		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
 		return
 	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session}); err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session})
 	internalJSON(w, http.StatusOK, assertion)
 }
 

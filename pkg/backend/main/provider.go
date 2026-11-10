@@ -48,9 +48,9 @@ type providerState struct {
 
 const sealProvider = "provider"
 
-func (s *Backend) sealState(st providerState) (string, error) {
-	sealed, _, err := s.sealValue(sealProvider, st, providerStateTTL)
-	return sealed, err
+func (s *Backend) sealState(st providerState) string {
+	sealed, _ := must.Value2(s.sealValue(sealProvider, st, providerStateTTL)) // cannot fail: a plain struct
+	return sealed
 }
 
 func (s *Backend) openState(value string) (providerState, bool) {

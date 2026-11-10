@@ -101,10 +101,7 @@ func TestProviderStateStillWorks(t *testing.T) {
 	s := sealedServer(t)
 	want := providerState{Slug: "idp", State: "state-1", Verifier: "verifier-1", Nonce: "nonce-1", Link: 3}
 
-	sealed, err := s.sealState(want)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sealed := s.sealState(want)
 	got, ok := s.openState(sealed)
 	if !ok {
 		t.Fatal("provider state does not open")

@@ -136,11 +136,7 @@ func (s *Backend) internalLoginSetupView(w http.ResponseWriter, r *http.Request,
 		internalError(w, err)
 		return
 	}
-	setup, err := s.twoFactorSetupFor(u, secret)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	setup := s.twoFactorSetupFor(u, secret)
 	secondStepPage(w, apiclient.SecondStep{Mode: "setup", Error: errMsg, QR: string(setup.QR), Secret: setup.Secret}, status)
 }
 
@@ -398,11 +394,7 @@ func (s *Backend) internalProviderStart(w http.ResponseWriter, r *http.Request) 
 	if linking {
 		st.Link = u.ID
 	}
-	sealed, err := s.sealState(st)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	sealed := s.sealState(st)
 	setProviderCookie(w, r, sealed, int(providerStateTTL.Seconds()))
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(st.Verifier)}
 	if p.Kind != models.ProviderKindOAuth2 {

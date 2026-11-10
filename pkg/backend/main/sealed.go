@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // sealed values are short-lived, signed blobs that travel through the browser (a cookie or a form
@@ -32,10 +34,7 @@ func (s *Backend) sealValue(purpose string, v any, ttl time.Duration) (sealed, n
 		return "", "", err
 	}
 	nonce = randomHex(12)
-	env, err := json.Marshal(sealedEnvelope{Expires: time.Now().Add(ttl).Unix(), Nonce: nonce, Value: raw})
-	if err != nil {
-		return "", "", err
-	}
+	env := must.Value(json.Marshal(sealedEnvelope{Expires: time.Now().Add(ttl).Unix(), Nonce: nonce, Value: raw})) // cannot fail: raw is valid JSON
 	payload := base64.RawURLEncoding.EncodeToString(env)
 	return payload + "." + s.sealMAC(purpose, payload), nonce, nil
 }

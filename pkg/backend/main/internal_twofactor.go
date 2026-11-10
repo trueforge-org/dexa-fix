@@ -10,6 +10,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -114,16 +115,13 @@ func (s *Backend) totpIssuer() string {
 	return defaultTOTPIssuer
 }
 
-func (s *Backend) twoFactorSetupFor(u models.User, secret string) (*twoFactorSetup, error) {
+func (s *Backend) twoFactorSetupFor(u models.User, secret string) *twoFactorSetup {
 	account := u.Email
 	if account == "" {
 		account = u.Name
 	}
-	svg, err := qrSVG(otpauthURI(s.totpIssuer(), account, secret))
-	if err != nil {
-		return nil, err
-	}
-	return &twoFactorSetup{QR: svg, Secret: groupSecret(secret)}, nil
+	svg := must.Value(qrSVG(otpauthURI(s.totpIssuer(), account, secret))) // cannot fail: a name or address and a secret are far below the QR capacity
+	return &twoFactorSetup{QR: svg, Secret: groupSecret(secret)}
 }
 
 // groupSecret writes the secret in groups of four, which is easier to type. Apps ignore spaces.
@@ -150,16 +148,12 @@ func (s *Backend) issueRecoveryCodes(ctx context.Context, userID int64) ([]strin
 
 // ---- the signed cookie between password and second step ----
 
-func (s *Backend) setMFACookie(w http.ResponseWriter, r *http.Request, st mfaState) error {
-	sealed, _, err := s.sealValue(sealMFA, st, mfaTTL)
-	if err != nil {
-		return err
-	}
+func (s *Backend) setMFACookie(w http.ResponseWriter, r *http.Request, st mfaState) {
+	sealed, _ := must.Value2(s.sealValue(sealMFA, st, mfaTTL)) // cannot fail: the state is a plain struct
 	http.SetCookie(w, &http.Cookie{
 		Name: mfaCookie, Value: sealed, Path: "/login/", MaxAge: int(mfaTTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r),
 	})
-	return nil
 }
 
 func clearMFACookie(w http.ResponseWriter, r *http.Request) {
@@ -185,9 +179,11 @@ func (s *Backend) secondStep(w http.ResponseWriter, r *http.Request, u models.Us
 	}
 	switch {
 	case has:
-		return "/login/2fa", s.setMFACookie(w, r, mfaState{UID: u.ID, Method: method})
+		s.setMFACookie(w, r, mfaState{UID: u.ID, Method: method})
+		return "/login/2fa", nil
 	case s.twoFactorRequired(ctx, u):
-		return "/login/2fa/setup", s.setMFACookie(w, r, mfaState{UID: u.ID, Method: method, Enrol: true})
+		s.setMFACookie(w, r, mfaState{UID: u.ID, Method: method, Enrol: true})
+		return "/login/2fa/setup", nil
 	}
 	return "", nil
 }
@@ -219,10 +215,7 @@ type adminStepUp struct {
 }
 
 func (s *Backend) markAdminVerified(w http.ResponseWriter, r *http.Request, userID int64) {
-	sealed, _, err := s.sealValue(sealAdminStep, adminStepUp{UID: userID}, adminStepUpTTL)
-	if err != nil {
-		return // the admin is asked again; nothing else depends on it
-	}
+	sealed, _ := must.Value2(s.sealValue(sealAdminStep, adminStepUp{UID: userID}, adminStepUpTTL)) // cannot fail: a plain struct
 	http.SetCookie(w, &http.Cookie{
 		Name: adminCookie, Value: sealed, Path: "/admin", MaxAge: int(adminStepUpTTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure(r),
@@ -390,12 +383,7 @@ func (s *Backend) internalTwoFactorBegin(w http.ResponseWriter, r *http.Request,
 		internalError(w, err)
 		return
 	}
-	setup, err := s.twoFactorSetupFor(u, secret)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Setup: setup})
+	internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Setup: s.twoFactorSetupFor(u, secret)})
 }
 
 func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -415,12 +403,7 @@ func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Reques
 	}
 	// A refusal shows the same secret again, so the person can try the next code.
 	refuse := func(msg string, status int) {
-		setup, serr := s.twoFactorSetupFor(u, t.Secret)
-		if serr != nil {
-			internalError(w, serr)
-			return
-		}
-		internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Error: msg, Status: status, Setup: setup})
+		internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Error: msg, Status: status, Setup: s.twoFactorSetupFor(u, t.Secret)})
 	}
 	if s.secondFactorBlocked(r, u.ID) {
 		refuse("Too many wrong codes. Try again later.", http.StatusTooManyRequests)
