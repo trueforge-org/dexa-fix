@@ -135,7 +135,7 @@ func TestTheSelfSignedCertificateIsRenewedBeforeItExpires(t *testing.T) {
 	if r.b.cfg().tlsCert != nil {
 		t.Fatal("a certificate appeared although the settings could not be reloaded")
 	}
-	r.flaky.failing = nil
+	r.flaky.heal()
 	r.b.swapSettings(withMode(r.b.cfg(), apiclient.TLSSelfSigned))
 	r.renewCertificateNow(ctx) // none yet: one is made
 	first := r.b.cfg().tlsCert

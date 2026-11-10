@@ -22,6 +22,9 @@ func (f *flakyStore) GetTOTP(ctx context.Context, userID int64) (models.TOTP, er
 	if f.fails("GetTOTP") {
 		return models.TOTP{}, errFlaky
 	}
+	if f.fails("GetTOTP:confirmed") {
+		return models.TOTP{UserID: userID, Confirmed: true}, nil
+	}
 	return f.Store.GetTOTP(ctx, userID)
 }
 

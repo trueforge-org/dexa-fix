@@ -43,6 +43,13 @@ func (f *flakyStore) failOn(calls ...string) {
 	}
 }
 
+// heal makes every call work again.
+func (f *flakyStore) heal() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failing, f.allowed = nil, nil
+}
+
 // failAfter lets a call succeed n times and fails it from then on.
 func (f *flakyStore) failAfter(call string, n int) {
 	f.mu.Lock()
