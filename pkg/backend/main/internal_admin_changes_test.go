@@ -12,8 +12,8 @@ import (
 func adminFlash(t *testing.T, location string) string {
 	t.Helper()
 	u, err := url.Parse(location)
-	if err != nil || u.Path != "/admin" {
-		t.Fatalf("not a redirect to the Admin page: %q", location)
+	if err != nil || (u.Path != "/admin" && u.Path != "/admin/workers") {
+		t.Fatalf("not a redirect to an Admin page: %q", location)
 	}
 	return u.Query().Get("msg")
 }
