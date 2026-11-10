@@ -125,7 +125,11 @@ func TestStatusWorkerStates(t *testing.T) {
 	if got := state("workers.strengthlevel"); got != "up" {
 		t.Errorf("a stale worker next to a live one: %s", got)
 	}
-	// Nobody asks for work any more.
+	// Nobody asks for work any more: the worker is stopped, not just judged against a tiny window.
+	// (Left running it asks every 25 ms in the tests, and a request that lands while the status is
+	// being worked out counts as recent however small the window is, which made this test fail one
+	// run in a few.)
+	serverOf(ts).stopWorkers()
 	old := workerSeen.Get()
 	workerSeen.Set(time.Nanosecond)
 	t.Cleanup(func() { workerSeen.Set(old) })
