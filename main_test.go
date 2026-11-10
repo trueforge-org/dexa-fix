@@ -66,6 +66,15 @@ func TestConsoleLoggerIsPlainOutsideATerminal(t *testing.T) {
 	}
 }
 
+func TestConsoleLoggerKeepsThePrefixWhenALineHasNoMessage(t *testing.T) {
+	var buf bytes.Buffer
+	l := newLogger(&buf, formatConsole, false, false, "api")
+	l.Info().Str("k", "v").Send()
+	if out := buf.String(); !strings.Contains(out, "api │") || !strings.Contains(out, "k=v") {
+		t.Errorf("a line without a message lost its prefix: %q", out)
+	}
+}
+
 func TestConsoleLoggerOnATerminalHasColourAndTheTimeOfDay(t *testing.T) {
 	var buf bytes.Buffer
 	l := newLogger(&buf, formatConsole, true, true, "web")
