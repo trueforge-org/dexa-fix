@@ -9,57 +9,47 @@
     {{if and .Security .Security.ConfirmPassword}}<label>Current password <small>(only to change the e-mail address)</small> <input type="password" name="current" autocomplete="current-password"></label>{{end}}
     <label>Time zone {{help "time-zone"}} <input type="text" name="timezone" value="{{.User.Timezone}}" list="timezones" maxlength="64" placeholder="Europe/Amsterdam" autocomplete="off" spellcheck="false"></label>
     <datalist id="timezones">{{range timezones}}<option value="{{.}}">{{end}}</datalist>
-    <label>Height (cm) {{help "profile-settings"}} <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
+    <label>Height (cm) <input type="number" name="height_cm" step="0.1" min="50" max="280" inputmode="decimal"{{with .User.HeightCm}} value="{{.}}"{{end}}></label>
   </div>
   <div class="form-actions"><button type="submit">Save profile</button></div>
 </form>
+<form method="post" action="/u/{{.User.ID}}/settings" class="card" id="estimates">
+  <h2>Estimates</h2>
+  <div class="section">
+    <h3>Athlete mode {{help "athlete-mode"}}</h3>
+    <label class="check"><input type="checkbox" name="athlete_default" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode by default</label>
+    <p class="help">Presets the athlete-mode checkbox for new readings and is used for Withings imports. Each reading keeps its own flag, and DEXA calibration is kept separately for normal and athlete readings.</p>
+  </div>
+  <div class="section">
+    <h3>Method accuracy {{help "method-accuracy"}}</h3>
+    <p class="help">Put the most accurate method first. When several methods have a reading for the same day, the highest one in this list wins for each measurement. Methods that did not record a measurement are skipped for it.</p>
+    <ol class="rank-list" data-rank-list>
+      {{range .Ranking}}<li class="rank-item" data-rank-item data-label="{{.Label}}">
+        <span class="rank-handle" data-rank-handle title="Drag to reorder" aria-hidden="true"></span>
+        <span class="rank-pos" data-rank-pos aria-hidden="true">{{.Rank}}</span>
+        <label><span>{{.Label}}</span> <input type="number" min="1" max="100" step="1" name="rank_{{.Key}}" value="{{.Rank}}" aria-label="Rank of {{.Label}}"></label>
+        <span class="rank-move">
+          <button type="button" class="icon" data-rank-move="-1" aria-label="Move {{.Label}} up">↑</button>
+          <button type="button" class="icon" data-rank-move="1" aria-label="Move {{.Label}} down">↓</button>
+        </span>
+      </li>{{end}}
+    </ol>
+    <p class="sr-only" data-rank-status role="status"></p>
+  </div>
+  <div class="form-actions"><button type="submit">Save estimate settings</button></div>
+</form>
+<script src="{{asset "rank.js"}}" defer></script>
 {{with .Security}}
-<section class="card" id="tokens">
-  <h2>Access tokens {{help "access-tokens"}}</h2>
-  <p class="help">Use a personal access token to call the API from scripts, with the header <code>Authorization: Bearer &lt;token&gt;</code>. It works without signing in and acts as you, on the API only.</p>
-  {{if .NewToken}}<div class="notice" role="status"><strong>Copy this token now.</strong> It will not be shown again.<br><code class="token">{{.NewToken}}</code></div>{{end}}
-  {{if .Tokens}}<div class="scroll"><table>
-    <thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
-    <tbody>{{range .Tokens}}<tr><td>{{.Name}}</td><td><code>{{.Prefix}}…</code></td><td>{{.Created}}</td><td>{{.LastUsed}}</td><td>{{.Expires}}</td>
-      <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" data-confirm="Revoke this token? Anything using it stops working."><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
-  </table></div>{{end}}
-  <form method="post" action="/u/{{$.User.ID}}/tokens" class="form-row">
-    <label>Token name {{help "access-tokens"}} <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
-    {{if .ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <label>Expires <select name="expires"><option value="30">In 30 days</option><option value="90" selected>In 90 days</option><option value="365">In 1 year</option><option value="never">Never</option></select></label>
-    <div><button type="submit">Create token</button></div>
-  </form>
-</section>
-{{if .Linked}}
-<section class="card" id="linked">
-  <h2>Linked accounts {{help "linked-accounts"}}</h2>
-  <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
-    {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="secondary" type="submit">Unlink</button></form>
-    {{else}}<form method="post" action="/auth/{{.Slug}}/login">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
-</section>
-{{end}}
-{{with .Passkeys}}
-<section class="card" id="passkeys">
-  <h2>Passkeys</h2>
-  <p class="help">A passkey signs you in without a password, with the fingerprint, face or PIN of a device (or a security key). It replaces the password for that sign-in and counts as two factors, so no code is asked. A passkey belongs to this web address: if the address changes, add the passkey again.</p>
-  {{if .Items}}<div class="scroll"><table>
-    <thead><tr><th>Name</th><th>Added</th><th>Last used</th><th></th></tr></thead>
-    <tbody>{{range .Items}}<tr><td>
-        <form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/rename" class="form-row"><input type="text" name="name" value="{{.Name}}" maxlength="64" aria-label="Passkey name" required><button class="secondary" type="submit">Rename</button></form></td>
-      <td>{{.Created}}</td><td>{{.LastUsed}}</td>
-      <td><form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/delete" data-confirm="Remove this passkey?">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="link" type="submit">Remove</button></form></td></tr>{{end}}</tbody>
-  </table></div>{{end}}
-  {{if .Ready}}
-  <form id="passkey-add" class="form-row" hidden data-begin="/u/{{$.User.ID}}/passkeys/begin" data-finish="/u/{{$.User.ID}}/passkeys/finish">
-    <label>Name <input type="text" name="name" maxlength="64" placeholder="Laptop, phone, security key" autocomplete="off"></label>
-    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <div><button type="submit">Add a passkey</button></div>
-  </form>
-  <p id="passkey-msg" class="notice error" role="alert" aria-live="polite"></p>
-  <script src="{{asset "passkey.js"}}" defer></script>
-  <noscript><p class="help">Adding a passkey needs JavaScript.</p></noscript>
-  {{else}}<p class="help">Passkeys need a secure connection and a host name: open this site over HTTPS at its name (not an IP address), or on localhost, to add one.</p>{{end}}
-</section>
+{{if .PasswordEnabled}}
+<form method="post" action="/u/{{$.User.ID}}/password" class="card" id="password">
+  <h2>Password {{help "password"}}</h2>
+  <div class="form-row">
+    {{if .HasPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>Repeat new password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+  </div>
+  <div class="form-actions"><button type="submit">{{if .HasPassword}}Change password{{else}}Set password{{end}}</button></div>
+</form>
 {{end}}
 {{with .TwoFactor}}{{if or .Available .Enabled}}
 <section class="card" id="two-factor">
@@ -79,37 +69,85 @@
     <div class="form-actions"><button type="submit">Turn on</button></div>
   </form>
   {{else if .Enabled}}
-  <p class="help">{{.RecoveryLeft}} recovery code{{if ne .RecoveryLeft 1}}s{{end}} left.</p>
-  <form method="post" action="/u/{{$.User.ID}}/2fa/recovery" class="form-row">
-    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
-    <div><button class="secondary" type="submit">Create new recovery codes</button></div>
+  <form method="post" action="/u/{{$.User.ID}}/2fa/recovery" class="section">
+    <h3>Recovery codes</h3>
+    <p class="help">{{.RecoveryLeft}} recovery code{{if ne .RecoveryLeft 1}}s{{end}} left.</p>
+    <div class="form-row">
+      {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+      <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
+    </div>
+    <div class="form-actions"><button class="secondary" type="submit">Create new recovery codes</button></div>
   </form>
   {{if not .Required}}
-  <form method="post" action="/u/{{$.User.ID}}/2fa/disable" class="form-row" data-confirm="Turn off two-step verification?">
-    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
-    <div><button class="secondary" type="submit">Turn off</button></div>
+  <form method="post" action="/u/{{$.User.ID}}/2fa/disable" class="section" data-confirm="Turn off two-step verification?">
+    <h3>Turn off</h3>
+    <div class="form-row">
+      {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+      <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required></label>
+    </div>
+    <div class="form-actions"><button class="danger" type="submit">Turn off</button></div>
   </form>
   {{else}}<p class="help">Your administrator requires two-step verification, so it cannot be turned off.</p>{{end}}
   {{else}}
-  <form method="post" action="/u/{{$.User.ID}}/2fa/begin" class="form-row">
-    {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <div><button type="submit">Set up</button></div>
+  <form method="post" action="/u/{{$.User.ID}}/2fa/begin" class="section">
+    {{if $.Security.ConfirmPassword}}<div class="form-row"><label>Current password <input type="password" name="current" required autocomplete="current-password"></label></div>{{end}}
+    <div class="form-actions"><button type="submit">Set up</button></div>
   </form>
   {{end}}
 </section>
 {{end}}{{end}}
-{{if .PasswordEnabled}}
-<form method="post" action="/u/{{$.User.ID}}/password" class="card" id="password">
-  <h2>Password {{help "password"}}</h2>
-  <div class="form-row">
-    {{if .HasPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
-    <label>New password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-    <label>Repeat new password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-  </div>
-  <div class="form-actions"><button type="submit">{{if .HasPassword}}Change password{{else}}Set password{{end}}</button></div>
-</form>
+{{with .Passkeys}}
+<section class="card" id="passkeys">
+  <h2>Passkeys</h2>
+  <p class="help">A passkey signs you in without a password, with the fingerprint, face or PIN of a device (or a security key). It replaces the password for that sign-in and counts as two factors, so no code is asked. A passkey belongs to this web address: if the address changes, add the passkey again.</p>
+  {{if .Items}}<div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Added</th><th>Last used</th><th></th></tr></thead>
+    <tbody>{{range .Items}}<tr><td>
+        <form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/rename" class="form-row"><input type="text" name="name" value="{{.Name}}" maxlength="64" aria-label="Passkey name" required><button class="secondary" type="submit">Rename</button></form></td>
+      <td>{{.Created}}</td><td>{{.LastUsed}}</td>
+      <td><form method="post" action="/u/{{$.User.ID}}/passkeys/{{.ID}}/delete" data-confirm="Remove this passkey?">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="link" type="submit">Remove</button></form></td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+  {{if .Ready}}
+  <form id="passkey-add" class="section" hidden data-begin="/u/{{$.User.ID}}/passkeys/begin" data-finish="/u/{{$.User.ID}}/passkeys/finish">
+    <h3>Add a passkey</h3>
+    <div class="form-row">
+      <label>Name <input type="text" name="name" maxlength="64" placeholder="Laptop, phone, security key" autocomplete="off"></label>
+      {{if $.Security.ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+    </div>
+    <div class="form-actions"><button type="submit">Add a passkey</button></div>
+  </form>
+  <p id="passkey-msg" class="notice error" role="alert" aria-live="polite"></p>
+  <script src="{{asset "passkey.js"}}" defer></script>
+  <noscript><p class="help">Adding a passkey needs JavaScript.</p></noscript>
+  {{else}}<p class="help">Passkeys need a secure connection and a host name: open this site over HTTPS at its name (not an IP address), or on localhost, to add one.</p>{{end}}
+</section>
+{{end}}
+<section class="card" id="tokens">
+  <h2>Access tokens {{help "access-tokens"}}</h2>
+  <p class="help">Use a personal access token to call the API from scripts, with the header <code>Authorization: Bearer &lt;token&gt;</code>. It works without signing in and acts as you, on the API only.</p>
+  {{if .NewToken}}<div class="notice" role="status"><strong>Copy this token now.</strong> It will not be shown again.<br><code class="token">{{.NewToken}}</code></div>{{end}}
+  {{if .Tokens}}<div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Token</th><th>Created</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+    <tbody>{{range .Tokens}}<tr><td>{{.Name}}</td><td><code>{{.Prefix}}…</code></td><td>{{.Created}}</td><td>{{.LastUsed}}</td><td>{{.Expires}}</td>
+      <td><form method="post" action="/u/{{$.User.ID}}/tokens/{{.ID}}/delete" data-confirm="Revoke this token? Anything using it stops working."><button class="link" type="submit">Revoke</button></form></td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+  <form method="post" action="/u/{{$.User.ID}}/tokens" class="section">
+    <h3>New token</h3>
+    <div class="form-row">
+      <label>Token name <input type="text" name="name" maxlength="64" required placeholder="Home script"></label>
+      {{if .ConfirmPassword}}<label>Current password <input type="password" name="current" required autocomplete="current-password"></label>{{end}}
+      <label>Expires <select name="expires"><option value="30">In 30 days</option><option value="90" selected>In 90 days</option><option value="365">In 1 year</option><option value="never">Never</option></select></label>
+    </div>
+    <div class="form-actions"><button type="submit">Create token</button></div>
+  </form>
+</section>
+{{if .Linked}}
+<section class="card" id="linked">
+  <h2>Linked accounts {{help "linked-accounts"}}</h2>
+  <ul class="link-list">{{range .Linked}}<li><span>{{.Label}}</span>
+    {{if .Linked}}<form method="post" action="/u/{{$.User.ID}}/identities/{{.Slug}}/delete"><button class="danger" type="submit">Unlink</button></form>
+    {{else}}<form method="post" action="/auth/{{.Slug}}/login">{{if $.Security.ConfirmPassword}}<input type="password" name="current" required placeholder="Current password" aria-label="Current password" autocomplete="current-password"> {{end}}<button class="secondary" type="submit">Link</button></form>{{end}}</li>{{end}}</ul>
+</section>
 {{end}}
 {{end}}
 {{with .Withings}}
@@ -119,18 +157,18 @@
     {{if .Connected}}<span class="status on">Connected</span>{{else if .Configured}}<span class="status">Not connected</span>{{else}}<span class="status">Not set up</span>{{end}}
   </div>
   {{if .Connected}}
-  {{if .AutoPaused}}<p class="notice" role="status">{{.AutoPaused}} They start again when you disconnect and connect Withings again, or when an administrator resumes them.</p>{{end}}
   <p class="help">Your Withings account is linked. Import fetches all your measurements: it fills days without readings and leaves days with manual readings alone. Disconnecting keeps the readings already imported.</p>
-  <div class="integration">
+  {{if .AutoPaused}}<p class="notice" role="status">{{.AutoPaused}} They start again when you disconnect and connect Withings again, or when an administrator resumes them.</p>{{end}}
+  <div class="form-actions">
+    <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect" class="start"><button type="submit" class="danger">Disconnect Withings</button></form>
     <form method="post" action="/u/{{$.User.ID}}/import/withings"><button type="submit">Import from Withings</button></form>
-    <form method="post" action="/u/{{$.User.ID}}/integrations/withings/disconnect"><button type="submit" class="secondary">Disconnect Withings</button></form>
   </div>
   {{else if .Configured}}
   <p class="help">Link your Withings account to import your scale measurements instead of typing them in. You will be sent to Withings to grant access.</p>
-  <div class="integration"><a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a></div>
+  <div class="form-actions"><a class="button" href="/u/{{$.User.ID}}/integrations/withings/connect">Connect Withings</a></div>
   {{else}}
   <p class="help">Withings import is not set up on this server yet. An administrator needs to create a Withings application and add its credentials on the {{if $.User.IsAdmin}}<a href="/admin#withings">Admin page</a>{{else}}Admin page{{end}}.</p>
-  <div class="integration"><button type="button" disabled>Connect Withings</button></div>
+  <div class="form-actions"><button type="button" disabled>Connect Withings</button></div>
   {{end}}
 </section>
 {{end}}
@@ -143,38 +181,45 @@
   {{if .Msg}}<p class="notice" role="status">{{.Msg}}</p>{{end}}
   <p class="help">Your Strength Level e-mail and password are stored encrypted and used to add your weight and body fat to days that have none there. Only e-mail and password accounts work, not Google, Apple or Facebook sign-in.{{if .Saved}} Saved for <strong>{{.Email}}</strong>; the password is never shown.{{end}}</p>
   {{if .AutoPaused}}<p class="notice" role="status">{{.AutoPaused}} They start again when you save your login again, or when an administrator resumes them.</p>{{end}}
-  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login" class="stack">
+  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login" class="section">
+    <h3>Login</h3>
     <div class="form-row">
       <label>Strength Level e-mail <input type="email" name="email" maxlength="254" required autocomplete="off" value="{{.Email}}"></label>
       <label>Password <input type="password" name="password" maxlength="200" required autocomplete="new-password"></label>
     </div>
-    <div class="form-actions"><button type="submit">{{if .Saved}}Replace login{{else}}Save login{{end}}</button></div>
+    <div class="form-actions">
+      {{if .Saved}}<button type="submit" form="sl-remove" class="danger start">Remove login</button>{{end}}
+      <button type="submit">{{if .Saved}}Replace login{{else}}Save login{{end}}</button>
+    </div>
   </form>
   {{if .Saved}}
+  <form id="sl-remove" method="post" action="/u/{{$.User.ID}}/strengthlevel/login/delete"></form>
   {{if .Bulk}}
-  {{template "slstatus" .}}
-  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync" class="stack">
-    <div class="form-row">
-      <label>Last <input type="number" name="days" value="90" min="1" max="3650" step="1" required style="width:5.5rem"> days</label>
-      <label class="check"><input type="checkbox" name="update" value="1"> Also update days that already exist</label> {{help "strengthlevel"}}
-    </div>
-    <div class="form-actions"><button type="submit"{{if .Job}}{{if .Job.Running}} disabled{{end}}{{end}}>Sync in the background</button></div>
-  </form>
-  <p class="help">Sync sends the daily estimates of your weight and body fat, including interpolated days and days held after your last reading. Days missing on Strength Level are added. With the box ticked, days that exist there with other values are overwritten too; nothing is ever deleted. It runs in the background, one day at a time, so long periods take a while. You can also send a single day from the Estimates page.</p>
+  <div class="section">
+    <h3>Sync</h3>
+    <p class="help">Sync sends the daily estimates of your weight and body fat, including interpolated days and days held after your last reading. Days missing on Strength Level are added. With the box ticked, days that exist there with other values are overwritten too; nothing is ever deleted. It runs in the background, one day at a time, so long periods take a while. You can also send a single day from the Estimates page.</p>
+    {{template "slstatus" .}}
+    <form method="post" action="/u/{{$.User.ID}}/strengthlevel/sync" class="stack">
+      <div class="form-row">
+        <label class="inline">Last <input type="number" name="days" value="90" min="1" max="3650" step="1" required class="narrow"> days</label>
+        <label class="check"><input type="checkbox" name="update" value="1"> Also update days that already exist</label>
+      </div>
+      <div class="form-actions"><button type="submit"{{if .Job}}{{if .Job.Running}} disabled{{end}}{{end}}>Sync in the background</button></div>
+    </form>
+  </div>
   {{else}}
   <p class="help">You can send single days from the Estimates page. An administrator can also allow syncing many days at once.</p>
   {{end}}
-  <form method="post" action="/u/{{$.User.ID}}/strengthlevel/login/delete"><button type="submit" class="secondary">Remove login</button></form>
   {{end}}
 </section>
 {{end}}
 <section class="card" id="export">
   <h2>Your data {{help "data-export"}}</h2>
   <p class="help">Download a copy of what DexaFix keeps about you, as JSON. Passwords, tokens and other credentials are not included; the files only say whether they exist.</p>
-  <p class="form-actions">
+  <div class="form-actions">
     <a class="button secondary" href="/u/{{.User.ID}}/export/profile" download>Settings and personal details</a>
     <a class="button secondary" href="/u/{{.User.ID}}/export/data" download>DEXA scans and scale readings</a>
-  </p>
+  </div>
 </section>
 {{with .Security}}{{if .Activity}}
 <section class="card flush" id="activity">
@@ -186,31 +231,6 @@
   </table>
 </section>
 {{end}}{{end}}
-<form method="post" action="/u/{{.User.ID}}/settings" class="stack">
-  <section class="card">
-    <h2>Athlete mode {{help "athlete-mode"}}</h2>
-    <label class="check"><input type="checkbox" name="athlete_default" value="1"{{if .AthleteDefault}} checked{{end}}> Athlete mode by default</label>
-    <p class="help">Presets the athlete-mode checkbox for new readings and is used for Withings imports. Each reading keeps its own flag, and DEXA calibration is kept separately for normal and athlete readings.</p>
-  </section>
-  <section class="card">
-    <h2>Method accuracy {{help "method-accuracy"}}</h2>
-    <p class="help">Put the most accurate method first. When several methods have a reading for the same day, the highest one in this list wins for each measurement. Methods that did not record a measurement are skipped for it.</p>
-    <ol class="rank-list" data-rank-list>
-      {{range .Ranking}}<li class="rank-item" data-rank-item data-label="{{.Label}}">
-        <span class="rank-handle" data-rank-handle title="Drag to reorder" aria-hidden="true"></span>
-        <span class="rank-pos" data-rank-pos aria-hidden="true">{{.Rank}}</span>
-        <label><span>{{.Label}}</span> <input type="number" min="1" max="100" step="1" name="rank_{{.Key}}" value="{{.Rank}}" aria-label="Rank of {{.Label}}"></label>
-        <span class="rank-move">
-          <button type="button" class="icon" data-rank-move="-1" aria-label="Move {{.Label}} up">↑</button>
-          <button type="button" class="icon" data-rank-move="1" aria-label="Move {{.Label}} down">↓</button>
-        </span>
-      </li>{{end}}
-    </ol>
-    <p class="sr-only" data-rank-status role="status"></p>
-  </section>
-  <div class="form-actions"><button type="submit">Save</button></div>
-</form>
-<script src="{{asset "rank.js"}}" defer></script>
 {{end}}
 
 {{define "slstatus"}}<div id="sl-status"{{if .Job}}{{if .Job.Running}} hx-get="/u/{{.UserID}}/strengthlevel/status" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"{{end}}{{end}}>

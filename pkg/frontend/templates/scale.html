@@ -2,7 +2,9 @@
 <div class="page-head"><h1>Smart-scale readings {{help "scale-page"}}</h1></div>
 <form method="post" action="/u/{{.User.ID}}/scale" class="measure card" data-calc
       hx-post="/u/{{.User.ID}}/scale" hx-target="#content" hx-select="#content" hx-swap="outerHTML">
+  <h2>Add a reading</h2>
   <div class="section">
+    <h3>When and how</h3>
     <div class="form-row">
       <label>Date &amp; time ({{.Timezone}}) <input type="datetime-local" name="measured_at" value="{{.Now}}" required></label>
       <label>Method {{help "measurement-method"}} <select name="method">{{range .Methods}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
@@ -16,6 +18,9 @@
       {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}
         <input type="number" step="any" inputmode="decimal" name="{{.Key}}"></label>{{end}}
     </div>
+  </div>
+  <div class="section">
+    <h3>Notes</h3>
     <label>Notes <input type="text" name="notes" maxlength="500"></label>
   </div>
   <div class="form-actions"><button type="submit">Add reading</button></div>

@@ -53,13 +53,14 @@
       </div></td>
     </tr>{{end}}</tbody>
   </table></div>
-  <form method="post" action="/admin/users" class="add-user">
+  <form method="post" action="/admin/users" class="add-user section">
+    <h3>Add a user</h3>
     <div class="form-row">
       <label>New user's name <input type="text" name="name" maxlength="64" required autocomplete="off"></label>
       <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="off"></label>
       <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-      <div><button type="submit">Add user</button></div>
     </div>
+    <div class="form-actions"><button type="submit">Add user</button></div>
   </form>
 </section>
 
@@ -73,7 +74,7 @@
 </section>
 
 <section class="card" id="server-settings">
-  <h2>Network and retention</h2>
+  <div class="card-head"><h2>Network and retention</h2></div>
   <p class="help">These apply as soon as you save. Behind a reverse proxy or load balancer, set the <strong>base URL</strong> (the public address, which also decides that cookies are Secure) and the <strong>trusted proxies</strong> (their addresses or ranges, <code>loopback</code> and <code>private</code> also work), so that visitors keep their own address in the audit log and the rate limits.</p>
   <form method="post" action="/admin/server" class="fields">
     <label>Base URL <input type="text" name="base_url" value="{{.Server.BaseURL}}" placeholder="https://dexa.example.com" autocomplete="off" spellcheck="false">
@@ -91,7 +92,7 @@
 </section>
 
 <section class="card" id="analytics-settings">
-  <h2>Analytics and ads</h2>
+  <div class="card-head"><h2>Analytics and ads</h2></div>
   <p class="help">Off while the fields are empty. When you fill one in, visitors who are <strong>not signed in</strong> are asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether they accept it; nothing is loaded before they do, and signed-in people never get it. The <a href="/privacy#analytics">privacy policy</a> says so. Ads need a looser content security policy on those pages (inline scripts and images from any HTTPS address), so use them only if you accept that.</p>
   <form method="post" action="/admin/analytics" class="fields">
     <label>Scarf pixel ID <input type="text" name="scarf_pixel_id" value="{{.Analytics.ScarfPixelID}}" placeholder="123e4567-e89b-12d3-a456-426614174000" autocomplete="off" spellcheck="false">
@@ -122,9 +123,12 @@
     <label>Password <input type="password" name="password" autocomplete="new-password" placeholder="{{if .SMTP.PasswordSaved}}saved: leave empty to keep it{{end}}"></label>
     {{if .SMTP.PasswordSaved}}<label class="check"><input type="checkbox" name="remove_password" value="1"> Remove the saved password</label>{{end}}
     <label>Sender address <input type="text" name="from" value="{{.SMTP.From}}" placeholder="DexaFix &lt;noreply@example.com&gt;" autocomplete="off" spellcheck="false"></label>
-    <div class="form-actions"><button type="submit">Save</button></div>
+    <div class="form-actions">
+      {{if .SMTP.Host}}<button type="submit" form="smtp-test" class="secondary start">Send a test e-mail to me</button>{{end}}
+      <button type="submit">Save</button>
+    </div>
   </form>
-  {{if .SMTP.Host}}<form method="post" action="/admin/smtp/test"><button type="submit" class="secondary">Send a test e-mail to me</button></form>{{end}}
+  {{if .SMTP.Host}}<form id="smtp-test" method="post" action="/admin/smtp/test"></form>{{end}}
 </section>
 
 <section class="card" id="tls-settings">
@@ -161,39 +165,42 @@
   </form>
 </section>
 
-<section class="card" id="registration">
-  <div class="card-head">
-    <h2>New accounts {{help "registration"}}</h2>
-    {{if .SignupOpen}}<span class="status on">Open</span>{{else}}<span class="status">Closed</span>{{end}}
+<section class="card" id="sign-in-rules">
+  <h2>Sign-in rules</h2>
+  <div class="section" id="registration">
+    <div class="card-head">
+      <h3>New accounts {{help "registration"}}</h3>
+      {{if .SignupOpen}}<span class="status on">Open</span>{{else}}<span class="status">Closed</span>{{end}}
+    </div>
+    <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
+    <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><div class="form-actions"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></div></form>
   </div>
-  <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
-  <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></form>
-</section>
-
-<section class="card" id="two-factor">
-  <div class="card-head">
-    <h2>Two-step verification</h2>
-    {{if eq .Require2FA "everyone"}}<span class="status on">Required for everyone</span>{{else if eq .Require2FA "admins"}}<span class="status on">Required for administrators</span>{{else}}<span class="status">Optional</span>{{end}}
+  <div class="section" id="two-factor">
+    <div class="card-head">
+      <h3>Two-step verification</h3>
+      {{if eq .Require2FA "everyone"}}<span class="status on">Required for everyone</span>{{else if eq .Require2FA "admins"}}<span class="status on">Required for administrators</span>{{else}}<span class="status">Optional</span>{{end}}
+    </div>
+    <p class="help">Users can always turn on a 6-digit code from an authenticator app for signing in with a password. When required, people without one set it up at their next password sign-in. Providers and passkeys are not asked: enforce multi-factor at the provider. Users who have it on, or must, can no longer call the API with their password; they use access tokens.</p>
+    <form method="post" action="/admin/two-factor" class="stack">
+      <div class="form-row">
+        <label>Require for <select name="require">
+          <option value="off"{{if eq .Require2FA "off"}} selected{{end}}>Nobody</option>
+          <option value="admins"{{if eq .Require2FA "admins"}} selected{{end}}>Administrators</option>
+          <option value="everyone"{{if eq .Require2FA "everyone"}} selected{{end}}>Everyone</option>
+        </select></label>
+      </div>
+      <div class="form-actions"><button type="submit">Save</button></div>
+    </form>
   </div>
-  <p class="help">Users can always turn on a 6-digit code from an authenticator app for signing in with a password. When required, people without one set it up at their next password sign-in. Providers and passkeys are not asked: enforce multi-factor at the provider. Users who have it on, or must, can no longer call the API with their password; they use access tokens.</p>
-  <form method="post" action="/admin/two-factor" class="form-row">
-    <label>Require for <select name="require">
-      <option value="off"{{if eq .Require2FA "off"}} selected{{end}}>Nobody</option>
-      <option value="admins"{{if eq .Require2FA "admins"}} selected{{end}}>Administrators</option>
-      <option value="everyone"{{if eq .Require2FA "everyone"}} selected{{end}}>Everyone</option>
-    </select></label>
-    <div><button type="submit" class="secondary">Save</button></div>
-  </form>
-</section>
-
-<section class="card" id="signin">
-  <div class="card-head">
-    <h2>Password sign-in {{help "password-login"}}</h2>
-    {{if .PasswordEnabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+  <div class="section" id="signin">
+    <div class="card-head">
+      <h3>Password sign-in {{help "password-login"}}</h3>
+      {{if .PasswordEnabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+    </div>
+    {{if .PasswordForced}}<p class="notice">Password sign-in is being forced on by the server's <code>--force-password-login</code> option.</p>{{end}}
+    <p class="help">When off, people sign in through a provider below, and scripts use access tokens. Name and password no longer work, on the sign-in page or the API. To turn it off, first link your own account to a provider in Settings.</p>
+    <form method="post" action="/admin/password-login"><input type="hidden" name="enabled" value="{{if .PasswordEnabled}}0{{else}}1{{end}}"><div class="form-actions"><button type="submit" class="secondary">{{if .PasswordEnabled}}Turn off password sign-in{{else}}Turn on password sign-in{{end}}</button></div></form>
   </div>
-  {{if .PasswordForced}}<p class="notice">Password sign-in is being forced on by the server's <code>--force-password-login</code> option.</p>{{end}}
-  <p class="help">When off, people sign in through a provider below, and scripts use access tokens. Name and password no longer work, on the sign-in page or the API. To turn it off, first link your own account to a provider in Settings.</p>
-  <form method="post" action="/admin/password-login"><input type="hidden" name="enabled" value="{{if .PasswordEnabled}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .PasswordEnabled}}Turn off password sign-in{{else}}Turn on password sign-in{{end}}</button></form>
 </section>
 
 <section class="card" id="providers">
@@ -201,7 +208,7 @@
   {{if .Providers}}<ul class="link-list">{{range .Providers}}<li>
     <span><strong>{{.Label}}</strong> <small>{{.Kind}}{{if .AllowSignup}}, new accounts allowed{{end}}</small><br><small>Callback: <code>{{.CallbackURL}}</code></small></span>
     <div class="row-actions"><a class="button secondary" href="/admin?edit={{.Slug}}#providers">Edit</a>
-    <form method="post" action="/admin/providers/{{.Slug}}/delete" data-confirm="Remove {{.Label}}? Accounts lose this way of signing in."><button class="link" type="submit">Remove</button></form></div>
+    <form method="post" action="/admin/providers/{{.Slug}}/delete" data-confirm="Remove {{.Label}}? Accounts lose this way of signing in."><button class="danger" type="submit">Remove</button></form></div>
   </li>{{end}}</ul>{{end}}
   <form method="post" action="/admin/providers" class="provider-form section">
     <h3>{{if .Editing}}Edit {{.Form.Label}}{{else}}Add a provider{{end}}</h3>
@@ -252,8 +259,8 @@
     <label>Client secret <small>{{if .Withings.SecretSaved}}Saved: leave empty to keep it.{{end}}</small>
       <input type="password" name="client_secret" autocomplete="new-password"></label>
     <label>Redirect URL <input type="url" name="redirect_url" value="{{.Withings.RedirectURL}}" placeholder="{{.Withings.DefaultRedirect}}"></label>
+    {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
   </div>
-  {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
   <div class="form-actions"><button type="submit">Save Withings settings</button></div>
 </form>
 {{end}}
