@@ -245,7 +245,11 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 		batch := make([]models.ScaleReading, len(in))
 		for i := range in {
 			batch[i] = in[i].ScaleReading
-			if err := validScaleReading(&batch[i]); err != nil {
+			err := validReadingOrigin(&batch[i])
+			if err == nil {
+				err = validScaleReading(&batch[i])
+			}
+			if err != nil {
 				badRequest(w, fmt.Sprintf("item %d: %s", i, err))
 				return
 			}

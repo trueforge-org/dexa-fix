@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"time"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
@@ -36,6 +37,29 @@ func checkRanges(notes string, rs ...valueRange) error {
 	}
 	if len(notes) > 500 {
 		return errors.New("notes are limited to 500 characters")
+	}
+	return nil
+}
+
+// sourceName is what the public API accepts as the source of a reading.
+var sourceName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
+// maxExternalIDLen is the longest external_id of a reading.
+const maxExternalIDLen = 128
+
+// validReadingOrigin checks the fields of a reading that only the public API lets a caller choose:
+// when it was taken and where it came from.
+func validReadingOrigin(r *models.ScaleReading) error {
+	if r.MeasuredAt.IsZero() {
+		return errors.New("measured_at is required")
+	}
+	if r.Source != "" {
+		if !sourceName.MatchString(r.Source) {
+			return errors.New("source must be 1 to 32 characters: a-z, 0-9, _ and -")
+		}
+	}
+	if r.ExternalID != nil && len(*r.ExternalID) > maxExternalIDLen {
+		return fmt.Errorf("external_id is limited to %d characters", maxExternalIDLen)
 	}
 	return nil
 }
