@@ -10,11 +10,13 @@ import (
 // Profile is the profile form of the settings page, as typed. The backend validates every field
 // again; Current is the current password, asked for when the e-mail address changes.
 type Profile struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Timezone string `json:"timezone"`
-	HeightCm string `json:"height_cm"`
-	Current  string `json:"current"`
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Timezone  string `json:"timezone"`
+	HeightCm  string `json:"height_cm"`
+	Current   string `json:"current"`
 }
 
 // SaveProfile stores the profile.

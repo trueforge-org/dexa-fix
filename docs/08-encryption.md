@@ -20,7 +20,7 @@ covers both.
 Each e-mail address also gets a keyed hash, derived from the encryption key. The
 hash makes addresses searchable and unique without decrypting them. Passwords,
 access tokens, password reset links and two-step verification recovery codes are
-stored only as hashes. Names are not encrypted, but addresses are. Height is not
+stored only as hashes. Usernames and first and last names are not encrypted, but addresses are. Height is not
 encrypted by the application either. For that, and for names, use disk or
 database encryption. Without an encryption key nothing is encrypted; readings
 and scans written then are encrypted at the next start with a key.

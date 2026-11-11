@@ -32,8 +32,8 @@ func (s *Backend) internalConfirmPassword(w http.ResponseWriter, r *http.Request
 	if r.PostForm == nil {
 		r.PostForm = map[string][]string{}
 	}
-	r.PostForm.Set("current", current) // checkReauth reads the password from the form field
-	ok, status, msg, err := s.checkReauth(r, u, false)
+	r.PostForm.Set("current", current)                // checkReauth reads the password from the form field
+	ok, status, msg, err := s.checkReauth(r, u, true) // no password: the session must be recent
 	switch {
 	case err != nil:
 		internalError(w, err)
@@ -47,6 +47,14 @@ func (s *Backend) internalConfirmPassword(w http.ResponseWriter, r *http.Request
 		return false
 	}
 	return true
+}
+
+// profileInvalid says which part of the profile was refused: the username or the names.
+func profileInvalid(err error) string {
+	if strings.Contains(err.Error(), "username") {
+		return usernameRule
+	}
+	return "First and last name can have at most 64 characters, without control characters."
 }
 
 func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -80,11 +88,13 @@ func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u 
 		}
 		height = &v
 	}
-	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, in.Name, email, height); {
+	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, in.Username, in.FirstName, in.LastName, email, height); {
+	case errors.Is(err, store.ErrUsernameTaken):
+		invalid(usernameTaken)
 	case errors.Is(err, store.ErrExists):
 		invalid("Another account already uses that e-mail address.")
 	case errors.Is(err, store.ErrInvalid):
-		invalid("Please enter a name of 1-64 characters.")
+		invalid(profileInvalid(err))
 	case err != nil:
 		internalError(w, err)
 	default:
@@ -127,6 +137,12 @@ func (s *Backend) internalPasswordChange(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if err := s.setPassword(ctx, u.ID, in.Password); err != nil {
+		internalError(w, err)
+		return
+	}
+	// Somebody who signed in with the old password between the first delete and the write has a
+	// session that would outlive the change: end those too, before the new session is made.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
 		internalError(w, err)
 		return
 	}

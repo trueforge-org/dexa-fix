@@ -16,7 +16,9 @@ type userRow struct {
 	bun.BaseModel `bun:"table:users"`
 
 	ID                int64     `bun:"id,pk"` // random, see newUserID
-	Name              string    `bun:"name"`
+	Username          string    `bun:"username"`
+	FirstName         string    `bun:"first_name"`
+	LastName          string    `bun:"last_name"`
 	Role              string    `bun:"role"`
 	Email             string    `bun:"email"`
 	EmailLookup       *string   `bun:"email_lookup"`
@@ -47,7 +49,9 @@ func (r *userRow) toModel() models.User {
 	}
 	return models.User{
 		ID:                r.ID,
-		Name:              r.Name,
+		Username:          r.Username,
+		FirstName:         r.FirstName,
+		LastName:          r.LastName,
 		Role:              r.Role,
 		Email:             r.Email,
 		HeightCm:          r.HeightCm,

@@ -2,7 +2,6 @@ package bodybackend
 
 import (
 	"context"
-	"errors"
 	"math"
 	"sort"
 	"time"
@@ -147,7 +146,10 @@ func (s *Service) reconcile(ctx context.Context, userID int64, p bodyapi.Estimat
 	for _, id := range req.Seen {
 		seen[id] = true
 	}
-	existing, err := s.store.ListScaleReadings(ctx, userID)
+	// plan only looks at the days of what was fetched, at the re-imported day and at stored readings
+	// with a fetched external id, so only those are read (and decrypted), not the whole history.
+	since, until, ids := reconcileWindow(req.Fetched, req.DayMode, day)
+	existing, err := s.store.ScaleReadingsForReconcile(ctx, userID, store.ListFilter{Since: since, Until: until}, req.Source, ids)
 	if err != nil {
 		return importResult{}, err
 	}
@@ -162,10 +164,40 @@ func (s *Service) reconcile(ctx context.Context, userID int64, p bodyapi.Estimat
 			return importResult{}, err
 		}
 	}
-	for _, id := range c.Delete {
-		if err := s.store.DeleteScaleReading(ctx, userID, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if len(c.Delete) > 0 { // one transaction: all of them or none, and one change of the version
+		if _, err := s.store.DeleteScaleReadings(ctx, userID, c.Delete); err != nil {
 			return importResult{}, err
 		}
 	}
 	return c.importResult, nil
+}
+
+// reconcileMargin is added on both sides of the times an import touches, so that every calendar day
+// that holds one of them is complete whatever the user's time zone (offsets reach 14 hours).
+const reconcileMargin = 48 * time.Hour
+
+// reconcileWindow is the time window that holds every day plan looks at, and the external ids of the
+// fetched readings. The window is empty (both bounds zero) when nothing was fetched and no day is
+// re-imported.
+func reconcileWindow(fetched []models.ScaleReading, dayMode bool, day time.Time) (since, until time.Time, ids []string) {
+	var lo, hi time.Time
+	widen := func(t time.Time) {
+		if lo.IsZero() || t.Before(lo) {
+			lo = t
+		}
+		if hi.IsZero() || t.After(hi) {
+			hi = t
+		}
+	}
+	for _, f := range fetched {
+		widen(f.MeasuredAt)
+		ids = append(ids, *f.ExternalID)
+	}
+	if dayMode {
+		widen(day)
+	}
+	if lo.IsZero() {
+		return time.Time{}, time.Time{}, ids
+	}
+	return lo.Add(-reconcileMargin), hi.Add(reconcileMargin), ids
 }

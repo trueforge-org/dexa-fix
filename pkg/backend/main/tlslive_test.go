@@ -111,7 +111,7 @@ func (c tlsCookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // signUp creates an account over plain HTTP and returns a client that is signed in as it.
 func (r *tlsRig) signUp(t *testing.T, name string) *http.Client {
 	t.Helper()
-	resp := post(t, noRedirectClient(), r.base+"/signup", url.Values{"name": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
+	resp := post(t, noRedirectClient(), r.base+"/signup", url.Values{"username": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("signup %s: %d", name, resp.StatusCode)
 	}

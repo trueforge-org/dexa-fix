@@ -58,7 +58,7 @@ sign-in. The change is not written to the audit log of a running server.`,
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "two-step verification removed for %s\n", u.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "two-step verification removed for %s\n", u.Username)
 		return nil
 	},
 }

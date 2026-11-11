@@ -24,7 +24,7 @@ func TestRandomUserIDsFlow(t *testing.T) {
 	}
 	var aliceID, bobID int64
 	for _, u := range users {
-		if u.Name == "alice" {
+		if u.Username == "alice" {
 			aliceID = u.ID
 		} else {
 			bobID = u.ID

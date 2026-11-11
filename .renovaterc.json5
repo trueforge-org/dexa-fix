@@ -5,6 +5,8 @@
   extends: [
     'github>trueforge-org/renovate-config',
   ],
+  // CI fails on a go.sum that `go mod tidy` would change; Renovate leaves stale lines behind otherwise.
+  postUpdateOptions: ['gomodTidy'],
   customManagers: [
     {
       // The govulncheck release that CI installs. An old one crashes at random on newer Go code, so it

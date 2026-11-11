@@ -53,6 +53,9 @@ func TestSealedValueRoundTrip(t *testing.T) {
 	if got != want {
 		t.Fatalf("opened %+v, want %+v", got, want)
 	}
+	if nonce == "" || !expires.After(time.Now()) {
+		t.Fatalf("nonce %q, expires %v: want a nonce to spend and an expiry ahead", nonce, expires)
+	}
 	if gotNonce != nonce {
 		t.Fatalf("nonce %q, want %q", gotNonce, nonce)
 	}
@@ -102,9 +105,12 @@ func TestProviderStateStillWorks(t *testing.T) {
 	want := providerState{Slug: "idp", State: "state-1", Verifier: "verifier-1", Nonce: "nonce-1", Link: 3}
 
 	sealed := s.sealState(want)
-	got, ok := s.openState(sealed)
+	got, nonce, expires, ok := s.openState(sealed)
 	if !ok {
 		t.Fatal("provider state does not open")
+	}
+	if nonce == "" || !expires.After(time.Now()) {
+		t.Fatalf("nonce %q, expires %v: want a nonce to spend and an expiry ahead", nonce, expires)
 	}
 	if got != want {
 		t.Fatalf("opened %+v, want %+v", got, want)
@@ -114,7 +120,7 @@ func TestProviderStateStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.openState(other); ok {
+	if _, _, _, ok := s.openState(other); ok {
 		t.Fatal("value sealed for another purpose opened as provider state")
 	}
 }

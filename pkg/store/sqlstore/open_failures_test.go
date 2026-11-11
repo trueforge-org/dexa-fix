@@ -52,7 +52,7 @@ func TestStartingWithAKeyFailsWhenTheDatabaseRefusesTheWrites(t *testing.T) {
 			}
 		}, "UPDATE", "app_settings", "encrypt existing data"},
 		{"a scan written before the key", func(t *testing.T, s *Store) {
-			u, _ := s.CreateUser(ctx, "u")
+			u, _ := s.CreateUser(ctx, "uu")
 			if err := s.CreateDexaScan(ctx, &models.DexaScan{UserID: u.ID, MeasuredAt: time.Now()}); err != nil {
 				t.Fatal(err)
 			}
@@ -199,7 +199,7 @@ func TestMigrationsGoDownAndUpAgain(t *testing.T) {
 	if res, err := s.MigrateDown(ctx); err != nil || res.Source.Version != latest {
 		t.Fatalf("down: %+v %v", res, err)
 	}
-	if v, _ := s.SchemaVersion(ctx); v != 0 {
+	if v, _ := s.SchemaVersion(ctx); v != latest-1 {
 		t.Fatalf("version after down: %d", v)
 	}
 	if res, err := s.MigrateTo(ctx, latest); err != nil || len(res) == 0 {
@@ -410,7 +410,9 @@ func TestTheSearchForAnEncryptedValueFindsEveryKind(t *testing.T) {
 	}{
 		{"an integration", func(s *Store, u models.User) error { return s.PutIntegration(ctx, u.ID, "withings", []byte("{}")) },
 			func(u models.User) string { return integrationContext(u.ID, "withings") }},
-		{"an e-mail address", func(s *Store, u models.User) error { return s.UpdateUserProfile(ctx, u.ID, "u", "u@example.com", nil) },
+		{"an e-mail address", func(s *Store, u models.User) error {
+			return s.UpdateUserProfile(ctx, u.ID, "uu", "", "", "u@example.com", nil)
+		},
 			func(u models.User) string { return emailContext(u.ID) }},
 		{"a two-step secret", func(s *Store, u models.User) error { return s.PutPendingTOTP(ctx, u.ID, "SECRET") },
 			func(u models.User) string { return totpContext(u.ID) }},
@@ -420,7 +422,7 @@ func TestTheSearchForAnEncryptedValueFindsEveryKind(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s, _ := newFaultyStore(t, testCipher(t, 1))
-			u, err := s.CreateUser(ctx, "u")
+			u, err := s.CreateUser(ctx, "uu")
 			if err != nil {
 				t.Fatal(err)
 			}

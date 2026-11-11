@@ -70,6 +70,9 @@ change them on the [Admin page](06-using-the-app.md):
   - Base URL, such as `https://dexa.example.com`. Empty by default.
   - Trusted proxies. Empty by default, which trusts nobody. See [Running behind a reverse proxy](03-reverse-proxy.md).
   - Accept the PROXY protocol from the trusted proxies. Off by default. See [PROXY protocol](03-reverse-proxy.md#proxy-protocol).
+  - Allow sign-in providers on private network addresses. Off by default. See [Outgoing connections](14-limitations-and-security.md#outgoing-connections).
+  - Allow the mail server on a private network address. Off by default, and separate from the one for providers.
+  - **Upgrading:** a sign-in provider or mail server that runs on a private address (`10.x`, `172.16.x`–`172.31.x`, `192.168.x`, `100.64.x`, `fc00::/7`) stops working until you turn on the setting for it; password sign-in keeps working, so you can still reach the Admin page.
   - Keep the audit log for N days. 365 by default; `0` keeps it forever.
   - Remind me to rotate the encryption key after N days. Empty or `0` never reminds. Rotation stays manual.
 - **E-mail**: SMTP server, port (587 by default), encryption (`starttls` by default, `tls`, or `none` for a server on localhost only), user name, password (stored encrypted, never shown again) and sender address. See [Password reset](07-accounts-and-sign-in.md#password-reset).

@@ -24,7 +24,7 @@ func TestTheLoginPageFailsCleanlyWhenTheStoreLetsItDown(t *testing.T) {
 func TestSigningUpIsRefusedWhenItShouldBe(t *testing.T) {
 	type outcome = apiclient.SignInOutcome
 	form := func(name, email, password string) map[string]string {
-		return map[string]string{"Name": name, "Email": email, "Password": password, "Confirm": password}
+		return map[string]string{"Username": name, "Email": email, "Password": password, "Confirm": password}
 	}
 	signUp := func(g *rig, body map[string]string) outcome {
 		var out outcome
@@ -40,8 +40,20 @@ func TestSigningUpIsRefusedWhenItShouldBe(t *testing.T) {
 	})
 	t.Run("a name that is empty", func(t *testing.T) {
 		g := newRig(t)
-		if out := signUp(g, form("", "pat@example.com", testPassword)); out.Status != http.StatusUnprocessableEntity || !strings.Contains(out.Error, "1-64 characters") {
+		if out := signUp(g, form("", "pat@example.com", testPassword)); out.Status != http.StatusUnprocessableEntity || !strings.Contains(out.Error, "2-32 letters") {
 			t.Fatalf("%+v", out)
+		}
+	})
+	t.Run("a username that is taken, whatever the case", func(t *testing.T) {
+		g := newRig(t)
+		if out := signUp(g, form("Pat", "pat@example.com", testPassword)); out.Error != "" {
+			t.Fatalf("the first account: %+v", out)
+		}
+		if out := signUp(g, form("pAT", "pat2@example.com", testPassword)); out.Status != http.StatusUnprocessableEntity || out.Error != usernameTaken {
+			t.Fatalf("%+v", out)
+		}
+		if out := signUp(g, form("pat-two", "PAT@example.com", testPassword)); out.Status != http.StatusUnprocessableEntity || !strings.Contains(out.Error, "e-mail address already exists") {
+			t.Fatalf("the same address under another username: %+v", out)
 		}
 	})
 	t.Run("a client address that already tried too often", func(t *testing.T) {

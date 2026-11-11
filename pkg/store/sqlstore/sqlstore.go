@@ -346,19 +346,19 @@ func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
 	return 0, errors.New("could not find a free user id")
 }
 
-func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
-	return s.createUser(ctx, name, "", nil)
+func (s *Store) CreateUser(ctx context.Context, username string) (models.User, error) {
+	return s.createUser(ctx, username, "", nil)
 }
 
 // CreateUserWithIdentity creates a user together with a way to sign in.
-func (s *Store) CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error) {
-	return s.createUser(ctx, name, email, &id)
+func (s *Store) CreateUserWithIdentity(ctx context.Context, username, email string, id models.Identity) (models.User, error) {
+	return s.createUser(ctx, username, email, &id)
 }
 
-func (s *Store) createUser(ctx context.Context, name, email string, id *models.Identity) (models.User, error) {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 64 {
-		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
+func (s *Store) createUser(ctx context.Context, username, email string, id *models.Identity) (models.User, error) {
+	username = strings.TrimSpace(username)
+	if !models.ValidUsername(username) {
+		return models.User{}, fmt.Errorf("%w: username must be 2-32 letters, digits, '.', '_' or '-'", store.ErrInvalid)
 	}
 	email = models.NormalizeEmail(email)
 	var row userRow
@@ -371,7 +371,7 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if err != nil {
 			return err
 		}
-		row = userRow{ID: uid, Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
+		row = userRow{ID: uid, Username: username, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}
@@ -394,7 +394,7 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 	})
 	if err != nil {
 		if isUnique(err) {
-			return models.User{}, store.ErrExists
+			return models.User{}, uniqueError(err)
 		}
 		return models.User{}, err
 	}
@@ -435,7 +435,7 @@ func (s *Store) UpdateUserHiddenColumns(ctx context.Context, userID int64, keys 
 
 func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	var rows []userRow
-	if err := s.db.NewSelect().Model(&rows).OrderExpr("name").Scan(ctx); err != nil {
+	if err := s.db.NewSelect().Model(&rows).OrderExpr("username").Scan(ctx); err != nil {
 		return nil, err
 	}
 	var out []models.User

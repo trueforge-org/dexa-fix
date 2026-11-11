@@ -54,6 +54,9 @@ func TestSecretsInitAsAnotherUserStopsWithAdviceInAFolderOfRoot(t *testing.T) {
 
 // Giving a file to somebody else is for root only: the user of the containers cannot, and is told.
 func TestSecretsInitAsAnotherUserCannotGiveFilesAway(t *testing.T) {
+	if os.Geteuid() != 0 { // the folders are handed to another user below, which only root may do
+		t.Skip("needs root to hand folders to another user and then become that user")
+	}
 	o, dirs := testInit(t)
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o700); err != nil {
