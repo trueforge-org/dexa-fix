@@ -199,7 +199,7 @@ func TestVersionsFollowTheirOwnData(t *testing.T) {
 		return err
 	})
 	step("changing settings", false, func() error { return s.UpdateUserSettings(ctx, u.ID, true, nil) })
-	step("changing the height", false, func() error { h := 180.0; return s.UpdateUserProfile(ctx, u.ID, "alice", "a@example.com", &h) })
+	step("changing the height", false, func() error { h := 180.0; return s.UpdateUserProfile(ctx, u.ID, "alice", "", "", "a@example.com", &h) })
 	step("changing the time zone", false, func() error { return s.UpdateUserTimezone(ctx, u.ID, "Europe/Amsterdam") })
 	step("deleting a scan", true, func() error { return s.DeleteDexaScan(ctx, u.ID, scan.ID) })
 	rs, _ := s.ListScaleReadings(ctx, u.ID)

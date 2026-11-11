@@ -22,7 +22,7 @@ func TestChangesAreRefusedForWhatDoesNotExistOrIsNotAllowed(t *testing.T) {
 		do   func() error
 		want error
 	}{
-		{"a profile of a user that does not exist", func() error { return s.UpdateUserProfile(ctx, nobody, "n", "n@example.com", nil) }, store.ErrNotFound},
+		{"a profile of a user that does not exist", func() error { return s.UpdateUserProfile(ctx, nobody, "nn", "", "", "n@example.com", nil) }, store.ErrNotFound},
 		{"a time zone that does not exist", func() error { return s.UpdateUserTimezone(ctx, fx.user, "Nowhere/Land") }, store.ErrInvalid},
 		{"an empty time zone", func() error { return s.UpdateUserTimezone(ctx, fx.user, "") }, store.ErrInvalid},
 		{"the time zone Local", func() error { return s.UpdateUserTimezone(ctx, fx.user, "Local") }, store.ErrInvalid},

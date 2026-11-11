@@ -343,10 +343,10 @@ func TestPasskeysAreOnlyOfferedWhereTheBrowserCanUseThem(t *testing.T) {
 }
 
 func TestAPasskeyUserIsNamedAfterTheAddressOrTheName(t *testing.T) {
-	if got := (&passkeyUser{user: models.User{Name: "Pat", Email: "pat@example.com"}}).WebAuthnName(); got != "pat@example.com" {
+	if got := (&passkeyUser{user: models.User{Username: "Pat", Email: "pat@example.com"}}).WebAuthnName(); got != "pat@example.com" {
 		t.Errorf("with an address: %q", got)
 	}
-	if got := (&passkeyUser{user: models.User{Name: "Pat"}}).WebAuthnName(); got != "Pat" {
+	if got := (&passkeyUser{user: models.User{Username: "Pat"}}).WebAuthnName(); got != "Pat" {
 		t.Errorf("without an address: %q", got)
 	}
 }

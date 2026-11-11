@@ -58,7 +58,7 @@ func TestAResetMailThatCannotBeSentIsReportedAndLogged(t *testing.T) {
 	if !strings.Contains(logs.String(), "could not send the password reset e-mail") {
 		t.Fatalf("log %s", logs)
 	}
-	if g.b.sendResetMail(models.User{ID: uid, Name: "no address"}, "x", time.Hour) {
+	if g.b.sendResetMail(models.User{ID: uid, Username: "no-address"}, "x", time.Hour) {
 		t.Fatal("a mail was sent to an account without an address")
 	}
 }

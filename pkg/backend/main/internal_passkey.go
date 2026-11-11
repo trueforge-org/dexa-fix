@@ -77,12 +77,12 @@ type passkeyUser struct {
 }
 
 func (p *passkeyUser) WebAuthnID() []byte          { return p.handle }
-func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.Name }
+func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.FullName() }
 func (p *passkeyUser) WebAuthnName() string {
 	if p.user.Email != "" {
 		return p.user.Email
 	}
-	return p.user.Name
+	return p.user.Username
 }
 func (p *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return p.creds }
 

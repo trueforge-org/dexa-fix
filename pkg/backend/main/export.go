@@ -21,7 +21,9 @@ type profileExport struct {
 	ExportedAt    time.Time `json:"exported_at"`
 	Account       struct {
 		ID        int64     `json:"id"`
-		Name      string    `json:"name"`
+		Username  string    `json:"username"`
+		FirstName string    `json:"first_name"`
+		LastName  string    `json:"last_name"`
 		Email     string    `json:"email"`
 		Role      string    `json:"role"`
 		HeightCm  *float64  `json:"height_cm"`
@@ -93,7 +95,8 @@ func (s *Backend) buildProfileExport(r *http.Request, u models.User) (profileExp
 	ctx := r.Context()
 	var e profileExport
 	e.FormatVersion, e.ExportedAt = exportFormatVersion, time.Now().UTC()
-	e.Account.ID, e.Account.Name, e.Account.Email, e.Account.Role = u.ID, u.Name, u.Email, u.Role
+	e.Account.ID, e.Account.Username, e.Account.Email, e.Account.Role = u.ID, u.Username, u.Email, u.Role
+	e.Account.FirstName, e.Account.LastName = u.FirstName, u.LastName
 	e.Account.HeightCm, e.Account.CreatedAt = u.HeightCm, u.CreatedAt
 	e.Settings.AthleteDefault, e.Settings.MethodRanking = u.AthleteDefault, orEmpty(u.MethodRanking)
 	e.Settings.HiddenColumns = orEmpty(u.HiddenColumns)

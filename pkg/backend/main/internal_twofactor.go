@@ -118,7 +118,7 @@ func (s *Backend) totpIssuer() string {
 func (s *Backend) twoFactorSetupFor(u models.User, secret string) *twoFactorSetup {
 	account := u.Email
 	if account == "" {
-		account = u.Name
+		account = u.Username
 	}
 	svg := must.Value(qrSVG(otpauthURI(s.totpIssuer(), account, secret))) // cannot fail: a name or address and a secret are far below the QR capacity
 	return &twoFactorSetup{QR: svg, Secret: groupSecret(secret)}

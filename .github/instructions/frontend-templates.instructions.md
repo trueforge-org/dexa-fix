@@ -29,6 +29,16 @@ Every response carries `Content-Security-Policy: default-src 'self'; script-src 
 - Do not put secrets, tokens, recovery codes or other one-time values in URLs or hidden fields that outlive the response. One-time values (new token, recovery codes, QR code data) are rendered from the response body only.
 - Passkey and htmx scripts call the existing JSON routes (`/passkey/...`); keep response shapes (`{"error": ...}`, `{"redirect": ...}`).
 
+## Forms, buttons and sections
+
+Settings, Admin and the add-entry pages share one layout, so a control is always where you expect it:
+
+- Every form ends with a `div.form-actions` (right-aligned, wraps, has a gap). The primary button is last. Do not put a button in a grid cell of a `.form-row`, and do not leave a bare `<form><button>` in a card.
+- A secondary or destructive button that belongs to the same form goes in the same `.form-actions` with `class="start"` to sit on the left. If its action is a different form, give the button `form="<id>"` and an empty `<form id>` next to it.
+- Destructive actions in a form use `class="danger"`. `button.link` (red text) is only for row actions inside a table (Revoke, Remove a passkey, Delete a user or entry).
+- A card with more than one form or topic is split into `.section`s, each starting with an `<h3>` (a `.card-head` with an `<h3>` and a status pill when it has a state). One `<h2>` per card, with at most one `{{help}}` badge on it.
+- Put the help text under the heading as `p.help`, or as `<small>` after the input it explains. Use `.narrow` and `label.inline` instead of inline `style=` for short number inputs.
+
 ## In-app documentation
 
 `templates/docs.html` is the documentation inside the app. It mirrors `docs/`. When behaviour, flags, routes, settings or deployment steps change, update both. Every `href="#..."` needs a matching `id="..."`; `docs_test.go` checks it. Add new sections to the table of contents at the top.

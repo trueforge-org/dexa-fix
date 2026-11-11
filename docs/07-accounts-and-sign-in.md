@@ -4,10 +4,15 @@ Each user has an account and sees only their own data. The first account
 created becomes the administrator. Passwords are hashed with bcrypt. They must
 be 8 characters or more, and at most 72 bytes.
 
-Creating an account asks for a name, an e-mail address and a password. The
-e-mail address is the account's unique key, and it is what you sign in with. It
-is compared case-insensitively and stored in lowercase. Names are display names
-and need not be unique.
+Creating an account asks for a username, an e-mail address and a password. The
+e-mail address is the account's key, and it is what you sign in with. It is
+compared case-insensitively and stored in lowercase. The username is unique too,
+also ignoring case: 2 to 32 letters, digits, `.`, `_` or `-`, starting with a
+letter or digit. A first and last name can be added on the Settings page. A new
+account made by a provider takes its username from the provider's name field
+(changed to those characters); when it is taken, `-2`, `-3` and so on is added.
+Accounts that existed before usernames had to be unique keep their name; those
+that only differed in case got their id added at the upgrade.
 
 **New accounts are closed by default.** Only the very first account on an empty
 server can be created without an invitation. After that nobody can create
@@ -22,7 +27,7 @@ accounts by accident.
 Under **Settings → Your data** every user can download two JSON files, which
 serve a person's right of access and data portability (GDPR articles 15 and 20):
 
-- **Settings and personal details**: name, e-mail address, role, height,
+- **Settings and personal details**: username, first and last name, e-mail address, role, height,
   settings, permissions, sign-in methods (provider and account id), passkey
   names and dates (never the keys), access token names and prefixes, whether
   two-step verification is on (`two_factor.enabled`; never the secret or

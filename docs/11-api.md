@@ -15,8 +15,8 @@ user's role is not enough. See [Authentication](#authentication).
 
 | Method | Path                            | Description                                                                                                                                             |
 | ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/users`                        | List users. Administrators only.                                                                                                                        |
-| POST   | `/users`                        | Create a user. Administrators only. Body: `{"name": "...", "email": "...", "password": "..."}`. `email` is required and unique. `password` is optional. |
+| GET    | `/users`                        | List users. Administrators only. Each has `username`, `first_name` and `last_name`; `name` repeats the username for scripts written for v0.0.1. |
+| POST   | `/users`                        | Create a user. Administrators only. Body: `{"username": "...", "email": "...", "password": "..."}`. `username` and `email` are required and unique; a taken username is 409. `password` is optional. |
 | GET    | `/users/{id}/dexa-scans`        | List DEXA scans.                                                                                                                                        |
 | POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                                                                                                       |
 | GET    | `/users/{id}/scale-readings`    | List scale readings.                                                                                                                                    |
@@ -63,7 +63,7 @@ export DEXAFIX_USER=...        # your user id: the number in the address of your
 curl -s -X POST localhost:8080/api/v1/users \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Alice", "email": "alice@example.com"}'
+  -d '{"username": "alice", "email": "alice@example.com"}'
 
 curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \

@@ -91,7 +91,7 @@ func (s *Backend) internalLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name, Email, Password, Confirm string }
+	var in struct{ Username, Email, Password, Confirm string }
 	if !internalDecode(w, r, &in) {
 		return
 	}
@@ -120,13 +120,15 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := must.Value(hashPassword(in.Password)) // cannot fail: validatePassword capped the length at bcrypt's limit
-	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.createUserWithIdentity(r.Context(), in.Username, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
+	case errors.Is(err, store.ErrUsernameTaken):
+		signInFail(w, usernameTaken, http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrExists):
 		s.limiter.Fail(r.Context(), ipKey(r)) // repeated probing for registered addresses is throttled
 		signInFail(w, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
-		signInFail(w, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
+		signInFail(w, usernameRule, http.StatusUnprocessableEntity)
 	case err != nil:
 		internalError(w, err)
 	default:

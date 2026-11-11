@@ -16,12 +16,15 @@ import (
 	"math/big"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/rs/zerolog/log"
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/must"
+	"github.com/trueforge-org/dexafix/pkg/store"
 	"golang.org/x/oauth2"
 )
 
@@ -32,7 +35,6 @@ const (
 	appleIssuer      = "https://appleid.apple.com"
 	appleSecretTTL   = 5 * time.Minute
 	maxProviderBody  = 1 << 20
-	userNameLimit    = 64
 )
 
 // providerState travels through the browser during a sign-in. It is signed because Apple's
@@ -229,17 +231,70 @@ func claimString(claims map[string]any, name string) string {
 	return ""
 }
 
-// providerUserName picks a display name for a new account. It is only a label.
+// cleanUsername turns a claim into something ValidUsername accepts: other characters become '-',
+// leading '.', '_' and '-' are dropped and it is cut to the longest username. It returns "" when
+// fewer than two characters are left.
+func cleanUsername(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case b.Len() == 0:
+		case r == '.' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	if out := truncateRunes(b.String(), models.MaxUsernameLen); len(out) >= models.MinUsernameLen {
+		return out
+	}
+	return ""
+}
+
+// providerUserName picks the username for a new account from the provider's claims.
 func providerUserName(p models.AuthProvider, subject string, claims map[string]any) string {
 	for _, c := range []string{p.NameClaim, "preferred_username", "name", "email"} {
 		if c == "" {
 			continue
 		}
-		if v := claimString(claims, c); v != "" {
-			return truncateRunes(v, userNameLimit)
+		if v := cleanUsername(claimString(claims, c)); v != "" {
+			return v
 		}
 	}
-	return truncateRunes(p.Slug+"-"+subject, 24)
+	return cleanUsername(p.Slug + "-" + subject) // a slug starts with a letter or digit, so this has two characters at least
+}
+
+// createProviderUser creates the account of a first provider sign-in. When the username from the
+// claims is taken, "-2", "-3" and so on are tried. The first and last name come from the given_name
+// and family_name claims when the provider sends them.
+func (s *Backend) createProviderUser(ctx context.Context, p models.AuthProvider, subject string, claims map[string]any) (models.User, error) {
+	base := providerUserName(p, subject, claims)
+	name := base
+	var (
+		u   models.User
+		err error
+	)
+	for n := 2; ; n++ {
+		u, err = s.createUserWithIdentity(ctx, name, verifiedEmail(claims), models.Identity{Provider: p.Slug, Subject: subject})
+		if !errors.Is(err, store.ErrUsernameTaken) {
+			break
+		}
+		suffix := "-" + strconv.Itoa(n)
+		name = truncateRunes(base, models.MaxUsernameLen-len(suffix)) + suffix
+	}
+	if err != nil {
+		return u, err
+	}
+	if first, last := claimString(claims, "given_name"), claimString(claims, "family_name"); first != "" || last != "" {
+		if err := s.store.UpdateUserProfile(ctx, u.ID, u.Username, first, last, u.Email, nil); err != nil {
+			log.Warn().Err(err).Int64("user", u.ID).Msg("could not store the names from the provider")
+		} else {
+			u.FirstName, u.LastName = strings.TrimSpace(first), strings.TrimSpace(last)
+		}
+	}
+	return u, nil
 }
 
 func truncateRunes(s string, n int) string {

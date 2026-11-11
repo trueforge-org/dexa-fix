@@ -49,6 +49,14 @@ func (s *Backend) internalConfirmPassword(w http.ResponseWriter, r *http.Request
 	return true
 }
 
+// profileInvalid says which part of the profile was refused: the username or the names.
+func profileInvalid(err error) string {
+	if strings.Contains(err.Error(), "username") {
+		return usernameRule
+	}
+	return "First and last name can have at most 64 characters, without control characters."
+}
+
 func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u models.User) {
 	var in apiclient.Profile
 	if !internalDecode(w, r, &in) {
@@ -80,11 +88,13 @@ func (s *Backend) internalProfileSave(w http.ResponseWriter, r *http.Request, u 
 		}
 		height = &v
 	}
-	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, in.Name, email, height); {
+	switch err := s.store.UpdateUserProfile(r.Context(), u.ID, in.Username, in.FirstName, in.LastName, email, height); {
+	case errors.Is(err, store.ErrUsernameTaken):
+		invalid(usernameTaken)
 	case errors.Is(err, store.ErrExists):
 		invalid("Another account already uses that e-mail address.")
 	case errors.Is(err, store.ErrInvalid):
-		invalid("Please enter a name of 1-64 characters.")
+		invalid(profileInvalid(err))
 	case err != nil:
 		internalError(w, err)
 	default:

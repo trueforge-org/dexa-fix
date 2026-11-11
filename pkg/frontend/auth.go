@@ -96,7 +96,7 @@ func (s *Frontend) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Frontend) signup(w http.ResponseWriter, r *http.Request) {
-	o, err := s.api.Signup(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"), r.PostFormValue("confirm"))
+	o, err := s.api.Signup(r.Context(), r.PostFormValue("username"), r.PostFormValue("email"), r.PostFormValue("password"), r.PostFormValue("confirm"))
 	s.signInOutcome(w, r, o, err)
 }
 

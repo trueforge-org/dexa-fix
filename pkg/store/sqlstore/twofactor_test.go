@@ -217,15 +217,15 @@ func TestRecoveryCodes(t *testing.T) {
 func TestTwoFactorUsersAndStats(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	a, err := s.CreateUser(ctx, "a")
+	a, err := s.CreateUser(ctx, "aa")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateUser(ctx, "b")
+	b, err := s.CreateUser(ctx, "bb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.CreateUser(ctx, "c")
+	c, err := s.CreateUser(ctx, "cc")
 	if err != nil {
 		t.Fatal(err)
 	}

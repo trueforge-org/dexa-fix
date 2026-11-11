@@ -92,7 +92,7 @@ func TestTrackingIsOnlyOfferedToVisitorsWhoAreNotSignedIn(t *testing.T) {
 	if tr == nil || tr.Names != "Scarf, Google Analytics and Google AdSense" {
 		t.Fatalf("visitor: %+v", tr)
 	}
-	if s.trackingFor(&models.User{ID: 1, Name: "alice"}) != nil {
+	if s.trackingFor(&models.User{ID: 1, Username: "alice"}) != nil {
 		t.Error("offered to somebody who is signed in")
 	}
 

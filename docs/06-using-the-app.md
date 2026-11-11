@@ -1,12 +1,13 @@
 # Using the app
 
-Settings and Admin are in a menu under your name in the header, which also has
-**Sign out**.
+Settings and Admin are in a menu under your first name (or your username, when
+you have not set one) in the header, which also has **Sign out**.
 
 - `/`: the sign-in page. Sign in with an e-mail address and password, with a
   passkey (**Sign in with a passkey**), create an account, or use a provider
-  button. Names are display names. They need not be unique and have 1 to 64
-  characters.
+  button. A username is unique (ignoring case) and has 2 to 32 letters, digits,
+  `.`, `_` or `-`, starting with a letter or digit. You sign in with your
+  e-mail address, not your username.
 - `/u/{id}`: redirects to the estimates page.
 - `/u/{id}/estimates`: one row per day with the estimated values, an overview
   with the latest values and a trend chart, the calibrations in use, and the
@@ -21,7 +22,8 @@ Settings and Admin are in a menu under your name in the header, which also has
   section connects, imports from and disconnects the user's Withings account. It
   says so when Withings credentials are missing, either on the Admin page or in
   the environment. Also:
-  - **Profile**: name, e-mail, time zone and height in cm. The e-mail is
+  - **Profile**: username, first name and last name (both optional, up to 64
+    characters), e-mail, time zone and height in cm. The e-mail is
     required, because it is how you sign in; changing it asks for your current
     password. The time zone (an IANA name such as `Europe/Amsterdam`, default
     `UTC`) decides which calendar day a scale reading belongs to, how the date

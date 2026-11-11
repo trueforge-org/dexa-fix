@@ -94,9 +94,8 @@ matches any file after a directory moved.
 
 ## Schema changes
 
-Until the first release (1.0.0) the schema is kept in one migration per database,
-`00001_init.sql`: change it there instead of adding a file. After the release,
-every schema change adds a migration with the same version number to both
+The first release (v0.0.1) is out, so `00001_init.sql` is never edited again.
+Every schema change adds a migration with the same version number to both
 `pkg/store/sqlstore/migrations/sqlite/` and `migrations/postgres/`, for example
 `00002_add_notes.sql`. Each file has `-- +goose Up` and `-- +goose Down`
 sections. `TestMigrationParity` fails if the two directories differ.

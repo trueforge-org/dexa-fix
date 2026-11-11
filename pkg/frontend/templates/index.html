@@ -21,7 +21,7 @@
   {{if and .PasswordEnabled .SignupOpen}}
   <form method="post" action="/signup" class="card fields">
     <h2>Create an account {{help "registration"}}</h2>
-    <label>Name <input type="text" name="name" maxlength="64" required autocomplete="name"></label>
+    <label>Username <small>(2-32 letters, digits, . _ -)</small> <input type="text" name="username" minlength="2" maxlength="32" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="username"></label>
     <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
     <label>Repeat password <input type="password" name="confirm" minlength="8" maxlength="72" required autocomplete="new-password"></label>
