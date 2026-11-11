@@ -546,10 +546,18 @@ func (s *Store) PurgeJobs(ctx context.Context, before time.Time) (int64, error) 
 // TouchWorker records that a worker process asked for work.
 func (s *Store) TouchWorker(ctx context.Context, id string, kinds []string, version string, at time.Time) error {
 	row := workerRow{ID: id, Kinds: strings.Join(kinds, ","), Version: version, LastSeen: at.UTC()}
+	// A worker asks for work every second or so. A known worker is only written again when its row is
+	// older than workerTouchEvery (a worker counts as alive for far longer) or says something new, so
+	// an idle worker does not write to the database all day.
 	_, err := s.db.NewInsert().Model(&row).On("CONFLICT (id) DO UPDATE").
-		Set("kinds = EXCLUDED.kinds").Set("version = EXCLUDED.version").Set("last_seen = EXCLUDED.last_seen").Exec(ctx)
+		Set("kinds = EXCLUDED.kinds").Set("version = EXCLUDED.version").Set("last_seen = EXCLUDED.last_seen").
+		Where("worker_row.last_seen < ? OR worker_row.kinds <> EXCLUDED.kinds OR worker_row.version <> EXCLUDED.version", at.UTC().Add(-workerTouchEvery)).
+		Exec(ctx)
 	return err
 }
+
+// workerTouchEvery is how often the row of a worker that has nothing new to say is written.
+const workerTouchEvery = 20 * time.Second
 
 // ListWorkers returns the workers seen since a time, newest first.
 func (s *Store) ListWorkers(ctx context.Context, since time.Time) ([]models.WorkerInstance, error) {

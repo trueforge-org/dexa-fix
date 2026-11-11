@@ -548,3 +548,42 @@ func TestRunningJobAndStats(t *testing.T) {
 		}
 	}
 }
+
+func TestAnIdleWorkerIsNotWrittenOnEveryPoll(t *testing.T) {
+	s, ctx, _ := jobFixture(t, 1)
+	t0 := time.Now().UTC().Truncate(time.Second)
+	lastSeen := func() time.Time {
+		t.Helper()
+		ws, err := s.ListWorkers(ctx, t0.Add(-time.Hour))
+		if err != nil || len(ws) != 1 {
+			t.Fatalf("workers: %+v %v", ws, err)
+		}
+		return ws[0].LastSeen
+	}
+	touch := func(at time.Time, kinds []string, version string) {
+		t.Helper()
+		if err := s.TouchWorker(ctx, "w", kinds, version, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	touch(t0, []string{"a.job"}, "1.0")
+	touch(t0.Add(time.Second), []string{"a.job"}, "1.0")
+	touch(t0.Add(5*time.Second), []string{"a.job"}, "1.0")
+	if got := lastSeen(); !got.Equal(t0) {
+		t.Fatalf("a poll within %v wrote the row again: last seen %v, want %v", workerTouchEvery, got, t0)
+	}
+	touch(t0.Add(6*time.Second), []string{"a.job", "b.job"}, "1.0")
+	if got := lastSeen(); !got.Equal(t0.Add(6 * time.Second)) {
+		t.Fatalf("new kinds were not written: last seen %v", got)
+	}
+	touch(t0.Add(7*time.Second), []string{"a.job", "b.job"}, "1.1")
+	if got := lastSeen(); !got.Equal(t0.Add(7 * time.Second)) {
+		t.Fatalf("a new version was not written: last seen %v", got)
+	}
+	late := t0.Add(7*time.Second + workerTouchEvery + time.Second)
+	touch(late, []string{"a.job", "b.job"}, "1.1")
+	if got := lastSeen(); !got.Equal(late) {
+		t.Fatalf("a stale row was not refreshed: last seen %v, want %v", got, late)
+	}
+}
