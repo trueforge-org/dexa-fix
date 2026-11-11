@@ -163,3 +163,44 @@ func TestReservedProviderSlugs(t *testing.T) {
 		t.Fatalf("reserved slugs were saved: %+v", providers)
 	}
 }
+
+func TestLastingChangesOfAUserWithoutAPasswordNeedARecentSession(t *testing.T) {
+	ts, admin, st := newAuthServer(t)
+	signup(t, ts, admin, "root") // user 1, with a password
+
+	idp := newFakeIdP(t)
+	addProvider(t, ts, admin, idp, true)
+	r := idp.signInVia(t, ts, noRedirectClient(), "idp") // user 2, without a password
+	if r.StatusCode != 303 || r.Header.Get("Location") != "/u/2" {
+		t.Fatalf("provider signup: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	sess := &http.Cookie{Name: sessionCookie, Value: responseSession(t, r)}
+	form := url.Values{"name": {"script"}, "expires": {"30"}}
+
+	t.Run("a fresh session may make a token", func(t *testing.T) {
+		resp, body := pkSiteOf(t, ts).postForm(t, "/u/2/tokens", form, sess)
+		if resp.StatusCode != 200 && resp.StatusCode != 303 {
+			t.Fatalf("token with a fresh session: %d %s", resp.StatusCode, body)
+		}
+		if toks, _ := st.ListAccessTokens(context.Background(), 2); len(toks) != 1 {
+			t.Fatalf("%d tokens after the fresh request, want 1", len(toks))
+		}
+	})
+
+	t.Run("an old session makes no token", func(t *testing.T) {
+		aged, err := New(agedSessions{Store: st, age: reauthWindow + time.Minute})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(aged.Close)
+		ats := httptest.NewServer(aged.Handler())
+		t.Cleanup(ats.Close)
+		resp, body := pkSiteOf(t, ats).postForm(t, "/u/2/tokens", form, sess)
+		if resp.StatusCode == 200 || resp.StatusCode == 303 || !strings.Contains(body, "Sign in again") {
+			t.Fatalf("token with an old session: %d %s, want a refusal asking to sign in again", resp.StatusCode, body)
+		}
+		if toks, _ := st.ListAccessTokens(context.Background(), 2); len(toks) != 1 {
+			t.Fatalf("%d tokens after the refused request, want still 1", len(toks))
+		}
+	})
+}

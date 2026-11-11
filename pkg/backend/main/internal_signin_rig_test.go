@@ -1,7 +1,6 @@
 package mainbackend
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,9 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
@@ -148,7 +144,7 @@ func (g *rig) send(addr, method, path string, headers map[string]string, body an
 // signUp makes an account through the sign-up endpoint and returns its id and session cookie.
 func (g *rig) signUp(name string) (int64, *http.Cookie) {
 	g.t.Helper()
-	rep := g.do("POST", "/auth/signup", map[string]string{"Name": name, "Email": name + "@example.com", "Password": testPassword, "Confirm": testPassword})
+	rep := g.do("POST", "/auth/signup", map[string]string{"Username": name, "Email": name + "@example.com", "Password": testPassword, "Confirm": testPassword})
 	ck := rep.cookie(sessionCookie)
 	if rep.Code != 200 || ck == nil {
 		g.t.Fatalf("sign up %s: %d %s", name, rep.Code, rep.body())
@@ -229,13 +225,6 @@ type blindToNonces struct{ store.Store }
 func (blindToNonces) NonceSeen(context.Context, string) (bool, error) { return false, nil }
 
 // captureSignInLog collects what the backend logs while the test runs.
-func captureSignInLog(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	old := log.Logger
-	log.Logger = zerolog.New(&buf)
-	t.Cleanup(func() { log.Logger = old })
-	return &buf
-}
+func captureSignInLog(t *testing.T) *logLines { return captureLog(t) }
 
 func (b blindToNonces) Unwrap() store.Store { return b.Store }

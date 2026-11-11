@@ -22,7 +22,7 @@ func (s *Frontend) dexaPage(w http.ResponseWriter, r *http.Request, u models.Use
 		rows = append(rows, row{ID: sc.ID, When: sc.MeasuredAt.Format(dateLayout), Cells: cells(dexaTargets(sc)), Notes: sc.Notes})
 	}
 	s.render(w, "dexa.html", status, pageData{
-		Title: u.Name + " · DEXA scans", Tab: "dexa", User: &u, Error: errMsg,
+		Title: u.DisplayName() + " · DEXA scans", Tab: "dexa", User: &u, Error: errMsg,
 		Fields: dexaFields, Rows: rows, Today: time.Now().In(u.Location()).Format(dateLayout),
 	})
 }
@@ -79,7 +79,7 @@ func (s *Frontend) scalePage(w http.ResponseWriter, r *http.Request, u models.Us
 		rows = append(rows, row{ID: rd.ID, When: rd.MeasuredAt.In(u.Location()).Format("2006-01-02 15:04"), Cells: cells(scaleTargets(rd)), Source: rd.Source, Method: methodLabel(rd.Method), Athlete: rd.AthleteMode, Notes: rd.Notes})
 	}
 	s.render(w, "scale.html", status, pageData{
-		Title: u.Name + " · scale readings", Tab: "scale", User: &u, Error: errMsg,
+		Title: u.DisplayName() + " · scale readings", Tab: "scale", User: &u, Error: errMsg,
 		Fields: scaleFields, Rows: rows, Now: time.Now().In(u.Location()).Format(dateTimeLayout), Timezone: u.Location().String(),
 		Methods: models.Methods, AthleteDefault: u.AthleteDefault, Pager: pager,
 	})

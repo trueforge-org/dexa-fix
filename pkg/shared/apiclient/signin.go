@@ -39,8 +39,8 @@ func (c *Client) Login(ctx context.Context, email, password string) (SignInOutco
 }
 
 // Signup creates an account with a password.
-func (c *Client) Signup(ctx context.Context, name, email, password, confirm string) (SignInOutcome, error) {
+func (c *Client) Signup(ctx context.Context, username, email, password, confirm string) (SignInOutcome, error) {
 	var o SignInOutcome
-	err := c.Post(ctx, "/auth/signup", map[string]string{"name": name, "email": email, "password": password, "confirm": confirm}, &o)
+	err := c.Post(ctx, "/auth/signup", map[string]string{"username": username, "email": email, "password": password, "confirm": confirm}, &o)
 	return o, err
 }

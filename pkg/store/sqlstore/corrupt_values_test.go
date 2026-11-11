@@ -117,6 +117,9 @@ func TestAReadingOrScanThatIsNotValidJSONIsReported(t *testing.T) {
 		{"a dexa scan on a page", "dexa_scans", func(s *Store, u int64) error {
 			return e1(s.ListDexaScansPage(ctx, u, storeFilter()))
 		}},
+		{"a scale reading for an import", "scale_readings", func(s *Store, u int64) error {
+			return e1(s.ScaleReadingsForReconcile(ctx, u, store.ListFilter{Since: time.Now().Add(-time.Hour)}, "csv", nil))
+		}},
 		{"a scale reading on a page", "scale_readings", func(s *Store, u int64) error {
 			return e1(s.ListScaleReadingsPage(ctx, u, storeFilter()))
 		}},
@@ -172,7 +175,7 @@ func TestAnImportStopsAtAnExistingReadingItCannotRead(t *testing.T) {
 func TestAReadingOrScanThatCannotBeEncodedIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, err := s.CreateUser(ctx, "u")
+	u, err := s.CreateUser(ctx, "uu")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +253,7 @@ func TestTheDatabaseErrorHelpersKnowPostgreSQLErrorsToo(t *testing.T) {
 func TestAnEmptyTimeZoneColumnReadsAsUTC(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "u")
+	u, _ := s.CreateUser(ctx, "uu")
 	if err := s.ExecForTests(ctx, `UPDATE users SET timezone = ''`); err != nil {
 		t.Fatal(err)
 	}

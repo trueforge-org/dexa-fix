@@ -2,6 +2,8 @@ package valkeystate
 
 import (
 	"context"
+	"errors"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -209,5 +211,17 @@ func TestOpenChecksThePasswordAndNeverEchoesIt(t *testing.T) {
 				t.Errorf("%s: the error quotes a password: %v", name, err)
 			}
 		}
+	}
+}
+
+func TestRedactRemovesThePasswordAsWrittenAndEscaped(t *testing.T) {
+	pw := "p@ss w/rd"
+	err := errors.New("dial " + pw + " and " + url.QueryEscape(pw) + " and " + url.PathEscape(pw))
+	got := redact(err, pw).Error()
+	if strings.Contains(got, pw) || strings.Contains(got, url.QueryEscape(pw)) || strings.Contains(got, url.PathEscape(pw)) {
+		t.Fatalf("the password is still in %q", got)
+	}
+	if got := redact(errors.New("plain"), "").Error(); got != "plain" {
+		t.Fatalf("without a password the text changed: %q", got)
 	}
 }

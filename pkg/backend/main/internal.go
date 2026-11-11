@@ -125,6 +125,12 @@ func internalFail(w http.ResponseWriter, status int, code, message string) {
 	internalJSON(w, status, apiclient.Error{Status: status, Code: code, Message: message})
 }
 
+// usernameRule and usernameTaken are the messages for a username that is refused.
+const (
+	usernameRule  = "Please choose a username of 2-32 letters, digits, '.', '_' or '-'."
+	usernameTaken = "That username is taken."
+)
+
 // internalError maps an error from the store or an importer to an answer.
 func internalError(w http.ResponseWriter, err error) {
 	switch {

@@ -129,7 +129,7 @@ func (s *Frontend) estimatesPage(w http.ResponseWriter, r *http.Request, u model
 	}
 	msg := flashParam(r)
 	data := pageData{
-		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
+		Title: u.DisplayName() + " · estimates", Tab: "estimates", User: &u,
 		EstFields: shown, EstColumns: columns, EstRows: rows, EstRange: window.Desc, EstRangeKey: window.Key, Cals: cals, Msg: msg,
 		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}

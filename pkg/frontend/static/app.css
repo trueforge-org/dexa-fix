@@ -226,13 +226,14 @@ main > :first-child { margin-top: 0; }
 }
 .button:hover, button:hover { background: var(--accent-hover); }
 
-button.secondary { background: var(--surface); border-color: var(--line); color: var(--fg); }
-button.secondary:hover { background: var(--surface-2); }
+.button.secondary, button.secondary { background: var(--surface); border-color: var(--line); color: var(--fg); }
+.button.secondary:hover, button.secondary:hover { background: var(--surface-2); }
 
-a.button.secondary { background: var(--surface); border-color: var(--line); color: var(--fg); }
-a.button.secondary:hover { background: var(--surface-2); }
+/* A destructive action in a form: red outline, never the primary look. Table row actions use button.link. */
+.button.danger, button.danger { background: var(--surface); border-color: var(--err); color: var(--err); }
+.button.danger:hover, button.danger:hover { background: var(--err-soft); }
 
-button:disabled, button:disabled:hover {
+button:disabled, button:disabled:hover, .button[aria-disabled="true"] {
   background: var(--surface-2);
   color: var(--muted);
   cursor: not-allowed;
@@ -290,18 +291,22 @@ input[type="checkbox"] {
 
 label.check { display: flex; align-items: center; gap: .55rem; color: var(--fg); font-size: .95rem; }
 
-form.inline { display: flex; gap: .5rem; }
-form.inline button { flex: none; }
+label.inline { display: inline-flex; align-items: center; gap: .5rem; }
+.narrow { width: 6rem; }
 
 form.measure { display: grid; gap: 1.1rem; }
 form.measure.card > * + * { margin-top: 0; }
 
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .9rem; align-items: end; }
+.form-row.single { grid-template-columns: minmax(0, 16rem); }
 .form-row label.check { min-height: 2.5rem; }
 .section { display: grid; gap: .65rem; }
 .section + .section { padding-top: 1.1rem; border-top: 1px solid var(--line); }
+.card .section h3 { margin: 0; color: var(--fg); font-size: .95rem; font-weight: 600; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .9rem; align-items: end; }
-.form-actions { display: flex; justify-content: flex-end; }
+/* The one place for a form's buttons: right-aligned, primary last. .start moves one to the left edge. */
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; }
+.form-actions .start { margin-right: auto; }
 
 .stack { display: grid; gap: 1rem; }
 .stack > .card { margin: 0; }
@@ -313,6 +318,7 @@ form.measure.card > * + * { margin-top: 0; }
   border-radius: var(--radius-sm);
   font-size: .925rem;
 }
+.error:empty, .notice:empty { display: none; }
 .error { background: var(--err-soft); color: var(--err); }
 .notice { background: var(--ok-soft); color: var(--fg); }
 

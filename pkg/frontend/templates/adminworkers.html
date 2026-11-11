@@ -17,6 +17,7 @@
 <section class="card" id="provider-{{.Name}}">
   <h2>{{.Label}}</h2>
   {{range .Kinds}}
+  <div class="section">
   <h3>{{.Label}} <small><code>{{.Kind}}</code></small></h3>
   <dl class="stats">
     <div><dt>Waiting</dt><dd>{{.Queued}}</dd></div>
@@ -27,28 +28,29 @@
   </dl>
   {{if not .Enabled}}<div class="notice" role="status">
     <strong>Paused.</strong> {{if .PausedReason}}{{.PausedReason}}{{else}}An administrator turned it off. Nothing of this kind is queued or started while it is off.{{end}}
-    <form method="post" action="/admin/workers/kinds/{{.Kind}}/resume"><button type="submit">Turn it on</button></form>
+    <form method="post" action="/admin/workers/kinds/{{.Kind}}/resume"><div class="form-actions"><button type="submit">Turn it on</button></div></form>
   </div>{{end}}
   <form method="post" action="/admin/workers/kinds/{{.Kind}}" class="stack">
     <div class="form-row">
       <label class="check"><input type="checkbox" name="enabled" value="1"{{if .Enabled}} checked{{end}}> On</label>
-      <label>Jobs at once, in all workers <input type="number" name="max_running" value="{{.MaxRunning}}" min="0" max="100" required style="width:5rem"> <small>0: no limit</small></label>
-      <label>Attempts per job <input type="number" name="max_attempts" value="{{.MaxAttempts}}" min="1" max="10" required style="width:5rem"></label>
+      <label>Jobs at once, in all workers <input type="number" name="max_running" value="{{.MaxRunning}}" min="0" max="100" required class="narrow"> <small>0: no limit</small></label>
+      <label>Attempts per job <input type="number" name="max_attempts" value="{{.MaxAttempts}}" min="1" max="10" required class="narrow"></label>
     </div>
     <div class="form-row">
-      <label>First retry after (seconds) <input type="number" name="retry_base_seconds" value="{{.RetryBaseSeconds}}" min="1" max="3600" required style="width:6rem"> <small>doubles each time, at most an hour</small></label>
-      <label>Time limit of one attempt (seconds) <input type="number" name="timeout_seconds" value="{{.TimeoutSeconds}}" min="10" max="86400" required style="width:6rem"></label>
+      <label>First retry after (seconds) <input type="number" name="retry_base_seconds" value="{{.RetryBaseSeconds}}" min="1" max="3600" required class="narrow"> <small>doubles each time, at most an hour</small></label>
+      <label>Time limit of one attempt (seconds) <input type="number" name="timeout_seconds" value="{{.TimeoutSeconds}}" min="10" max="86400" required class="narrow"></label>
     </div>
     <div class="form-row">
-      <label>Automatic run every (hours) <input type="number" name="schedule_hours" value="{{.ScheduleHours}}" min="0" max="720" required style="width:5rem"> <small>{{if .Schedulable}}0: off{{else}}not used by this kind{{end}}</small></label>
-      <label>Pause a user's automatic runs after (failures) <input type="number" name="pause_after" value="{{.PauseAfter}}" min="0" max="100" required style="width:5rem"> <small>0: never</small></label>
-      <label>Pause this kind after (failures in a row, all users) <input type="number" name="breaker" value="{{.Breaker}}" min="0" max="1000" required style="width:5rem"> <small>0: never</small></label>
+      <label>Automatic run every (hours) <input type="number" name="schedule_hours" value="{{.ScheduleHours}}" min="0" max="720" required class="narrow"> <small>{{if .Schedulable}}0: off{{else}}not used by this kind{{end}}</small></label>
+      <label>Pause a user's automatic runs after (failures) <input type="number" name="pause_after" value="{{.PauseAfter}}" min="0" max="100" required class="narrow"> <small>0: never</small></label>
+      <label>Pause this kind after (failures in a row, all users) <input type="number" name="breaker" value="{{.Breaker}}" min="0" max="1000" required class="narrow"> <small>0: never</small></label>
     </div>
     {{if .Options}}<div class="form-row">{{range .Options}}
-      <label>{{.Label}}{{if .Millis}} (ms){{end}} <input type="number" name="opt_{{.Name}}" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" required style="width:6rem"></label>
+      <label>{{.Label}}{{if .Millis}} (ms){{end}} <input type="number" name="opt_{{.Name}}" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" required class="narrow"></label>
     {{end}}</div>{{end}}
     <div class="form-actions"><button type="submit">Save {{.Label}}</button></div>
   </form>
+  </div>
   {{end}}
 </section>
 {{end}}
@@ -57,8 +59,8 @@
   <h2>All workers</h2>
   <form method="post" action="/admin/workers/global" class="stack">
     <div class="form-row">
-      <label>Priority of new accounts (1-100) <input type="number" name="default_priority" value="{{.DefaultPriority}}" min="1" max="100" required style="width:5rem"></label>
-      <label>Keep finished jobs for (days) <input type="number" name="keep_history_days" value="{{.KeepHistoryDays}}" min="1" max="36500" required style="width:6rem"></label>
+      <label>Priority of new accounts (1-100) <input type="number" name="default_priority" value="{{.DefaultPriority}}" min="1" max="100" required class="narrow"></label>
+      <label>Keep finished jobs for (days) <input type="number" name="keep_history_days" value="{{.KeepHistoryDays}}" min="1" max="36500" required class="narrow"></label>
     </div>
     <p class="help">A higher priority number goes first. Administrators' jobs always go before everyone else's, whatever the number. A user's own priority is set on the users table.</p>
     <div class="form-actions"><button type="submit">Save</button></div>

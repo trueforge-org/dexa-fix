@@ -33,33 +33,35 @@
 <section class="card flush" id="users">
   <div class="card-head"><h2>Users {{help "admin-users"}}</h2></div>
   <div class="scroll"><table>
-    <thead><tr><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Two-step</th><th>Job priority</th><th>Created</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Username</th><th>Name</th><th>E-mail</th><th>Role</th><th>Sign-in</th><th>Two-step</th><th>Job priority</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{{range .Users}}<tr>
-      <td>{{.Name}}{{if .Self}} <small>you</small>{{end}}</td>
+      <td>{{.Username}}{{if .Self}} <small>you</small>{{end}}</td>
+      <td>{{.FirstName}} {{.LastName}}</td>
       <td>{{.Email}}</td>
       <td>{{if .Admin}}<span class="status on">Admin</span>{{else}}<span class="status">User</span>{{end}}</td>
       <td>{{.SignIn}}</td>
       <td>{{if .TwoFactor}}On{{else}}Off{{end}}</td>
-      <td>{{if .Admin}}first{{else}}<form method="post" action="/admin/users/{{.ID}}/priority" class="row-actions"><input type="number" name="priority" value="{{.JobPriority}}" min="1" max="100" required style="width:4.5rem" aria-label="Job priority of {{.Name}}" title="1 to 100: a higher number goes first. Administrators always go before everyone."><button class="secondary" type="submit">Set</button></form>{{end}}</td>
+      <td>{{if .Admin}}first{{else}}<form method="post" action="/admin/users/{{.ID}}/priority" class="row-actions"><input type="number" name="priority" value="{{.JobPriority}}" min="1" max="100" required style="width:4.5rem" aria-label="Job priority of {{.Username}}" title="1 to 100: a higher number goes first. Administrators always go before everyone."><button class="secondary" type="submit">Set</button></form>{{end}}</td>
       <td>{{.Created}}</td>
       <td><div class="row-actions">
         <form method="post" action="/admin/users/{{.ID}}/role"><input type="hidden" name="role" value="{{if .Admin}}user{{else}}admin{{end}}"><button class="secondary" type="submit">{{if .Admin}}Remove admin{{else}}Make admin{{end}}</button></form>
         <form method="post" action="/admin/users/{{.ID}}/strengthlevel"><input type="hidden" name="enabled" value="{{if .StrengthLevel}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user store their Strength Level login and sync body readings to it automatically">{{if .StrengthLevel}}Disable Strength Level sync{{else}}Enable Strength Level sync{{end}}</button></form>
         {{if .StrengthLevel}}<form method="post" action="/admin/users/{{.ID}}/strengthlevel-bulk"><input type="hidden" name="enabled" value="{{if .StrengthLevelBulk}}0{{else}}1{{end}}"><button class="secondary" type="submit" title="Lets this user run the sync of many days (adding and optionally updating) from their Settings page">{{if .StrengthLevelBulk}}Disallow multi-day sync{{else}}Allow multi-day sync{{end}}</button></form>{{end}}
-        {{if $.Admin.PasswordEnabled}}<form method="post" action="/admin/users/{{.ID}}/reset-link"><button class="secondary" type="submit" title="Makes a one-time link that lets {{.Name}} choose a new password">Reset link</button>{{if $.Admin.ResetByEmail}}{{if .Email}} <label class="check"><input type="checkbox" name="email" value="1"> E-mail it</label>{{end}}{{end}}</form>{{end}}
-        <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Name}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
-        {{if .TwoFactor}}<form method="post" action="/admin/users/{{.ID}}/2fa/delete" data-confirm="Remove two-step verification for {{.Name}}? They lose their recovery codes too."><button class="secondary" type="submit">Remove two-step</button></form>{{end}}
-        {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Name}} and all their data? This cannot be undone."><button class="link" type="submit">Delete</button></form>{{end}}
+        {{if $.Admin.PasswordEnabled}}<form method="post" action="/admin/users/{{.ID}}/reset-link"><button class="secondary" type="submit" title="Makes a one-time link that lets {{.Username}} choose a new password">Reset link</button>{{if $.Admin.ResetByEmail}}{{if .Email}} <label class="check"><input type="checkbox" name="email" value="1"> E-mail it</label>{{end}}{{end}}</form>{{end}}
+        <form method="post" action="/admin/users/{{.ID}}/password"><input type="password" name="password" minlength="8" maxlength="72" required placeholder="New password" aria-label="New password for {{.Username}}" autocomplete="new-password"><button class="secondary" type="submit">Set</button></form>
+        {{if .TwoFactor}}<form method="post" action="/admin/users/{{.ID}}/2fa/delete" data-confirm="Remove two-step verification for {{.Username}}? They lose their recovery codes too."><button class="secondary" type="submit">Remove two-step</button></form>{{end}}
+        {{if not .Self}}<form method="post" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Username}} and all their data? This cannot be undone."><button class="link" type="submit">Delete</button></form>{{end}}
       </div></td>
     </tr>{{end}}</tbody>
   </table></div>
-  <form method="post" action="/admin/users" class="add-user">
+  <form method="post" action="/admin/users" class="add-user section">
+    <h3>Add a user</h3>
     <div class="form-row">
-      <label>New user's name <input type="text" name="name" maxlength="64" required autocomplete="off"></label>
+      <label>Username <small>(2-32 letters, digits, . _ -)</small> <input type="text" name="username" minlength="2" maxlength="32" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
       <label>E-mail <input type="email" name="email" maxlength="254" required autocomplete="off"></label>
       <label>Password <input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
-      <div><button type="submit">Add user</button></div>
     </div>
+    <div class="form-actions"><button type="submit">Add user</button></div>
   </form>
 </section>
 
@@ -73,7 +75,7 @@
 </section>
 
 <section class="card" id="server-settings">
-  <h2>Network and retention</h2>
+  <div class="card-head"><h2>Network and retention</h2></div>
   <p class="help">These apply as soon as you save. Behind a reverse proxy or load balancer, set the <strong>base URL</strong> (the public address, which also decides that cookies are Secure) and the <strong>trusted proxies</strong> (their addresses or ranges, <code>loopback</code> and <code>private</code> also work), so that visitors keep their own address in the audit log and the rate limits.</p>
   <form method="post" action="/admin/server" class="fields">
     <label>Base URL <input type="text" name="base_url" value="{{.Server.BaseURL}}" placeholder="https://dexa.example.com" autocomplete="off" spellcheck="false">
@@ -82,6 +84,10 @@
       <small>Comma-separated. Their X-Forwarded-For, -Proto and -Host headers are believed; nobody else's are.</small></label>
     <label class="check"><input type="checkbox" name="proxy_protocol" value="1"{{if .Server.ProxyProtocol}} checked{{end}}> Accept the PROXY protocol (v1 and v2) from the trusted proxies
       <small>For TCP load balancers that pass the visitor's address in a PROXY header (HAProxy, AWS NLB, ...). Connections from other addresses may not send one. The header does not say whether HTTPS was used: set an https base URL.</small></label>
+    <label class="check"><input type="checkbox" name="allow_private_providers" value="1"{{if .Server.AllowPrivateProviders}} checked{{end}}> Allow sign-in providers on private network addresses
+      <small>Off by default: the server refuses to connect to a sign-in provider on a <code>10.x</code>, <code>172.16.x</code>–<code>172.31.x</code>, <code>192.168.x</code>, <code>100.64.x</code> or <code>fc00::/7</code> address, so that a provider setting cannot be used to reach other machines on your network. Turn it on when your provider (Authentik, Keycloak, ...) runs on your own network. Cloud metadata and other link-local addresses stay refused whatever you choose. A provider on this machine (<code>localhost</code>) is always allowed.</small></label>
+    <label class="check"><input type="checkbox" name="allow_private_mail" value="1"{{if .Server.AllowPrivateMail}} checked{{end}}> Allow the mail server on a private network address
+      <small>Off by default, for the same reason, for the SMTP server of the <strong>E-mail</strong> settings. Turn it on when your mail server runs on your own network. Cloud metadata and other link-local addresses stay refused whatever you choose. A server on this machine (<code>localhost</code>) is always allowed.</small></label>
     <label>Keep the audit log for (days) <input type="number" name="audit_retention_days" min="0" max="36500" value="{{.Server.AuditDays}}" placeholder="365">
       <small>Empty uses 365. 0 keeps the log for good. Older events, and the IP addresses in them, are deleted.</small></label>
     <label>Remind me to rotate the encryption key after (days) <input type="number" name="key_reminder_days" min="0" max="36500" value="{{.Server.KeyReminderDays}}" placeholder="off">
@@ -91,7 +97,7 @@
 </section>
 
 <section class="card" id="analytics-settings">
-  <h2>Analytics and ads</h2>
+  <div class="card-head"><h2>Analytics and ads</h2></div>
   <p class="help">Off while the fields are empty. When you fill one in, visitors who are <strong>not signed in</strong> are asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether they accept it; nothing is loaded before they do, and signed-in people never get it. The <a href="/privacy#analytics">privacy policy</a> says so. Ads need a looser content security policy on those pages (inline scripts and images from any HTTPS address), so use them only if you accept that.</p>
   <form method="post" action="/admin/analytics" class="fields">
     <label>Scarf pixel ID <input type="text" name="scarf_pixel_id" value="{{.Analytics.ScarfPixelID}}" placeholder="123e4567-e89b-12d3-a456-426614174000" autocomplete="off" spellcheck="false">
@@ -122,9 +128,12 @@
     <label>Password <input type="password" name="password" autocomplete="new-password" placeholder="{{if .SMTP.PasswordSaved}}saved: leave empty to keep it{{end}}"></label>
     {{if .SMTP.PasswordSaved}}<label class="check"><input type="checkbox" name="remove_password" value="1"> Remove the saved password</label>{{end}}
     <label>Sender address <input type="text" name="from" value="{{.SMTP.From}}" placeholder="DexaFix &lt;noreply@example.com&gt;" autocomplete="off" spellcheck="false"></label>
-    <div class="form-actions"><button type="submit">Save</button></div>
+    <div class="form-actions">
+      {{if .SMTP.Host}}<button type="submit" form="smtp-test" class="secondary start">Send a test e-mail to me</button>{{end}}
+      <button type="submit">Save</button>
+    </div>
   </form>
-  {{if .SMTP.Host}}<form method="post" action="/admin/smtp/test"><button type="submit" class="secondary">Send a test e-mail to me</button></form>{{end}}
+  {{if .SMTP.Host}}<form id="smtp-test" method="post" action="/admin/smtp/test"></form>{{end}}
 </section>
 
 <section class="card" id="tls-settings">
@@ -161,39 +170,42 @@
   </form>
 </section>
 
-<section class="card" id="registration">
-  <div class="card-head">
-    <h2>New accounts {{help "registration"}}</h2>
-    {{if .SignupOpen}}<span class="status on">Open</span>{{else}}<span class="status">Closed</span>{{end}}
+<section class="card" id="sign-in-rules">
+  <h2>Sign-in rules</h2>
+  <div class="section" id="registration">
+    <div class="card-head">
+      <h3>New accounts {{help "registration"}}</h3>
+      {{if .SignupOpen}}<span class="status on">Open</span>{{else}}<span class="status">Closed</span>{{end}}
+    </div>
+    <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
+    <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><div class="form-actions"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></div></form>
   </div>
-  <p class="help">When closed, nobody can create their own account, with a password or through a provider. You can still add people above, and existing accounts keep working.</p>
-  <form method="post" action="/admin/signup"><input type="hidden" name="enabled" value="{{if .SignupOpen}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .SignupOpen}}Close new accounts{{else}}Open new accounts{{end}}</button></form>
-</section>
-
-<section class="card" id="two-factor">
-  <div class="card-head">
-    <h2>Two-step verification</h2>
-    {{if eq .Require2FA "everyone"}}<span class="status on">Required for everyone</span>{{else if eq .Require2FA "admins"}}<span class="status on">Required for administrators</span>{{else}}<span class="status">Optional</span>{{end}}
+  <div class="section" id="two-factor">
+    <div class="card-head">
+      <h3>Two-step verification</h3>
+      {{if eq .Require2FA "everyone"}}<span class="status on">Required for everyone</span>{{else if eq .Require2FA "admins"}}<span class="status on">Required for administrators</span>{{else}}<span class="status">Optional</span>{{end}}
+    </div>
+    <p class="help">Users can always turn on a 6-digit code from an authenticator app for signing in with a password. When required, people without one set it up at their next password sign-in. Providers and passkeys are not asked: enforce multi-factor at the provider. Users who have it on, or must, can no longer call the API with their password; they use access tokens.</p>
+    <form method="post" action="/admin/two-factor" class="stack">
+      <div class="form-row">
+        <label>Require for <select name="require">
+          <option value="off"{{if eq .Require2FA "off"}} selected{{end}}>Nobody</option>
+          <option value="admins"{{if eq .Require2FA "admins"}} selected{{end}}>Administrators</option>
+          <option value="everyone"{{if eq .Require2FA "everyone"}} selected{{end}}>Everyone</option>
+        </select></label>
+      </div>
+      <div class="form-actions"><button type="submit">Save</button></div>
+    </form>
   </div>
-  <p class="help">Users can always turn on a 6-digit code from an authenticator app for signing in with a password. When required, people without one set it up at their next password sign-in. Providers and passkeys are not asked: enforce multi-factor at the provider. Users who have it on, or must, can no longer call the API with their password; they use access tokens.</p>
-  <form method="post" action="/admin/two-factor" class="form-row">
-    <label>Require for <select name="require">
-      <option value="off"{{if eq .Require2FA "off"}} selected{{end}}>Nobody</option>
-      <option value="admins"{{if eq .Require2FA "admins"}} selected{{end}}>Administrators</option>
-      <option value="everyone"{{if eq .Require2FA "everyone"}} selected{{end}}>Everyone</option>
-    </select></label>
-    <div><button type="submit" class="secondary">Save</button></div>
-  </form>
-</section>
-
-<section class="card" id="signin">
-  <div class="card-head">
-    <h2>Password sign-in {{help "password-login"}}</h2>
-    {{if .PasswordEnabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+  <div class="section" id="signin">
+    <div class="card-head">
+      <h3>Password sign-in {{help "password-login"}}</h3>
+      {{if .PasswordEnabled}}<span class="status on">On</span>{{else}}<span class="status">Off</span>{{end}}
+    </div>
+    {{if .PasswordForced}}<p class="notice">Password sign-in is being forced on by the server's <code>--force-password-login</code> option.</p>{{end}}
+    <p class="help">When off, people sign in through a provider below, and scripts use access tokens. Name and password no longer work, on the sign-in page or the API. To turn it off, first link your own account to a provider in Settings.</p>
+    <form method="post" action="/admin/password-login"><input type="hidden" name="enabled" value="{{if .PasswordEnabled}}0{{else}}1{{end}}"><div class="form-actions"><button type="submit" class="secondary">{{if .PasswordEnabled}}Turn off password sign-in{{else}}Turn on password sign-in{{end}}</button></div></form>
   </div>
-  {{if .PasswordForced}}<p class="notice">Password sign-in is being forced on by the server's <code>--force-password-login</code> option.</p>{{end}}
-  <p class="help">When off, people sign in through a provider below, and scripts use access tokens. Name and password no longer work, on the sign-in page or the API. To turn it off, first link your own account to a provider in Settings.</p>
-  <form method="post" action="/admin/password-login"><input type="hidden" name="enabled" value="{{if .PasswordEnabled}}0{{else}}1{{end}}"><button type="submit" class="secondary">{{if .PasswordEnabled}}Turn off password sign-in{{else}}Turn on password sign-in{{end}}</button></form>
 </section>
 
 <section class="card" id="providers">
@@ -201,7 +213,7 @@
   {{if .Providers}}<ul class="link-list">{{range .Providers}}<li>
     <span><strong>{{.Label}}</strong> <small>{{.Kind}}{{if .AllowSignup}}, new accounts allowed{{end}}</small><br><small>Callback: <code>{{.CallbackURL}}</code></small></span>
     <div class="row-actions"><a class="button secondary" href="/admin?edit={{.Slug}}#providers">Edit</a>
-    <form method="post" action="/admin/providers/{{.Slug}}/delete" data-confirm="Remove {{.Label}}? Accounts lose this way of signing in."><button class="link" type="submit">Remove</button></form></div>
+    <form method="post" action="/admin/providers/{{.Slug}}/delete" data-confirm="Remove {{.Label}}? Accounts lose this way of signing in."><button class="danger" type="submit">Remove</button></form></div>
   </li>{{end}}</ul>{{end}}
   <form method="post" action="/admin/providers" class="provider-form section">
     <h3>{{if .Editing}}Edit {{.Form.Label}}{{else}}Add a provider{{end}}</h3>
@@ -252,8 +264,8 @@
     <label>Client secret <small>{{if .Withings.SecretSaved}}Saved: leave empty to keep it.{{end}}</small>
       <input type="password" name="client_secret" autocomplete="new-password"></label>
     <label>Redirect URL <input type="url" name="redirect_url" value="{{.Withings.RedirectURL}}" placeholder="{{.Withings.DefaultRedirect}}"></label>
+    {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
   </div>
-  {{if .Withings.SecretSaved}}<label class="check"><input type="checkbox" name="clear_secret" value="1"> Remove the saved secret</label>{{end}}
   <div class="form-actions"><button type="submit">Save Withings settings</button></div>
 </form>
 {{end}}

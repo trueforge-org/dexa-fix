@@ -64,14 +64,14 @@ func TestTheSetupQRCodeNamesTheSiteAndTheAccount(t *testing.T) {
 		}
 		return string(svg)
 	}
-	if got := string(g.b.twoFactorSetupFor(models.User{Name: "Pat"}, secret).QR); got != want(defaultTOTPIssuer, "Pat") {
+	if got := string(g.b.twoFactorSetupFor(models.User{Username: "Pat"}, secret).QR); got != want(defaultTOTPIssuer, "Pat") {
 		t.Error("an account without an address is not named after the user")
 	}
-	if got := string(g.b.twoFactorSetupFor(models.User{Name: "Pat", Email: "pat@example.com"}, secret).QR); got != want(defaultTOTPIssuer, "pat@example.com") {
+	if got := string(g.b.twoFactorSetupFor(models.User{Username: "Pat", Email: "pat@example.com"}, secret).QR); got != want(defaultTOTPIssuer, "pat@example.com") {
 		t.Error("an account with an address is not named after it")
 	}
 	enableSelfService(t, g.srv, &fakeMailer{}) // sets the base URL https://dexa.example.com
-	if got := string(g.b.twoFactorSetupFor(models.User{Name: "Pat"}, secret).QR); got != want("dexa.example.com", "Pat") {
+	if got := string(g.b.twoFactorSetupFor(models.User{Username: "Pat"}, secret).QR); got != want("dexa.example.com", "Pat") {
 		t.Error("the site is not named after the base URL")
 	}
 }

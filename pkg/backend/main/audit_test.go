@@ -156,7 +156,7 @@ func TestAuditViewsRespectWho(t *testing.T) {
 func TestSignupIsClosedByDefault(t *testing.T) {
 	ts, _ := newProxyServer(t, "", "") // no sign-up setting stored
 	signupVia(t, ts, nil)              // the first account can always be created
-	resp := post(t, noRedirectClient(), ts.URL+"/signup", url.Values{"name": {"bob"}, "email": {"bob@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
+	resp := post(t, noRedirectClient(), ts.URL+"/signup", url.Values{"username": {"bob"}, "email": {"bob@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("second sign-up on a default server: %d", resp.StatusCode)
 	}

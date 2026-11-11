@@ -4,6 +4,8 @@ package models
 import (
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // SourceManual is the source of readings entered by hand.
@@ -171,8 +173,13 @@ type AuthProvider struct {
 
 // User is a person whose measurements are tracked.
 type User struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
+	ID int64 `json:"id"`
+	// Username is the unique handle of the account (see ValidUsername); it is compared without regard
+	// to case. People sign in with their e-mail address, not with it.
+	Username string `json:"username"`
+	// FirstName and LastName are optional personal details; they are not used to sign in.
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 	// Email signs the user in and identifies them, unique per user. It is empty for accounts that
@@ -260,6 +267,63 @@ type AuditEvent struct {
 
 // NormalizeEmail returns the canonical form of an e-mail address, used to compare addresses.
 func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
+// MaxUsernameLen and MinUsernameLen bound a username in bytes (it is ASCII).
+const (
+	MinUsernameLen = 2
+	MaxUsernameLen = 32
+	// MaxPersonNameLen bounds a first or last name, in characters.
+	MaxPersonNameLen = 64
+)
+
+// ValidUsername reports whether s can be a new username: 2 to 32 letters, digits, '.', '_' or '-',
+// starting with a letter or a digit.
+func ValidUsername(s string) bool {
+	if len(s) < MinUsernameLen || len(s) > MaxUsernameLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case i > 0 && (c == '.' || c == '_' || c == '-'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// CleanPersonName trims a first or last name. ok is false when it is longer than MaxPersonNameLen
+// characters or holds a control character. An empty name is fine: both are optional.
+func CleanPersonName(s string) (name string, ok bool) {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) > MaxPersonNameLen {
+		return "", false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// DisplayName is what the app calls the user: the first name when there is one, else the username.
+func (u User) DisplayName() string {
+	if u.FirstName != "" {
+		return u.FirstName
+	}
+	return u.Username
+}
+
+// FullName is the first and last name together, or the username when neither is set.
+func (u User) FullName() string {
+	if n := strings.TrimSpace(u.FirstName + " " + u.LastName); n != "" {
+		return n
+	}
+	return u.Username
+}
 
 // IsAdmin reports whether the user has the administrator role.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }

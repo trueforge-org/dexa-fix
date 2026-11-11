@@ -2,8 +2,10 @@
 <div class="page-head"><h1>DEXA scans {{help "dexa-page"}}</h1></div>
 <form method="post" action="/u/{{.User.ID}}/dexa" class="measure card" data-calc
       hx-post="/u/{{.User.ID}}/dexa" hx-target="#content" hx-select="#content" hx-swap="outerHTML">
+  <h2>Add a DEXA scan</h2>
   <div class="section">
-    <div class="form-row">
+    <h3>When</h3>
+    <div class="form-row single">
       <label>Date <input type="date" name="measured_at" value="{{.Today}}" required></label>
     </div>
   </div>
@@ -14,6 +16,9 @@
       {{range .Fields}}<label>{{.Label}}{{if .Unit}} ({{.Unit}}){{end}}
         <input type="number" step="any" inputmode="decimal" name="{{.Key}}"></label>{{end}}
     </div>
+  </div>
+  <div class="section">
+    <h3>Notes</h3>
     <label>Notes <input type="text" name="notes" maxlength="500"></label>
   </div>
   <div class="form-actions"><button type="submit">Add DEXA scan</button></div>

@@ -12,7 +12,7 @@ func TestSettingsThatCannotBeReadAreNotPutInForce(t *testing.T) {
 	// Every setting the backend loads is read from the database; when one cannot be read, the
 	// settings in force stay as they were and the caller hears of it.
 	names := []string{
-		settingBaseURL, settingTrustedProxies, settingProxyProtocol, settingAuditRetention, settingKeyReminder,
+		settingBaseURL, settingTrustedProxies, settingProxyProtocol, settingAllowPrivateProviders, settingAllowPrivateMail, settingAuditRetention, settingKeyReminder,
 		settingTLSMode, settingHTTPS, settingHTTP3, settingSMTPHost, settingScarfPixel,
 		settingWorkersDefaultPriority, settingWorkersKeepDays, kindSettingName(kindWithingsImport, fieldMaxAttempts),
 	}
