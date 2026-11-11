@@ -314,6 +314,9 @@ func (s *Store) LeaseJob(ctx context.Context, req models.LeaseRequest, at time.T
 // fails with ErrLeaseLost when the token is not the leaseholder's, or the lease or the job's hard
 // deadline has passed: the job then belongs to the reaper. cancel tells the worker to stop.
 func (s *Store) HeartbeatJob(ctx context.Context, publicID, tokenHash string, extend time.Duration, progress *string, at time.Time) (cancel bool, err error) {
+	if tokenHash == "" {
+		return false, store.ErrLeaseLost
+	}
 	at = at.UTC()
 	q := s.db.NewUpdate().Model((*jobRow)(nil)).Set("lease_until = ?", at.Add(extend)).Set("updated_at = ?", at)
 	if progress != nil {

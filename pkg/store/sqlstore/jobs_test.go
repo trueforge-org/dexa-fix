@@ -283,6 +283,9 @@ func TestJobReapExpiredLeases(t *testing.T) {
 		if n, _ := s.ReapExpiredLeases(ctx, at.Add(time.Minute), backoff); len(n) != 0 {
 			t.Fatalf("reaped a live lease: %v", n)
 		}
+		if _, err := s.HeartbeatJob(ctx, j.PublicID, "", time.Minute, nil, at.Add(30*time.Second)); !errors.Is(err, store.ErrLeaseLost) {
+			t.Fatalf("heartbeat without a token: %v", err)
+		}
 		late := at.Add(10 * time.Minute)
 		if _, err := s.HeartbeatJob(ctx, j.PublicID, "tok-w", time.Minute, nil, late); !errors.Is(err, store.ErrLeaseLost) {
 			t.Fatalf("late heartbeat: %v", err)
