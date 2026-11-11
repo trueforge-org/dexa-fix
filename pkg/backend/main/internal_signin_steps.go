@@ -435,8 +435,12 @@ func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	setProviderCookie(w, r, "", -1)
-	st, ok := s.openState(c.Value)
+	st, nonce, expires, ok := s.openState(c.Value)
 	if !ok || st.Slug != slug || !hmac.Equal([]byte(st.State), []byte(r.FormValue("state"))) {
+		providerCallbackInvalid(w)
+		return
+	}
+	if !s.nonces.use(ctx, nonce, expires) { // a state is good for one callback; fails closed
 		providerCallbackInvalid(w)
 		return
 	}

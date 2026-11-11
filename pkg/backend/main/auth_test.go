@@ -911,3 +911,47 @@ func TestTimeZoneSetting(t *testing.T) {
 		t.Fatalf("scan date: %+v", scans)
 	}
 }
+
+func TestAProviderStateCookieWorksForOneCallbackOnly(t *testing.T) {
+	idp := newFakeIdP(t)
+	ts, admin, _ := newAuthServer(t)
+	signup(t, ts, admin, "root")
+	addProvider(t, ts, admin, idp, true)
+
+	c := noRedirectClient()
+	start, err := c.Post(ts.URL+"/auth/idp/login", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"current": {testPassword}}.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start.Body.Close()
+	auth, _ := url.Parse(start.Header.Get("Location"))
+	idp.mu.Lock()
+	idp.nonce = auth.Query().Get("nonce")
+	idp.mu.Unlock()
+
+	callback := func() *http.Response {
+		req, _ := http.NewRequest("GET", ts.URL+"/auth/idp/callback?code=abc&state="+auth.Query().Get("state"), nil)
+		for _, ck := range start.Cookies() {
+			req.AddCookie(ck)
+		}
+		r, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		return r
+	}
+	first := callback()
+	if first.StatusCode != 303 || first.Header.Get("Location") != "/u/2" {
+		t.Fatalf("first callback: %d %s", first.StatusCode, first.Header.Get("Location"))
+	}
+	replay := callback()
+	for _, ck := range replay.Cookies() {
+		if ck.Name == sessionCookie && ck.Value != "" {
+			t.Fatalf("the replayed callback signed somebody in: %+v", ck)
+		}
+	}
+	if replay.StatusCode == 303 && replay.Header.Get("Location") == "/u/2" {
+		t.Fatalf("the replayed callback was accepted: %d %s", replay.StatusCode, replay.Header.Get("Location"))
+	}
+}

@@ -55,10 +55,10 @@ func (s *Backend) sealState(st providerState) string {
 	return sealed
 }
 
-func (s *Backend) openState(value string) (providerState, bool) {
-	var st providerState
-	_, _, ok := s.openValue(sealProvider, value, &st)
-	return st, ok
+// openState opens a provider state cookie. The nonce and expiry are for the caller to spend once.
+func (s *Backend) openState(value string) (st providerState, nonce string, expires time.Time, ok bool) {
+	nonce, expires, ok = s.openValue(sealProvider, value, &st)
+	return st, nonce, expires, ok
 }
 
 func setProviderCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
