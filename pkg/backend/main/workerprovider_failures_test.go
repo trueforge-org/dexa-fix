@@ -179,7 +179,9 @@ func TestAWithingsResultIsOnlyAppliedWhenItMakesSense(t *testing.T) {
 	t.Run("readings that cannot be stored", func(t *testing.T) {
 		f := newScriptedFixture(t)
 		breakTable(t, f.st, "scale_readings")
-		wantTransient(t, apply(f, kindWithingsImport, models.Job{UserID: f.user.ID}, `{}`))
+		// An import with nothing to reconcile reads nothing, so this one brings a reading.
+		got := `{"readings":[{"measured_at":"2026-03-01T08:00:00Z","weight_kg":80,"source":"withings","external_id":"g1"}],"seen":["g1"]}`
+		wantTransient(t, apply(f, kindWithingsImport, models.Job{UserID: f.user.ID}, got))
 	})
 }
 
