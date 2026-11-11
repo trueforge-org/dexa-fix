@@ -19,7 +19,7 @@ require (
 	github.com/uptrace/bun/dialect/sqlitedialect v1.3.0
 	github.com/valkey-io/valkey-go v1.0.79
 	golang.org/x/crypto v0.59.0
-	golang.org/x/crypto/x509roots/fallback v0.0.0-20261105095718-a1058eb15227
+	golang.org/x/crypto/x509roots/fallback v0.0.0-20261111203624-6bec4215b57b
 	golang.org/x/oauth2 v0.38.0
 	modernc.org/sqlite v1.62.0
 	rsc.io/qr v0.2.0
