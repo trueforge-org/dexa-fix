@@ -779,6 +779,36 @@ func TestPasskeyRateLimitAndAvailability(t *testing.T) {
 	})
 }
 
+func TestAPasskeySignInDoesNotClearTheFailuresOfTheAddress(t *testing.T) {
+	ts, _, _ := newAuthServer(t)
+	srv := serverOf(ts)
+	site := pkSiteOf(t, ts)
+	uid, sess := pkSignUp(t, ts, "alice")
+	k := pkNewKey(t)
+	pkRegister(t, site, uid, sess, "Laptop", testPassword, k)
+	handle := pkHandle(t, srv, uid)
+
+	// Somebody guesses from this address, one short of the limit ...
+	_, bad := pkBeginLogin(t, site)
+	for i := 0; i < maxIPFail-1; i++ {
+		if resp, body := site.postJSON(t, "/passkey/login/finish", "{}", bad); resp.StatusCode != 401 {
+			t.Fatalf("failure %d: %d %s", i+1, resp.StatusCode, body)
+		}
+	}
+	// ... then signs in with a passkey of their own ...
+	ch, ceremony := pkBeginLogin(t, site)
+	if resp, body := site.postJSON(t, "/passkey/login/finish", pkAssertionJSON(t, pkGood(site, k, ch, handle, 1)), ceremony); resp.StatusCode != 200 {
+		t.Fatalf("sign-in with the passkey: %d %s", resp.StatusCode, body)
+	}
+	// ... which must not give the address a fresh start: one more failure reaches the limit.
+	if resp, body := site.postJSON(t, "/passkey/login/finish", "{}", bad); resp.StatusCode != 401 {
+		t.Fatalf("last failure: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := site.do(t, "POST", "/passkey/login/begin", "", ""); resp.StatusCode != 429 {
+		t.Fatalf("begin after %d failures around a success: %d %s, want 429", maxIPFail, resp.StatusCode, body)
+	}
+}
+
 func TestPasskeyUI(t *testing.T) {
 	ts, _, _ := newAuthServer(t)
 	site := pkSiteOf(t, ts)
