@@ -342,6 +342,11 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	// A sign-in with the old password between the delete above and the reset must not survive.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
+		internalError(w, err)
+		return
+	}
 	s.auditAs(r, u.ID, u.ID, auditResetCompleted, "")
 	var target string
 	if has { // the code was just checked: no second prompt for the same sign-in

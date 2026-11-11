@@ -342,6 +342,11 @@ func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Reques
 		internalError(w, err)
 		return
 	}
+	// A sign-in with the old password between the first delete and the write must not survive.
+	if err := s.sessions.DeleteUserSessions(ctx, t.ID); err != nil {
+		internalError(w, err)
+		return
+	}
 	if err := s.store.DeleteUserAccessTokens(ctx, t.ID); err != nil {
 		internalError(w, err)
 		return

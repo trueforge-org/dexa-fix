@@ -140,6 +140,12 @@ func (s *Backend) internalPasswordChange(w http.ResponseWriter, r *http.Request,
 		internalError(w, err)
 		return
 	}
+	// Somebody who signed in with the old password between the first delete and the write has a
+	// session that would outlive the change: end those too, before the new session is made.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
+		internalError(w, err)
+		return
+	}
 	if err := s.store.DeleteUserAccessTokens(ctx, u.ID); err != nil {
 		internalError(w, err)
 		return
