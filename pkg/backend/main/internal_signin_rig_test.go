@@ -1,7 +1,6 @@
 package mainbackend
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,9 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
@@ -229,13 +225,6 @@ type blindToNonces struct{ store.Store }
 func (blindToNonces) NonceSeen(context.Context, string) (bool, error) { return false, nil }
 
 // captureSignInLog collects what the backend logs while the test runs.
-func captureSignInLog(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	old := log.Logger
-	log.Logger = zerolog.New(&buf)
-	t.Cleanup(func() { log.Logger = old })
-	return &buf
-}
+func captureSignInLog(t *testing.T) *logLines { return captureLog(t) }
 
 func (b blindToNonces) Unwrap() store.Store { return b.Store }

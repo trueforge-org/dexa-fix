@@ -3,15 +3,14 @@ package mainbackend
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
@@ -39,6 +38,30 @@ func (f *flakyStore) PurgeFailures(ctx context.Context, before time.Time) (int64
 	return f.Store.PurgeFailures(ctx, before)
 }
 
+// logSink is where the log of the whole test binary goes (see TestMain): standard error, or the
+// buffer of the test that captures it.
+var logSink = &swapSink{w: os.Stderr}
+
+type swapSink struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *swapSink) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
+// set makes w the destination and returns the one it replaced.
+func (s *swapSink) set(w io.Writer) io.Writer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.w
+	s.w = w
+	return old
+}
+
 // logLines is what the server logged, for tests that look for the line an operator would read.
 type logLines struct {
 	mu  sync.Mutex
@@ -51,20 +74,23 @@ func (l *logLines) Write(p []byte) (int, error) {
 	return l.buf.Write(p)
 }
 
-func (l *logLines) has(text string) bool {
+func (l *logLines) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return strings.Contains(l.buf.String(), text)
+	return l.buf.String()
+}
+
+func (l *logLines) has(text string) bool {
+	return strings.Contains(l.String(), text)
 }
 
 // captureLog sends the log to the returned buffer until the test ends. Call it before building the
 // backend, so that the backend's goroutines are stopped before the log is put back.
 func captureLog(t *testing.T) *logLines {
 	t.Helper()
-	old := log.Logger
 	l := &logLines{}
-	log.Logger = zerolog.New(l)
-	t.Cleanup(func() { log.Logger = old })
+	old := logSink.set(l)
+	t.Cleanup(func() { logSink.set(old) })
 	return l
 }
 
