@@ -57,3 +57,28 @@
   requests get 503 or 429 with `Retry-After`. The budgets keep a flood on the
   public API from starving the internal one. See
   [Split deployment](15-split-deployment.md#running-more-api-processes).
+- **Outgoing connections** of the api process go only to the sign-in providers
+  and the mail server an administrator configured, and are checked when they are
+  made, on the address the name resolved to. Cloud metadata services and other
+  link-local addresses (`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`,
+  `100.100.100.200`) are always refused, and so are redirects to them. Private
+  networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`,
+  `fc00::/7`) are refused unless an administrator turns on **Allow sign-in
+  providers and the mail server on private network addresses**. A server on the
+  same machine (`localhost`) is always allowed. A failed connection is reported to
+  the administrator without what the other end answered; the details are in the
+  server log. If the api process uses an HTTP proxy from `HTTPS_PROXY`, the check
+  applies to the proxy, not to the address behind it. Everything else that talks
+  to the outside is a [worker](16-workers.md).
+- **Sensitive changes need a recent sign-in when there is no password.** A user
+  who signs in with a provider or a passkey only, or any user while password
+  sign-in is off, must have signed in within the last 10 minutes to make a
+  personal access token, link another sign-in method or change the e-mail
+  address. Users with a password confirm it instead.
+- **Wrong passwords and codes are counted before they are checked,** per account
+  (login name, second-step code, password confirmation), so guesses sent in
+  parallel cannot all pass the limit. A correct answer clears the count. The
+  per-address count only counts failures, so many people behind one proxy are not
+  charged for right answers. Password checks (sign-in, confirmation and Basic
+  credentials) share a few slots; when all are busy a request waits a moment and
+  then gets a "busy" answer without counting as a failed attempt.

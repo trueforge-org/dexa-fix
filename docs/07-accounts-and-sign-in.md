@@ -84,6 +84,15 @@ https://your-host/auth/<short name>/callback
 The Admin page shows the callback URL for each provider. Replace `<short name>`
 with the provider's short name.
 
+DexaFix connects to a provider from the api process. A provider on a private
+network address (Authentik or Keycloak on your own LAN, say) is refused until
+you turn on **Allow sign-in providers and the mail server on private network
+addresses** under **Network and retention**. Cloud metadata and other
+link-local addresses are always refused, and so are redirects to them. When a
+provider cannot be reached, the Admin page says so and, for a refused address,
+how to allow it; what the provider answered is only in the server log. See
+[Outgoing connections](14-limitations-and-security.md#outgoing-connections).
+
 Behind a reverse proxy, forward the `Host` header and set `X-Forwarded-Proto`.
 The callback URL is built from them.
 

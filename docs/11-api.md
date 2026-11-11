@@ -107,6 +107,11 @@ Send one of these with each request:
 
 - The browser session cookie, set when you sign in on the website.
 
+The administrator routes of the API (`/users` and the like) accept the token of
+an administrator without the second proof the Admin pages ask for. Treat an
+administrator's token like their password: create it only where you need it, give
+it an expiry and delete it when it is no longer used.
+
 A user can reach only their own `/users/{id}/...` routes. Other ids answer 404.
 `GET /users` and `POST /users` are for administrators only.
 
