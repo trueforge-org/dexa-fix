@@ -3,10 +3,15 @@ package mainbackend
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 )
 
 // flakyState is a state store whose recording or counting of failures can be made to fail.
@@ -81,6 +86,49 @@ func TestAnAttemptIsCountedBeforeItIsDecided(t *testing.T) {
 		}
 		if newFailureLimiter(flakyState{StateStore: g.st, failCount: true}).Attempt(ctx, "k", 5) {
 			t.Fatal("an attempt that could not be counted passed")
+		}
+	})
+}
+
+// racedState is a state store in which other attempts land between the read-only check and the
+// attempt that is counted: the first passFirst counts say "nothing yet", later ones say "full".
+type racedState struct {
+	StateStore
+	calls     atomic.Int32
+	passFirst int32
+}
+
+func (r *racedState) CountFailures(ctx context.Context, key string, since time.Time) (int, error) {
+	if r.calls.Add(1) <= r.passFirst {
+		return 0, nil
+	}
+	return 1000, nil
+}
+
+func TestAnAttemptThatLosesTheRaceIsRefusedBeforeThePasswordIsChecked(t *testing.T) {
+	t.Run("a sign-in", func(t *testing.T) {
+		g := newRig(t)
+		g.signUp("alice")
+		g.b.limiter = newFailureLimiter(&racedState{StateStore: g.st, passFirst: 2}) // the address and the login pass the check
+		rep := g.do("POST", "/auth/password", map[string]string{"Email": "alice@example.com", "Password": testPassword})
+		var out apiclient.SignInOutcome
+		rep.decode(t, &out)
+		if out.Status != http.StatusTooManyRequests || out.Redirect != "" || !strings.Contains(out.Error, "Too many failed attempts") {
+			t.Fatalf("a right password that lost the race: %+v, want it refused as throttled", out)
+		}
+	})
+	t.Run("a confirmation of the password", func(t *testing.T) {
+		ts, c, _ := newAuthServer(t)
+		signup(t, ts, c, "alice")
+		srv := serverOf(ts)
+		u, err := srv.store.GetUser(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.limiter = newFailureLimiter(&racedState{StateStore: srv.store, passFirst: 2})
+		ok, status, msg, err := srv.checkReauth(reauthRequest(url.Values{"current": {testPassword}}, ""), u, false)
+		if err != nil || ok || status != http.StatusTooManyRequests || !strings.Contains(msg, "Too many wrong passwords") {
+			t.Fatalf("ok=%v status=%d msg=%q err=%v, want a right password that lost the race refused", ok, status, msg, err)
 		}
 	})
 }
