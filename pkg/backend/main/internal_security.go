@@ -32,8 +32,8 @@ func (s *Backend) internalConfirmPassword(w http.ResponseWriter, r *http.Request
 	if r.PostForm == nil {
 		r.PostForm = map[string][]string{}
 	}
-	r.PostForm.Set("current", current) // checkReauth reads the password from the form field
-	ok, status, msg, err := s.checkReauth(r, u, false)
+	r.PostForm.Set("current", current)                // checkReauth reads the password from the form field
+	ok, status, msg, err := s.checkReauth(r, u, true) // no password: the session must be recent
 	switch {
 	case err != nil:
 		internalError(w, err)
