@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,25 @@ func TestMigrationToUsernamesKeepsOldAccounts(t *testing.T) {
 	var n int
 	if err := s.db.NewRaw("SELECT count(*) FROM users WHERE name <> ''").Scan(ctx, &n); err != nil || n != 3 {
 		t.Fatalf("after down: %d %v", n, err)
+	}
+}
+
+// The database refusing the write is reported as it is, not as a taken username or an invalid one.
+func TestAProfileSaveThatTheDatabaseRefusesFails(t *testing.T) {
+	if os.Getenv("DEXAFIX_TEST_POSTGRES_DSN") != "" {
+		t.Skip("the trigger is SQLite syntax; the code path does not depend on the dialect")
+	}
+	ctx := context.Background()
+	s := newStore(t)
+	u, err := s.CreateUser(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ExecForTests(ctx, "CREATE TRIGGER refuse_profile BEFORE UPDATE ON users BEGIN SELECT RAISE(ABORT, 'refused'); END"); err != nil {
+		t.Fatal(err)
+	}
+	err = s.UpdateUserProfile(ctx, u.ID, "alice", "", "", "alice@example.com", nil)
+	if err == nil || errors.Is(err, store.ErrExists) || errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("got %v", err)
 	}
 }

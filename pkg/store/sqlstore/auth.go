@@ -122,7 +122,7 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, username, f
 	}
 	email = models.NormalizeEmail(email)
 	enc := s.encrypt(email, emailContext(userID))
-	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
+	_, err := s.db.NewUpdate().Model((*userRow)(nil)).
 		Set("username = ?", username).Set("first_name = ?", firstName).Set("last_name = ?", lastName).Set("email = ?", enc).Set("email_lookup = ?", s.emailLookup(email)).Set("height_cm = ?", heightCm).
 		Set("data_version = data_version + 1").
 		Where("id = ?", userID).Exec(ctx)
@@ -131,9 +131,6 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, username, f
 			return uniqueError(err)
 		}
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return store.ErrNotFound
 	}
 	return nil
 }
