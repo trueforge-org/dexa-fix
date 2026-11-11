@@ -110,7 +110,7 @@ func (f *flakyStore) ListUsers(ctx context.Context) ([]models.User, error) {
 	}
 	users, err := f.Store.ListUsers(ctx)
 	if f.fails("ListUsers:without-bob") { // bob was deleted a moment after the list was read
-		users = slices.DeleteFunc(users, func(u models.User) bool { return u.Name == "bob" })
+		users = slices.DeleteFunc(users, func(u models.User) bool { return u.Username == "bob" })
 	}
 	return users, err
 }

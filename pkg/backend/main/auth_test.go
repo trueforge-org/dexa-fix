@@ -110,13 +110,13 @@ func TestLoginAndLogout(t *testing.T) {
 	if r := post(t, anon, ts.URL+"/login", url.Values{"email": {"nobody@example.com"}, "password": {testPassword}}); r.StatusCode != 401 {
 		t.Fatalf("unknown user: %d", r.StatusCode)
 	}
-	if r := post(t, anon, ts.URL+"/signup", url.Values{"name": {"alice"}, "email": {"alice@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); r.StatusCode != 422 {
+	if r := post(t, anon, ts.URL+"/signup", url.Values{"username": {"alice"}, "email": {"alice@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); r.StatusCode != 422 {
 		t.Fatalf("duplicate name: %d", r.StatusCode)
 	}
-	if r := post(t, anon, ts.URL+"/signup", url.Values{"name": {"x"}, "email": {"x@example.com"}, "password": {"short"}, "confirm": {"short"}}); r.StatusCode != 422 {
+	if r := post(t, anon, ts.URL+"/signup", url.Values{"username": {"x"}, "email": {"x@example.com"}, "password": {"short"}, "confirm": {"short"}}); r.StatusCode != 422 {
 		t.Fatalf("short password: %d", r.StatusCode)
 	}
-	if r := post(t, anon, ts.URL+"/signup", url.Values{"name": {"x"}, "email": {"x@example.com"}, "password": {testPassword}, "confirm": {"different one"}}); r.StatusCode != 422 {
+	if r := post(t, anon, ts.URL+"/signup", url.Values{"username": {"x"}, "email": {"x@example.com"}, "password": {testPassword}, "confirm": {"different one"}}); r.StatusCode != 422 {
 		t.Fatalf("mismatch: %d", r.StatusCode)
 	}
 	r := post(t, anon, ts.URL+"/login", url.Values{"email": {"alice@example.com"}, "password": {testPassword}})
@@ -248,29 +248,29 @@ func TestProfile(t *testing.T) {
 	bob := noRedirectClient()
 	signup(t, ts, bob, "bob")
 
-	r := post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"Bob"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}})
+	r := post(t, c, ts.URL+"/u/1/profile", url.Values{"username": {"Robert"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}})
 	if r.StatusCode != 422 { // a new e-mail address needs the current password
 		t.Fatalf("e-mail change without password: %d", r.StatusCode)
 	}
-	r = post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"Bob"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}, "current": {testPassword}})
+	r = post(t, c, ts.URL+"/u/1/profile", url.Values{"username": {"Robert"}, "email": {"Alice.New@Example.com"}, "height_cm": {"172,5"}, "current": {testPassword}})
 	if r.StatusCode != 303 { // names need not be unique
 		t.Fatalf("save: %d", r.StatusCode)
 	}
 	u, err := st.GetUser(context.Background(), 1)
-	if err != nil || u.Name != "Bob" || u.Email != "alice.new@example.com" || u.HeightCm == nil || *u.HeightCm != 172.5 {
+	if err != nil || u.Username != "Robert" || u.Email != "alice.new@example.com" || u.HeightCm == nil || *u.HeightCm != 172.5 {
 		t.Fatalf("stored: %+v %v", u, err)
 	}
 	if _, b := body(t, c, ts.URL+"/u/1/settings"); !strings.Contains(b, `value="alice.new@example.com"`) || !strings.Contains(b, `value="172.5"`) {
 		t.Fatalf("settings form not filled:\n%s", b)
 	}
-	ok := url.Values{"name": {"A"}, "email": {"alice.new@example.com"}}
+	ok := url.Values{"username": {"Al"}, "email": {"alice.new@example.com"}}
 	for name, form := range map[string]url.Values{
-		"taken email": {"name": {"A"}, "email": {"BOB@example.com"}},
-		"no email":    {"name": {"A"}},
-		"bad email":   {"name": {"A"}, "email": {"nope"}},
-		"empty name":  {"name": {" "}, "email": ok["email"]},
-		"bad height":  {"name": {"A"}, "email": ok["email"], "height_cm": {"20"}},
-		"text height": {"name": {"A"}, "email": ok["email"], "height_cm": {"tall"}},
+		"taken email": {"username": {"Al"}, "email": {"BOB@example.com"}},
+		"no email":    {"username": {"Al"}},
+		"bad email":   {"username": {"Al"}, "email": {"nope"}},
+		"empty name":  {"username": {" "}, "email": ok["email"]},
+		"bad height":  {"username": {"Al"}, "email": ok["email"], "height_cm": {"20"}},
+		"text height": {"username": {"Al"}, "email": ok["email"], "height_cm": {"tall"}},
 	} {
 		if r := post(t, c, ts.URL+"/u/1/profile", form); r.StatusCode != 422 {
 			t.Errorf("%s: %d", name, r.StatusCode)
@@ -639,7 +639,7 @@ func TestProviderSignIn(t *testing.T) {
 	if r := post(t, anon, ts.URL+"/login", url.Values{"email": {"root@example.com"}, "password": {testPassword}}); r.StatusCode != 403 {
 		t.Fatalf("password login: %d", r.StatusCode)
 	}
-	if r := post(t, anon, ts.URL+"/signup", url.Values{"name": {"new"}, "email": {"new@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); r.StatusCode != 403 {
+	if r := post(t, anon, ts.URL+"/signup", url.Values{"username": {"new"}, "email": {"new@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); r.StatusCode != 403 {
 		t.Fatalf("password signup: %d", r.StatusCode)
 	}
 	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/users/1/settings", nil)
@@ -680,24 +680,24 @@ func TestProviderSignupAndConflicts(t *testing.T) {
 		t.Fatalf("signup: %d %s", r.StatusCode, r.Header.Get("Location"))
 	}
 	u, err := st.GetUser(ctx, 2)
-	if err != nil || u.Name != "User sub-1" || u.Email != "sub-1@example.com" || u.IsAdmin() {
+	if err != nil || u.Username != "User-sub-1" || u.Email != "sub-1@example.com" || u.IsAdmin() {
 		t.Fatalf("new user: %+v %v", u, err)
 	}
-	// a second account may share the name, but not the address
+	// a second account whose provider name is taken gets a number, and cannot share the address
 	idp.mu.Lock()
 	idp.subject = "sub-1b"
 	idp.mu.Unlock()
-	if err := st.UpdateUserProfile(ctx, 2, "User sub-1b", "sub-1@example.com", nil); err != nil {
+	if err := st.UpdateUserProfile(ctx, 2, "User-sub-1b", "", "", "sub-1@example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 	if r := idp.signInVia(t, ts, noRedirectClient(), "idp"); r.Header.Get("Location") != "/u/3" {
 		t.Fatalf("same name: %d %s", r.StatusCode, r.Header.Get("Location"))
 	}
-	if u, _ := st.GetUser(ctx, 3); u.Name != "User sub-1b" || u.Email != "sub-1b@example.com" {
+	if u, _ := st.GetUser(ctx, 3); u.Username != "User-sub-1b-2" || u.Email != "sub-1b@example.com" {
 		t.Fatalf("user: %+v", u)
 	}
 	// an address already in use is refused, never linked automatically
-	if err := st.UpdateUserProfile(ctx, 1, "root", "sub-2@example.com", nil); err != nil {
+	if err := st.UpdateUserProfile(ctx, 1, "root", "", "", "sub-2@example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 	idp.mu.Lock()
@@ -724,14 +724,14 @@ func TestSignupToggle(t *testing.T) {
 	ctx := context.Background()
 	signup(t, ts, admin, "root")
 	addProvider(t, ts, admin, idp, true)
-	form := url.Values{"name": {"new"}, "email": {"new@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
+	form := url.Values{"username": {"new"}, "email": {"new@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
 
 	bob := noRedirectClient()
 	signup(t, ts, bob, "bob")
 	if r := post(t, bob, ts.URL+"/admin/signup", url.Values{"enabled": {"0"}}); r.StatusCode != 404 {
 		t.Fatalf("non-admin toggle: %d", r.StatusCode)
 	}
-	if r := post(t, bob, ts.URL+"/admin/users", url.Values{"name": {"x"}, "email": {"x@example.com"}, "password": {testPassword}}); r.StatusCode != 404 {
+	if r := post(t, bob, ts.URL+"/admin/users", url.Values{"username": {"x"}, "email": {"x@example.com"}, "password": {testPassword}}); r.StatusCode != 404 {
 		t.Fatalf("non-admin add: %d", r.StatusCode)
 	}
 
@@ -751,7 +751,7 @@ func TestSignupToggle(t *testing.T) {
 	}
 
 	// an administrator can still add people
-	r := post(t, admin, ts.URL+"/admin/users", url.Values{"name": {"carol"}, "email": {"carol@example.com"}, "password": {testPassword}})
+	r := post(t, admin, ts.URL+"/admin/users", url.Values{"username": {"carol"}, "email": {"carol@example.com"}, "password": {testPassword}})
 	if !strings.Contains(r.Header.Get("Location"), "added") {
 		t.Fatalf("add user: %s", r.Header.Get("Location"))
 	}
@@ -761,8 +761,11 @@ func TestSignupToggle(t *testing.T) {
 	if r := post(t, noRedirectClient(), ts.URL+"/login", url.Values{"email": {"carol@example.com"}, "password": {testPassword}}); r.StatusCode != 303 {
 		t.Fatalf("added user login: %d", r.StatusCode)
 	}
-	if r := post(t, admin, ts.URL+"/admin/users", url.Values{"name": {"carol"}, "email": {"carol@example.com"}, "password": {testPassword}}); !strings.Contains(r.Header.Get("Location"), "already+exists") {
-		t.Fatalf("duplicate: %s", r.Header.Get("Location"))
+	if r := post(t, admin, ts.URL+"/admin/users", url.Values{"username": {"carol2"}, "email": {"carol@example.com"}, "password": {testPassword}}); !strings.Contains(r.Header.Get("Location"), "already+exists") {
+		t.Fatalf("duplicate address: %s", r.Header.Get("Location"))
+	}
+	if r := post(t, admin, ts.URL+"/admin/users", url.Values{"username": {"CAROL"}, "email": {"carol3@example.com"}, "password": {testPassword}}); !strings.Contains(r.Header.Get("Location"), "username+is+taken") {
+		t.Fatalf("duplicate username: %s", r.Header.Get("Location"))
 	}
 
 	post(t, admin, ts.URL+"/admin/signup", url.Values{"enabled": {"1"}})
@@ -877,7 +880,7 @@ func TestTimeZoneSetting(t *testing.T) {
 	ts, c, st := newAuthServer(t)
 	signup(t, ts, c, "alice")
 	profile := func(tz string) int {
-		return post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"alice"}, "email": {"alice@example.com"}, "timezone": {tz}}).StatusCode
+		return post(t, c, ts.URL+"/u/1/profile", url.Values{"username": {"alice"}, "email": {"alice@example.com"}, "timezone": {tz}}).StatusCode
 	}
 	for _, bad := range []string{"Mars/Base", "Local", "../etc/passwd"} {
 		if code := profile(bad); code != 422 {
@@ -906,5 +909,49 @@ func TestTimeZoneSetting(t *testing.T) {
 	scans, _ := st.ListDexaScans(context.Background(), 1)
 	if len(scans) != 1 || !scans[0].MeasuredAt.Equal(time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("scan date: %+v", scans)
+	}
+}
+
+func TestAProviderStateCookieWorksForOneCallbackOnly(t *testing.T) {
+	idp := newFakeIdP(t)
+	ts, admin, _ := newAuthServer(t)
+	signup(t, ts, admin, "root")
+	addProvider(t, ts, admin, idp, true)
+
+	c := noRedirectClient()
+	start, err := c.Post(ts.URL+"/auth/idp/login", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"current": {testPassword}}.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start.Body.Close()
+	auth, _ := url.Parse(start.Header.Get("Location"))
+	idp.mu.Lock()
+	idp.nonce = auth.Query().Get("nonce")
+	idp.mu.Unlock()
+
+	callback := func() *http.Response {
+		req, _ := http.NewRequest("GET", ts.URL+"/auth/idp/callback?code=abc&state="+auth.Query().Get("state"), nil)
+		for _, ck := range start.Cookies() {
+			req.AddCookie(ck)
+		}
+		r, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		return r
+	}
+	first := callback()
+	if first.StatusCode != 303 || first.Header.Get("Location") != "/u/2" {
+		t.Fatalf("first callback: %d %s", first.StatusCode, first.Header.Get("Location"))
+	}
+	replay := callback()
+	for _, ck := range replay.Cookies() {
+		if ck.Name == sessionCookie && ck.Value != "" {
+			t.Fatalf("the replayed callback signed somebody in: %+v", ck)
+		}
+	}
+	if replay.StatusCode == 303 && replay.Header.Get("Location") == "/u/2" {
+		t.Fatalf("the replayed callback was accepted: %d %s", replay.StatusCode, replay.Header.Get("Location"))
 	}
 }

@@ -12,10 +12,11 @@ import (
 
 const ()
 
-// saveProfile stores the name, e-mail address and height shown on the settings page.
+// saveProfile stores the username, names, e-mail address and height shown on the settings page.
 func (s *Frontend) saveProfile(w http.ResponseWriter, r *http.Request, u models.User) {
 	err := s.api.SaveProfile(r.Context(), u.ID, apiclient.Profile{
-		Name: r.PostFormValue("name"), Email: r.PostFormValue("email"), Timezone: r.PostFormValue("timezone"),
+		Username: r.PostFormValue("username"), FirstName: r.PostFormValue("first_name"), LastName: r.PostFormValue("last_name"),
+		Email: r.PostFormValue("email"), Timezone: r.PostFormValue("timezone"),
 		HeightCm: r.PostFormValue("height_cm"), Current: r.PostFormValue("current"),
 	})
 	if err != nil {

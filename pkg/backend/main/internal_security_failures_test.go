@@ -44,7 +44,7 @@ func TestTheProfileIsSavedOnlyWhenItIsValidAndTheStoreAgrees(t *testing.T) {
 		g := newRig(t)
 		g.signUp("bob")
 		uid, session := g.signUp("alice")
-		rep := profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "bob@example.com", Current: testPassword})
+		rep := profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "bob@example.com", Current: testPassword})
 		wantStatus(t, rep, http.StatusUnprocessableEntity, "taken address")
 		if !strings.Contains(rep.body(), "Another account already uses") {
 			t.Fatal(rep.body())
@@ -56,7 +56,7 @@ func TestTheProfileIsSavedOnlyWhenItIsValidAndTheStoreAgrees(t *testing.T) {
 	t.Run("a new address needs the current password", func(t *testing.T) {
 		g := newRig(t)
 		uid, session := g.signUp("alice")
-		rep := profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "new@example.com", Current: "wrong"})
+		rep := profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "new@example.com", Current: "wrong"})
 		wantStatus(t, rep, http.StatusUnprocessableEntity, "wrong password")
 		if u, _ := g.st.GetUser(context.Background(), uid); u.Email != "alice@example.com" {
 			t.Fatalf("the address changed to %q without the password", u.Email)
@@ -66,14 +66,14 @@ func TestTheProfileIsSavedOnlyWhenItIsValidAndTheStoreAgrees(t *testing.T) {
 		g := newRig(t)
 		uid, session := g.signUp("alice")
 		breakTable(t, g.st, "user_identities")
-		rep := profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "new@example.com", Current: testPassword})
+		rep := profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "new@example.com", Current: testPassword})
 		wantStatus(t, rep, http.StatusInternalServerError, "identities")
 	})
 	t.Run("the profile cannot be saved", func(t *testing.T) {
 		g := newRig(t)
 		uid, session := g.signUp("alice")
 		rejectWritesOn(t, g.st, "users", "UPDATE")
-		rep := profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "alice@example.com"})
+		rep := profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "alice@example.com"})
 		wantStatus(t, rep, http.StatusInternalServerError, "update")
 	})
 	t.Run("the time zone cannot be saved", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestTheProfileIsSavedOnlyWhenItIsValidAndTheStoreAgrees(t *testing.T) {
 		if err := g.st.ExecForTests(context.Background(), "CREATE TRIGGER reject_timezone BEFORE UPDATE OF timezone ON users BEGIN SELECT RAISE(ABORT, 'the test broke the time zone'); END"); err != nil {
 			t.Fatal(err)
 		}
-		rep := profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "alice@example.com", Timezone: "Asia/Tokyo"})
+		rep := profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "alice@example.com", Timezone: "Asia/Tokyo"})
 		wantStatus(t, rep, http.StatusInternalServerError, "time zone")
 	})
 	t.Run("a changed address makes the old reset links useless", func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestTheProfileIsSavedOnlyWhenItIsValidAndTheStoreAgrees(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantStatus(t, profile(uid, g, session, apiclient.Profile{Name: "Alice", Email: "new@example.com", Current: testPassword}), http.StatusNoContent, "change")
+		wantStatus(t, profile(uid, g, session, apiclient.Profile{Username: "Alice", Email: "new@example.com", Current: testPassword}), http.StatusNoContent, "change")
 		rep := g.doWithToken("GET", "/pages/password/reset", token, nil)
 		var out apiclient.ResetStep
 		rep.decode(t, &out)

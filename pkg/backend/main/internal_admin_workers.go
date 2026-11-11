@@ -108,7 +108,7 @@ func (s *Backend) internalAdminWorkers(w http.ResponseWriter, r *http.Request, _
 	for _, j := range jobs {
 		u := byID[j.UserID]
 		page.Jobs = append(page.Jobs, apiclient.WorkerJobView{
-			ID: j.PublicID, Kind: j.Kind, User: u.Name, UserID: j.UserID, Priority: u.JobPriority, UserIsAdmin: u.IsAdmin(),
+			ID: j.PublicID, Kind: j.Kind, User: u.Username, UserID: j.UserID, Priority: u.JobPriority, UserIsAdmin: u.IsAdmin(),
 			State: j.State, Origin: j.Origin, Attempts: j.Attempts, MaxAttempts: j.MaxAttempts, Error: j.Error,
 			Created: j.CreatedAt.UTC().Format(layout), Updated: j.UpdatedAt.UTC().Format(layout), Active: models.JobActive(j.State),
 		})
@@ -328,5 +328,5 @@ func (s *Backend) internalAdminSetPriority(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.audit(r, t.ID, auditJobPriority, strconv.Itoa(in.Priority))
-	adminMsg(w, "Priority of "+t.Name+" is now "+strconv.Itoa(in.Priority)+".")
+	adminMsg(w, "Priority of "+t.Username+" is now "+strconv.Itoa(in.Priority)+".")
 }

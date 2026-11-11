@@ -83,11 +83,11 @@ func TestAdminUserChangesTellTheAdministratorWhatHappenedOrFailCleanly(t *testin
 	refuseBob := func(table, col string) func(*testing.T, *adminEnv) {
 		return func(t *testing.T, e *adminEnv) { refuseWrites(t, e.st, table, col, "2") }
 	}
-	good := url.Values{"name": {"carol"}, "email": {"carol@example.com"}, "password": {testPassword}}
+	good := url.Values{"username": {"carol"}, "email": {"carol@example.com"}, "password": {testPassword}}
 	runAdminChanges(t, []adminChange{
 		{name: "adding a user with a bad e-mail address", path: "/admin/users", form: formWith(good, "email", "nope"), wantFlash: "valid e-mail"},
 		{name: "adding a user with a short password", path: "/admin/users", form: formWith(good, "password", "x"), wantFlash: "assword"},
-		{name: "adding a user without a name", path: "/admin/users", form: formWith(good, "name", ""), wantFlash: "1-64 characters"},
+		{name: "adding a user without a username", path: "/admin/users", form: formWith(good, "username", ""), wantFlash: "2-32 letters"},
 		{name: "adding a user when the identities table is gone", setup: func(t *testing.T, e *adminEnv) { breakTable(t, e.st, "user_identities") }, path: "/admin/users", form: good},
 		{name: "opening sign-up when the setting cannot be saved", setup: func(t *testing.T, e *adminEnv) { e.flaky.failOn("PutSetting:" + settingSignup) }, path: "/admin/signup", form: url.Values{"enabled": {"1"}}},
 		{name: "closing sign-up when the setting cannot be saved", setup: func(t *testing.T, e *adminEnv) { e.flaky.failOn("DeleteSetting:" + settingSignup) }, path: "/admin/signup", form: url.Values{"enabled": {"0"}}},

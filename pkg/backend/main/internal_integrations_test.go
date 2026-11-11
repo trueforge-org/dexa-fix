@@ -20,7 +20,7 @@ func integrationBackend(t *testing.T) (*apiclient.Client, string, string) {
 	setWithingsApp(t, st)
 	var sessions []string
 	for _, n := range []string{"one", "two"} {
-		form := url.Values{"name": {n}, "email": {n + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
+		form := url.Values{"username": {n}, "email": {n + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
 		req, _ := http.NewRequest("POST", ts.URL+"/signup", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		resp, err := noRedirectClient().Do(req)

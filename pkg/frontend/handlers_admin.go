@@ -145,7 +145,7 @@ func targetID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 func (s *Frontend) adminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
-	res, err := s.api.AdminAddUser(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"))
+	res, err := s.api.AdminAddUser(r.Context(), r.PostFormValue("username"), r.PostFormValue("email"), r.PostFormValue("password"))
 	s.adminDone(w, r, res, err)
 }
 

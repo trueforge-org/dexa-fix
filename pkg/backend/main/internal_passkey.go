@@ -77,12 +77,12 @@ type passkeyUser struct {
 }
 
 func (p *passkeyUser) WebAuthnID() []byte          { return p.handle }
-func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.Name }
+func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.FullName() }
 func (p *passkeyUser) WebAuthnName() string {
 	if p.user.Email != "" {
 		return p.user.Email
 	}
-	return p.user.Name
+	return p.user.Username
 }
 func (p *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return p.creds }
 
@@ -416,7 +416,8 @@ func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Requ
 		log.Error().Err(err).Msg("could not record the passkey use")
 	}
 	clearPasskeyCookie(w, r)
-	s.limiter.Reset(r.Context(), ipKey(r))
+	// The address counter is not cleared: anybody can hold a passkey of their own, so a success here
+	// proves nothing about the other names that address has been trying.
 	s.markAdminVerified(w, r, signedIn.ID) // a passkey with its unlock is two factors: the Admin pages do not ask again
 	s.internalSignIn(w, r, signedIn, models.ProviderPasskey)
 }

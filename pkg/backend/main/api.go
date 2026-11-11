@@ -111,6 +111,15 @@ func apiUnauthorized(w http.ResponseWriter) {
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 }
 
+// apiUserJSON is a user as the public API shows it: the user, and "name" with the username as well,
+// which is what v0.0.1 called it.
+type apiUserJSON struct {
+	models.User
+	Name string `json:"name"`
+}
+
+func apiUserOf(u models.User) apiUserJSON { return apiUserJSON{User: u, Name: u.Username} }
+
 func (s *Backend) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		us, err := s.store.ListUsers(r.Context())
@@ -118,16 +127,24 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 			apiError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, orEmpty(us))
+		out := make([]apiUserJSON, len(us))
+		for i, u := range us {
+			out[i] = apiUserOf(u)
+		}
+		writeJSON(w, http.StatusOK, out)
 	}))
 	mux.HandleFunc("POST /api/v1/users", s.apiAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Name     string `json:"name"`
+			Username string `json:"username"`
+			Name     string `json:"name"` // what v0.0.1 called the username: still accepted
 			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
 		if !decode(w, r, &in) {
 			return
+		}
+		if in.Username == "" {
+			in.Username = in.Name
 		}
 		email, ok := parseEmail(in.Email)
 		if !ok {
@@ -139,8 +156,8 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 			err error
 		)
 		if in.Password == "" { // such a user signs in after an admin sets a password
-			if u, err = s.createUser(r.Context(), in.Name); err == nil {
-				if err = s.store.UpdateUserProfile(r.Context(), u.ID, u.Name, email, nil); err != nil {
+			if u, err = s.createUser(r.Context(), in.Username); err == nil {
+				if err = s.store.UpdateUserProfile(r.Context(), u.ID, u.Username, "", "", email, nil); err != nil {
 					_ = s.store.DeleteUser(r.Context(), u.ID) // do not leave an account behind without its address
 				}
 				u.Email = email
@@ -151,14 +168,14 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 				return
 			}
 			hash := must.Value(hashPassword(in.Password)) // the password was just checked to fit bcrypt's limit
-			u, err = s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+			u, err = s.createUserWithIdentity(r.Context(), in.Username, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 		}
 		if err != nil {
 			apiError(w, err)
 			return
 		}
 		s.audit(r, u.ID, auditUserAdded, "api")
-		writeJSON(w, http.StatusCreated, u)
+		writeJSON(w, http.StatusCreated, apiUserOf(u))
 	}))
 
 	mux.HandleFunc("GET /api/v1/users/{id}/dexa-scans", s.apiUser(func(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -228,7 +245,11 @@ func (s *Backend) apiRoutes(mux *http.ServeMux) {
 		batch := make([]models.ScaleReading, len(in))
 		for i := range in {
 			batch[i] = in[i].ScaleReading
-			if err := validScaleReading(&batch[i]); err != nil {
+			err := validReadingOrigin(&batch[i])
+			if err == nil {
+				err = validScaleReading(&batch[i])
+			}
+			if err != nil {
 				badRequest(w, fmt.Sprintf("item %d: %s", i, err))
 				return
 			}

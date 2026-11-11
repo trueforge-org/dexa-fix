@@ -61,7 +61,7 @@ const testPassword = "correct horse"
 func newFaultStack(t *testing.T) *faultStack {
 	t.Helper()
 	fs := newAnonymousStack(t)
-	if res := fs.post("/signup", url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); res.code != http.StatusSeeOther {
+	if res := fs.post("/signup", url.Values{"username": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}); res.code != http.StatusSeeOther {
 		t.Fatalf("signup: %d %s", res.code, res.body)
 	}
 	return fs

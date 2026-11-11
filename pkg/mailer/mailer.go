@@ -17,6 +17,7 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/trueforge-org/dexafix/pkg/shared/must"
@@ -47,6 +48,9 @@ type Config struct {
 	Password string
 	From     string // address, optionally with a display name
 	TLS      string // StartTLS (default), TLS or None
+	// DialControl, when set, is the Control function of the connection's dialer: it sees the address
+	// the host name resolved to, before the connection is made, and may refuse it.
+	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // SMTP sends through an SMTP server.
@@ -102,7 +106,7 @@ func (m *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	}
 
 	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
-	dialer := &net.Dialer{Timeout: dialTimeout}
+	dialer := &net.Dialer{Timeout: dialTimeout, Control: m.cfg.DialControl}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", addr, err)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/mailer"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/netguard"
 	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
@@ -24,20 +25,22 @@ import (
 // The values are read into a liveSettings once and replaced as a whole when an administrator saves
 // a change, so a request always sees one consistent set.
 const (
-	settingBaseURL         = "server.base_url"
-	settingTrustedProxies  = "server.trusted_proxies"
-	settingProxyProtocol   = "server.proxy_protocol"
-	settingAuditRetention  = "audit.retention_days"
-	settingKeyReminder     = "crypto.key_reminder_days"
-	settingScarfPixel      = "analytics.scarf_pixel_id"
-	settingGoogleAnalytics = "analytics.google_analytics_id"
-	settingAdSense         = "analytics.adsense_publisher"
-	settingSMTPHost        = "smtp.host"
-	settingSMTPPort        = "smtp.port"
-	settingSMTPUsername    = "smtp.username"
-	settingSMTPPassword    = "smtp.password" // stored encrypted like every setting
-	settingSMTPFrom        = "smtp.from"
-	settingSMTPTLS         = "smtp.tls"
+	settingBaseURL               = "server.base_url"
+	settingTrustedProxies        = "server.trusted_proxies"
+	settingProxyProtocol         = "server.proxy_protocol"
+	settingAllowPrivateProviders = "server.allow_private_providers"
+	settingAllowPrivateMail      = "server.allow_private_mail"
+	settingAuditRetention        = "audit.retention_days"
+	settingKeyReminder           = "crypto.key_reminder_days"
+	settingScarfPixel            = "analytics.scarf_pixel_id"
+	settingGoogleAnalytics       = "analytics.google_analytics_id"
+	settingAdSense               = "analytics.adsense_publisher"
+	settingSMTPHost              = "smtp.host"
+	settingSMTPPort              = "smtp.port"
+	settingSMTPUsername          = "smtp.username"
+	settingSMTPPassword          = "smtp.password" // stored encrypted like every setting
+	settingSMTPFrom              = "smtp.from"
+	settingSMTPTLS               = "smtp.tls"
 
 	defaultAuditDays = 365
 	defaultSMTPPort  = 587
@@ -46,20 +49,22 @@ const (
 
 // liveSettings is the set of administrator settings the server acts on.
 type liveSettings struct {
-	baseURL        *url.URL
-	trusted        []netip.Prefix
-	proxyProtocol  bool
-	auditRetention time.Duration // zero keeps the audit log for good
-	keyReminder    time.Duration // zero never reminds
-	mailer         mailer.Sender // nil without an SMTP server
-	tlsMode        string        // off, upload or selfsigned
-	tlsCert        *tls.Certificate
-	tlsInfo        *tlsutil.Info
-	http3          bool
-	httpsPort      string // TCP port for HTTPS, and UDP port for HTTP/3
-	workers        workerSettings
-	analytics      apiclient.Analytics // the optional measuring and ad services; the frontend loads them
-	generation     int64               // the settings generation this set was read at; workers compare it
+	baseURL               *url.URL
+	trusted               []netip.Prefix
+	proxyProtocol         bool
+	allowPrivateProviders bool          // sign-in providers may be on private network addresses
+	allowPrivateMail      bool          // the mail server may be on a private network address
+	auditRetention        time.Duration // zero keeps the audit log for good
+	keyReminder           time.Duration // zero never reminds
+	mailer                mailer.Sender // nil without an SMTP server
+	tlsMode               string        // off, upload or selfsigned
+	tlsCert               *tls.Certificate
+	tlsInfo               *tlsutil.Info
+	http3                 bool
+	httpsPort             string // TCP port for HTTPS, and UDP port for HTTP/3
+	workers               workerSettings
+	analytics             apiclient.Analytics // the optional measuring and ad services; the frontend loads them
+	generation            int64               // the settings generation this set was read at; workers compare it
 }
 
 // smtpSettings is what the Admin page shows and saves for e-mail.
@@ -115,6 +120,7 @@ func (s *Backend) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSe
 	if err != nil {
 		return cfg, shown, err
 	}
+	cfg.DialControl = netguard.Control(s.allowPrivateMail)
 	cfg.Port = defaultSMTPPort
 	if n, perr := strconv.Atoi(port); perr == nil && n > 0 && n < 65536 {
 		cfg.Port = n
@@ -162,6 +168,16 @@ func (s *Backend) reload(ctx context.Context, generate bool) error {
 		return err
 	} else {
 		l.proxyProtocol = v == valueEnabled
+	}
+	if v, err := s.settingValue(ctx, settingAllowPrivateProviders); err != nil {
+		return err
+	} else {
+		l.allowPrivateProviders = v == valueEnabled
+	}
+	if v, err := s.settingValue(ctx, settingAllowPrivateMail); err != nil {
+		return err
+	} else {
+		l.allowPrivateMail = v == valueEnabled
 	}
 	days, err := s.settingDays(ctx, settingAuditRetention, defaultAuditDays)
 	if err != nil {
