@@ -389,7 +389,7 @@ func TestAPlainOAuthSignInMatchesAccountsBySubjectOnly(t *testing.T) {
 		t.Fatalf("the numeric subject was not kept as text: %v", err)
 	}
 	users, _ := g.st.ListUsers(context.Background())
-	if len(users) != 1 || users[0].Name != "idp-12345" {
+	if len(users) != 1 || users[0].Username != "idp-12345" {
 		t.Fatalf("accounts %+v, want one named after the provider and the subject", users)
 	}
 	state, cookie, _ = g.beginProvider("idp", map[string]any{})
@@ -479,9 +479,16 @@ func TestProviderNamesAndAddressesAreChosenCarefully(t *testing.T) {
 	if got := providerUserName(p, "42", map[string]any{}); got != "idp-42" {
 		t.Errorf("name without claims = %q", got)
 	}
-	long := strings.Repeat("é", 100)
-	if got := providerUserName(p, "42", map[string]any{"name": long}); len(got) > userNameLimit || !strings.HasPrefix(long, got) || got == "" {
+	long := strings.Repeat("a", 100)
+	if got := providerUserName(p, "42", map[string]any{"name": long}); got != long[:models.MaxUsernameLen] {
 		t.Errorf("long name cut to %q", got)
+	}
+	for claim, want := range map[string]string{
+		"Ana Silva": "Ana-Silva", "ana@example.com": "ana-example.com", "__ana__": "ana__", "\u00e9\u00e9": "idp-42", "x": "idp-42",
+	} {
+		if got := providerUserName(p, "42", map[string]any{"name": claim}); got != want {
+			t.Errorf("name claim %q became %q, want %q", claim, got, want)
+		}
 	}
 	if got := verifiedEmail(map[string]any{"email_verified": true, "email": "not an address"}); got != "" {
 		t.Errorf("an invalid address was trusted: %q", got)

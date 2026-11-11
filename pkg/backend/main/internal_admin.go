@@ -160,7 +160,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 		if signIn == "" {
 			signIn = "None"
 		}
-		view.Users = append(view.Users, apiclient.AdminUser{ID: x.ID, Name: x.Name, Email: x.Email, Admin: x.IsAdmin(), Self: x.ID == u.ID,
+		view.Users = append(view.Users, apiclient.AdminUser{ID: x.ID, Username: x.Username, FirstName: x.FirstName, LastName: x.LastName, Email: x.Email, Admin: x.IsAdmin(), Self: x.ID == u.ID,
 			Created: x.CreatedAt.UTC().Format(dateLayout), SignIn: signIn, StrengthLevel: x.StrengthLevelAuto,
 			StrengthLevelBulk: x.StrengthLevelBulk, TwoFactor: twoFactor[x.ID], JobPriority: x.JobPriority})
 	}
@@ -171,7 +171,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 	}
 	names := make(map[int64]string, len(users))
 	for _, x := range users {
-		names[x.ID] = x.Name
+		names[x.ID] = x.Username
 	}
 	view.Audit = auditLines(events, func(id int64) string {
 		if n, ok := names[id]; ok {
@@ -194,7 +194,7 @@ func (s *Backend) internalAdminPage(w http.ResponseWriter, r *http.Request, u mo
 // ---- users ----
 
 func (s *Backend) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _ models.User) {
-	var in struct{ Name, Email, Password string }
+	var in struct{ Username, Email, Password string }
 	if !internalDecode(w, r, &in) {
 		return
 	}
@@ -208,17 +208,19 @@ func (s *Backend) internalAdminAddUser(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 	hash := must.Value(hashPassword(in.Password)) // the password was just checked to fit bcrypt's limit
-	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	u, err := s.createUserWithIdentity(r.Context(), in.Username, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
+	case errors.Is(err, store.ErrUsernameTaken):
+		adminMsg(w, usernameTaken)
 	case errors.Is(err, store.ErrExists):
 		adminMsg(w, "An account with that e-mail address already exists.")
 	case errors.Is(err, store.ErrInvalid):
-		adminMsg(w, "Please enter a name of 1-64 characters.")
+		adminMsg(w, usernameRule)
 	case err != nil:
 		internalError(w, err)
 	default:
 		s.audit(r, u.ID, auditUserAdded, "")
-		adminMsg(w, u.Name+" was added.")
+		adminMsg(w, u.Username+" was added.")
 	}
 }
 
@@ -265,7 +267,7 @@ func (s *Backend) internalAdminSetRole(w http.ResponseWriter, r *http.Request, _
 		internalError(w, err)
 	default:
 		s.audit(r, t.ID, auditRoleChanged, role)
-		adminMsg(w, t.Name+" is now "+role+".")
+		adminMsg(w, t.Username+" is now "+role+".")
 	}
 }
 
@@ -284,11 +286,11 @@ func (s *Backend) internalAdminSetStrengthLevel(w http.ResponseWriter, r *http.R
 	}
 	s.audit(r, t.ID, auditStrengthLevel, onOff(in.Enabled))
 	if in.Enabled {
-		adminMsg(w, t.Name+" may now store a Strength Level login and send single days.")
+		adminMsg(w, t.Username+" may now store a Strength Level login and send single days.")
 		return
 	}
 	s.stopStrengthLevel(r.Context(), t.ID)
-	adminMsg(w, "Strength Level sync is off for "+t.Name+", and their stored login is deleted.")
+	adminMsg(w, "Strength Level sync is off for "+t.Username+", and their stored login is deleted.")
 }
 
 func (s *Backend) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *http.Request, _ models.User) {
@@ -301,7 +303,7 @@ func (s *Backend) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *ht
 		return
 	}
 	if !t.StrengthLevelAuto {
-		adminMsg(w, "Enable Strength Level sync for "+t.Name+" first.")
+		adminMsg(w, "Enable Strength Level sync for "+t.Username+" first.")
 		return
 	}
 	if err := s.store.SetUserStrengthLevelBulk(r.Context(), t.ID, in.Enabled); err != nil {
@@ -310,11 +312,11 @@ func (s *Backend) internalAdminSetStrengthLevelBulk(w http.ResponseWriter, r *ht
 	}
 	s.audit(r, t.ID, auditStrengthLevelBlk, onOff(in.Enabled))
 	if in.Enabled {
-		adminMsg(w, t.Name+" may now run the multi-day Strength Level sync from Settings.")
+		adminMsg(w, t.Username+" may now run the multi-day Strength Level sync from Settings.")
 		return
 	}
 	s.stopStrengthLevel(r.Context(), t.ID, kindStrengthLevelSync)
-	adminMsg(w, "The multi-day Strength Level sync is off for "+t.Name+".")
+	adminMsg(w, "The multi-day Strength Level sync is off for "+t.Username+".")
 }
 
 func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Request, _ models.User) {
@@ -345,7 +347,7 @@ func (s *Backend) internalAdminSetPassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.audit(r, t.ID, auditPasswordSet, "")
-	adminMsg(w, "Password set for "+t.Name+".")
+	adminMsg(w, "Password set for "+t.Username+".")
 }
 
 func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request, u models.User) {
@@ -370,7 +372,7 @@ func (s *Backend) internalAdminDeleteUser(w http.ResponseWriter, r *http.Request
 		}
 		s.deleteBodyData(r.Context(), t.ID)
 		s.audit(r, 0, auditUserDeleted, "user_id="+strconv.FormatInt(t.ID, 10))
-		adminMsg(w, t.Name+" and their data were deleted.")
+		adminMsg(w, t.Username+" and their data were deleted.")
 	}
 }
 
@@ -386,7 +388,7 @@ func (s *Backend) internalAdminRemoveTwoFactor(w http.ResponseWriter, r *http.Re
 		return
 	}
 	s.audit(r, t.ID, auditTOTPRemovedByAdmin, "")
-	adminMsg(w, "Two-step verification was removed for "+t.Name+".")
+	adminMsg(w, "Two-step verification was removed for "+t.Username+".")
 }
 
 func (s *Backend) internalAdminResetLink(w http.ResponseWriter, r *http.Request, admin models.User) {
@@ -417,7 +419,7 @@ func (s *Backend) internalAdminResetLink(w http.ResponseWriter, r *http.Request,
 	link, fromRequest := s.resetURL(r, token, false)
 	s.audit(r, t.ID, auditResetLinkCreated, "")
 	internalJSON(w, http.StatusOK, apiclient.AdminResult{ResetLink: &apiclient.ResetLink{
-		For: t.Name, URL: link, Expires: expires.UTC().Format("2006-01-02 15:04 UTC"), Emailed: emailed, Warning: fromRequest,
+		For: t.Username, URL: link, Expires: expires.UTC().Format("2006-01-02 15:04 UTC"), Emailed: emailed, Warning: fromRequest,
 	}})
 }
 

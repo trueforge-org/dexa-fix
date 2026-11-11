@@ -58,7 +58,7 @@ func TestCombinedServesPagesAndTheAPI(t *testing.T) {
 		t.Fatalf("API without credentials: %d", code)
 	}
 	// The first account can sign up through the pages, and then reaches its page.
-	resp, err := c.PostForm(ts.URL+"/signup", url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {"correct horse"}, "confirm": {"correct horse"}})
+	resp, err := c.PostForm(ts.URL+"/signup", url.Values{"username": {"root"}, "email": {"root@example.com"}, "password": {"correct horse"}, "confirm": {"correct horse"}})
 	if err != nil {
 		t.Fatal(err)
 	}

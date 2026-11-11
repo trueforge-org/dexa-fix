@@ -148,7 +148,7 @@ func (g *rig) send(addr, method, path string, headers map[string]string, body an
 // signUp makes an account through the sign-up endpoint and returns its id and session cookie.
 func (g *rig) signUp(name string) (int64, *http.Cookie) {
 	g.t.Helper()
-	rep := g.do("POST", "/auth/signup", map[string]string{"Name": name, "Email": name + "@example.com", "Password": testPassword, "Confirm": testPassword})
+	rep := g.do("POST", "/auth/signup", map[string]string{"Username": name, "Email": name + "@example.com", "Password": testPassword, "Confirm": testPassword})
 	ck := rep.cookie(sessionCookie)
 	if rep.Code != 200 || ck == nil {
 		g.t.Fatalf("sign up %s: %d %s", name, rep.Code, rep.body())

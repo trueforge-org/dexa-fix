@@ -109,7 +109,7 @@ func faultOps() []faultOp {
 			return e1(s.GetUserByEmail(c, "user@example.com"))
 		}},
 		{"UpdateUserProfile", func(c context.Context, s *Store, f faultData) error {
-			return s.UpdateUserProfile(c, f.user, "n", "n@example.com", nil)
+			return s.UpdateUserProfile(c, f.user, "nn", "", "", "n@example.com", nil)
 		}},
 		{"UpdateUserTimezone", func(c context.Context, s *Store, f faultData) error {
 			return s.UpdateUserTimezone(c, f.user, "Europe/Berlin")

@@ -61,13 +61,15 @@ type KeyView struct {
 }
 
 type AdminUser struct {
-	ID      int64
-	Name    string
-	Email   string
-	Admin   bool
-	Self    bool
-	Created string
-	SignIn  string
+	ID        int64
+	Username  string
+	FirstName string
+	LastName  string
+	Email     string
+	Admin     bool
+	Self      bool
+	Created   string
+	SignIn    string
 	// StrengthLevel is whether the user may sync to Strength Level automatically.
 	StrengthLevel bool
 	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
@@ -164,8 +166,8 @@ func adminUserPath(id int64, tail string) string {
 }
 
 // AdminAddUser creates an account with a password.
-func (c *Client) AdminAddUser(ctx context.Context, name, email, password string) (AdminResult, error) {
-	return c.adminDo(ctx, http.MethodPost, "/admin/users", map[string]string{"name": name, "email": email, "password": password})
+func (c *Client) AdminAddUser(ctx context.Context, username, email, password string) (AdminResult, error) {
+	return c.adminDo(ctx, http.MethodPost, "/admin/users", map[string]string{"username": username, "email": email, "password": password})
 }
 
 func (c *Client) AdminSetRole(ctx context.Context, id int64, role string) (AdminResult, error) {

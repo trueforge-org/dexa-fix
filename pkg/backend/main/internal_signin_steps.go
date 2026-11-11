@@ -478,7 +478,7 @@ func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Reques
 		signInFail(w, "No account is linked to this "+p.Label+" login. Sign in another way and link it in Settings.", http.StatusForbidden)
 		return
 	}
-	u, err := s.createUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
+	u, err := s.createProviderUser(ctx, p, subject, claims)
 	if err == nil {
 		s.auditAs(r, u.ID, u.ID, auditSignup, slug)
 	}

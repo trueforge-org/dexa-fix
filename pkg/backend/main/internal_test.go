@@ -14,7 +14,7 @@ import (
 func newInternalServer(t *testing.T, opts ...Option) (*httptest.Server, *Server, *http.Cookie) {
 	t.Helper()
 	ts, _, st := newAuthServer(t)
-	form := url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
+	form := url.Values{"username": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
 	req, _ := http.NewRequest("POST", ts.URL+"/signup", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := noRedirectClient().Do(req)

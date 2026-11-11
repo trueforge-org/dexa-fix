@@ -2,6 +2,7 @@ package sqlstore
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestUserIDsAreRandom(t *testing.T) {
 	var prev int64
 	consecutive := 0
 	for i := 0; i < 40; i++ {
-		u, err := st.CreateUser(ctx, "user")
+		u, err := st.CreateUser(ctx, fmt.Sprintf("user%d", i))
 		if err != nil {
 			t.Fatal(err)
 		}

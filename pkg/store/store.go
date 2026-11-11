@@ -4,6 +4,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,8 +15,11 @@ import (
 var (
 	// ErrNotFound is returned when a record does not exist (or belongs to another user).
 	ErrNotFound = errors.New("not found")
-	// ErrExists is returned when a unique constraint is violated (e.g. duplicate user name).
+	// ErrExists is returned when a unique constraint is violated (e.g. duplicate e-mail address).
 	ErrExists = errors.New("already exists")
+	// ErrUsernameTaken is returned when a username is already used by another account, whatever the
+	// case. It wraps ErrExists.
+	ErrUsernameTaken = fmt.Errorf("username %w", ErrExists)
 	// ErrInvalid is returned for input that fails validation.
 	ErrInvalid = errors.New("invalid input")
 	// ErrLastAdmin is returned when a change would leave no administrator.
@@ -127,18 +131,19 @@ type BodyStore interface {
 // served from another process, so the main backend reaches them only through the body service.
 type Store interface {
 	// CreateUser creates a user without a way to sign in. The first user becomes an administrator.
-	CreateUser(ctx context.Context, name string) (models.User, error)
+	CreateUser(ctx context.Context, username string) (models.User, error)
 	// CreateUserWithIdentity creates a user and its identity atomically. An empty Subject means
 	// the new user's id, and an e-mail address already in use returns ErrExists.
-	CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error)
+	CreateUserWithIdentity(ctx context.Context, username, email string, id models.Identity) (models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
 	// HasUsers reports whether any user exists, without loading or decrypting them.
 	HasUsers(ctx context.Context) (bool, error)
 	GetUser(ctx context.Context, id int64) (models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (models.User, error)
-	// UpdateUserProfile stores the name, e-mail address and height (nil clears it). An e-mail
-	// address already in use returns ErrExists.
-	UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error
+	// UpdateUserProfile stores the username, first and last name, e-mail address and height (nil
+	// clears it). A username is checked only when it changes; one used by another account returns
+	// ErrUsernameTaken and an e-mail address already in use returns ErrExists.
+	UpdateUserProfile(ctx context.Context, userID int64, username, firstName, lastName, email string, heightCm *float64) error
 	// UpdateUserTimezone sets the user's IANA time zone. An unknown name is ErrInvalid.
 	UpdateUserTimezone(ctx context.Context, userID int64, timezone string) error
 	// SetUserRole changes a role; demoting the last administrator returns ErrLastAdmin.

@@ -172,7 +172,7 @@ func TestAnImportStopsAtAnExistingReadingItCannotRead(t *testing.T) {
 func TestAReadingOrScanThatCannotBeEncodedIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, err := s.CreateUser(ctx, "u")
+	u, err := s.CreateUser(ctx, "uu")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestTheDatabaseErrorHelpersKnowPostgreSQLErrorsToo(t *testing.T) {
 func TestAnEmptyTimeZoneColumnReadsAsUTC(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "u")
+	u, _ := s.CreateUser(ctx, "uu")
 	if err := s.ExecForTests(ctx, `UPDATE users SET timezone = ''`); err != nil {
 		t.Fatal(err)
 	}

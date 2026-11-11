@@ -124,7 +124,7 @@ func pkHasCookie(resp *http.Response, name string) bool {
 // pkSignUp creates a password account through the sign-up form. It returns the id and the session.
 func pkSignUp(t *testing.T, ts *httptest.Server, name string) (int64, *http.Cookie) {
 	t.Helper()
-	resp := post(t, noRedirectClient(), ts.URL+"/signup", url.Values{"name": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
+	resp := post(t, noRedirectClient(), ts.URL+"/signup", url.Values{"username": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
 	if resp.StatusCode != 303 {
 		t.Fatalf("signup %s: %d", name, resp.StatusCode)
 	}

@@ -27,7 +27,7 @@
       <a href="/u/{{.User.ID}}/scale"{{if eq .Tab "scale"}} class="active" aria-current="page"{{end}}>Scale</a>
     </nav>
     <details class="user-menu">
-      <summary><span class="avatar" aria-hidden="true">{{initial .User.Name}}</span><span class="user-name">{{.User.Name}}</span><span class="caret" aria-hidden="true"></span></summary>
+      <summary><span class="avatar" aria-hidden="true">{{initial .User.DisplayName}}</span><span class="user-name">{{.User.DisplayName}}</span><span class="caret" aria-hidden="true"></span></summary>
       <div class="menu">
         <a href="/u/{{.User.ID}}/settings"{{if eq .Tab "settings"}} class="active" aria-current="page"{{end}}>Settings</a>
         {{if .User.IsAdmin}}<a href="/admin"{{if eq .Tab "admin"}} class="active" aria-current="page"{{end}}>Admin</a>{{end}}

@@ -45,7 +45,7 @@ func (s *Backend) sendResetMail(u models.User, link string, ttl time.Duration) b
 	}
 	ctx, cancel := context.WithTimeout(s.bg.Ctx, 40*time.Second)
 	defer cancel()
-	subject, body := resetMail(u.Name, link, ttl)
+	subject, body := resetMail(u.DisplayName(), link, ttl)
 	if err := m.Send(ctx, u.Email, subject, body); err != nil {
 		log.Warn().Err(err).Int64("user", u.ID).Msg("could not send the password reset e-mail")
 		return false

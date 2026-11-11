@@ -4,7 +4,9 @@
 <form method="post" action="/u/{{.User.ID}}/profile" class="card" id="profile">
   <h2>Profile {{help "profile-settings"}}</h2>
   <div class="form-row">
-    <label>Name <input type="text" name="name" value="{{.User.Name}}" maxlength="64" required autocomplete="name"></label>
+    <label>Username <small>(unique)</small> <input type="text" name="username" value="{{.User.Username}}" maxlength="64" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label>First name <input type="text" name="first_name" value="{{.User.FirstName}}" maxlength="64" autocomplete="given-name"></label>
+    <label>Last name <input type="text" name="last_name" value="{{.User.LastName}}" maxlength="64" autocomplete="family-name"></label>
     <label>E-mail <small>(you sign in with this)</small> <input type="email" name="email" value="{{.User.Email}}" maxlength="254" required autocomplete="username"></label>
     {{if and .Security .Security.ConfirmPassword}}<label>Current password <small>(only to change the e-mail address)</small> <input type="password" name="current" autocomplete="current-password"></label>{{end}}
     <label>Time zone {{help "time-zone"}} <input type="text" name="timezone" value="{{.User.Timezone}}" list="timezones" maxlength="64" placeholder="Europe/Amsterdam" autocomplete="off" spellcheck="false"></label>

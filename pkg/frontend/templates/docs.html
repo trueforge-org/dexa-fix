@@ -100,7 +100,7 @@
 
 <section id="accounts">
 <h2>Accounts and sign-in</h2>
-<p>Each user has an account and sees only their own data. The e-mail address is the account's unique key and what you sign in with. It is compared case-insensitively and stored in lowercase. Names are display names: 1 to 64 characters, and they need not be unique. The <strong>first account becomes the administrator</strong>. Administrators can make other users administrators; the last administrator cannot be removed.</p>
+<p>Each user has an account and sees only their own data. The e-mail address is the account's key and what you sign in with. It is compared case-insensitively and stored in lowercase. The username is unique too, also ignoring case: 2 to 32 letters, digits, <code>.</code>, <code>_</code> or <code>-</code>, starting with a letter or digit. A first and last name (optional, up to 64 characters each) can be added on the Settings page. The <strong>first account becomes the administrator</strong>. Administrators can make other users administrators; the last administrator cannot be removed.</p>
 
 <h3 id="password-login">Password sign-in</h3>
 <ul>
@@ -330,10 +330,10 @@
 
 <section id="settings-page">
 <h2>Settings</h2>
-<p>Page: <code>/u/{id}/settings</code>, from the menu under your name in the header. It also has <strong>Sign out</strong>.</p>
+<p>Page: <code>/u/{id}/settings</code>, from the menu under your first name (or username) in the header. It also has <strong>Sign out</strong>.</p>
 <dl>
   <dt id="profile-settings">Profile</dt>
-  <dd>Name (1 to 64 characters), e-mail (required, it is how you sign in; changing it asks for your current password) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
+  <dd>Username (unique), first and last name (both optional), e-mail (required, it is how you sign in; changing it asks for your current password) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
   <dt id="time-zone">Time zone</dt>
   <dd>Your IANA time zone, such as <code>Europe/Amsterdam</code> (default <code>UTC</code>). It decides which calendar day a scale reading belongs to, how the date and time you type for a reading are read and shown, what "today" is, and which day a Withings import covers. DEXA scans are plain dates and are not moved by it. Changing it re-groups your readings into days, so the estimates are recalculated.</dd>
   <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
@@ -439,7 +439,7 @@
   <dt id="provider-scopes">Scopes</dt>
   <dd>Space-separated. Default for OpenID Connect and Apple: <code>openid email profile</code>; for OAuth 2.0: <code>name email</code>. Leave empty for the default.</dd>
   <dt id="provider-name-claim">Name field</dt>
-  <dd>The field to take the display name from. If empty or missing, <code>preferred_username</code>, <code>name</code> and <code>email</code> are tried in that order.</dd>
+  <dd>The field to take the username from, with other characters changed to <code>-</code>. If empty or missing, <code>preferred_username</code>, <code>name</code> and <code>email</code> are tried in that order. A taken username gets <code>-2</code>, <code>-3</code> and so on. The <code>given_name</code> and <code>family_name</code> fields fill the first and last name.</dd>
   <dt id="provider-allow-signup">Create accounts on first sign-in</dt>
   <dd>Default off. When on (and sign-up is open), an unknown person who signs in with this provider gets a new account. When off, only people who linked the provider from Settings can use it.</dd>
 </dl>
@@ -957,7 +957,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
 <section id="security">
 <h2>Security notes and limitations</h2>
 <ul>
-  <li><strong>Encryption is partial.</strong> Height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
+  <li><strong>Encryption is partial.</strong> Height, usernames and first and last names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
   <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
   <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
   <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>

@@ -198,7 +198,7 @@ func TestTheSweepForOrphanedReadings(t *testing.T) {
 	t.Run("the data of a user who exists is kept", func(t *testing.T) {
 		r := newJobRig(t)
 		r.b.body = bodyService{c: bodyWithOrphan(t, 500)} // a delete would fail: it must not be tried
-		for _, name := range []string{"c", "d", "e"} {    // ids 3, 4 and 5
+		for _, name := range []string{"cc", "dd", "ee"} { // ids 3, 4 and 5
 			if _, err := r.st.CreateUser(ctx, name); err != nil {
 				t.Fatal(err)
 			}
