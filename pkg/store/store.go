@@ -109,6 +109,10 @@ type BodyStore interface {
 	// measured values and notes only, so a reading keeps its method and athlete mode.
 	UpsertScaleReadings(ctx context.Context, userID int64, rs []models.ScaleReading) (int, error)
 	ListScaleReadings(ctx context.Context, userID int64) ([]models.ScaleReading, error)
+	// ScaleReadingsForReconcile returns what an import needs to know about a user's readings: those
+	// inside the window of f (only Since and Until count; with neither, none), and those of source
+	// with one of the external ids, wherever they lie. A reading that is both comes once.
+	ScaleReadingsForReconcile(ctx context.Context, userID int64, f ListFilter, source string, externalIDs []string) ([]models.ScaleReading, error)
 	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
 	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
 	DeleteScaleReading(ctx context.Context, userID, id int64) error

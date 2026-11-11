@@ -81,6 +81,13 @@ func (f *faultyStore) ListScaleReadings(ctx context.Context, userID int64) ([]mo
 	return f.BodyStore.ListScaleReadings(ctx, userID)
 }
 
+func (f *faultyStore) ScaleReadingsForReconcile(ctx context.Context, userID int64, fl store.ListFilter, source string, ids []string) ([]models.ScaleReading, error) {
+	if err := f.err("ScaleReadingsForReconcile"); err != nil {
+		return nil, err
+	}
+	return f.BodyStore.ScaleReadingsForReconcile(ctx, userID, fl, source, ids)
+}
+
 func (f *faultyStore) ListScaleReadingsPage(ctx context.Context, userID int64, fl store.ListFilter) ([]models.ScaleReading, *store.Cursor, error) {
 	if err := f.err("ListScaleReadingsPage"); err != nil {
 		return nil, nil, err
@@ -248,7 +255,7 @@ func TestAFailingStoreIsAnsweredAsAnInternalErrorWithoutLeakingIt(t *testing.T) 
 		{"listing readings", "ListScaleReadingsPage", "GET", "/readings", bodyapi.ScopeRead, ""},
 		{"storing readings", "UpsertScaleReadings", "POST", "/readings", bodyapi.ScopeWrite, "[]"},
 		{"deleting a reading", "DeleteScaleReading", "DELETE", "/readings/1", bodyapi.ScopeWrite, ""},
-		{"an import reading what is stored", "ListScaleReadings", "POST", "/readings/reconcile", bodyapi.ScopeWrite, `{"source":"demo"}`},
+		{"an import reading what is stored", "ScaleReadingsForReconcile", "POST", "/readings/reconcile", bodyapi.ScopeWrite, `{"source":"demo"}`},
 		{"estimates reading the data version", "BodyVersion", "GET", "/estimates", bodyapi.ScopeRead, ""},
 		{"estimates reading the scans", "ListDexaScans", "GET", "/estimates", bodyapi.ScopeRead, ""},
 		{"estimates reading the readings", "ListScaleReadings", "GET", "/estimates", bodyapi.ScopeRead, ""},

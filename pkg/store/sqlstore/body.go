@@ -365,6 +365,33 @@ func (s *BodyStore) ListScaleReadings(ctx context.Context, userID int64) ([]mode
 	return s.scaleModels(rows)
 }
 
+func (s *BodyStore) ScaleReadingsForReconcile(ctx context.Context, userID int64, f store.ListFilter, source string, externalIDs []string) ([]models.ScaleReading, error) {
+	var rows []scaleRow
+	have := map[int64]bool{}
+	if !f.Since.IsZero() || !f.Until.IsZero() {
+		if err := window(s.db.NewSelect().Model(&rows), userID, store.ListFilter{Since: f.Since, Until: f.Until}).Scan(ctx); err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			have[r.ID] = true
+		}
+	}
+	for start := 0; start < len(externalIDs); start += upsertChunk {
+		var more []scaleRow
+		if err := s.db.NewSelect().Model(&more).Where("user_id = ?", userID).Where("source = ?", source).
+			Where("external_id IN (?)", bun.In(externalIDs[start:min(start+upsertChunk, len(externalIDs))])).Scan(ctx); err != nil {
+			return nil, err
+		}
+		for _, r := range more {
+			if !have[r.ID] {
+				have[r.ID] = true
+				rows = append(rows, r)
+			}
+		}
+	}
+	return s.scaleModels(rows)
+}
+
 func (s *BodyStore) DeleteScaleReading(ctx context.Context, userID, id int64) error {
 	return s.deleteOwned(ctx, (*scaleRow)(nil), userID, id)
 }
