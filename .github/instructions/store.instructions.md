@@ -2,7 +2,7 @@
 applyTo: "pkg/store/**"
 paths:
   - "pkg/store/**"
-description: "Rules for the Store interface, the SQL implementation, migrations (edit 00001_init.sql, no new files before 1.0), encryption and the PostgreSQL tests."
+description: "Rules for the Store interface, the SQL implementation, migrations (a new numbered migration per schema change; 00001_init.sql is frozen), encryption and the PostgreSQL tests."
 ---
 
 # Store instructions
@@ -11,7 +11,7 @@ description: "Rules for the Store interface, the SQL implementation, migrations 
 
 ## Schema changes
 
-- **There are no migration files before 1.0.** Edit `sqlstore/migrations/sqlite/00001_init.sql` **and** `sqlstore/migrations/postgres/00001_init.sql`, keep them in step (types differ: `TIMESTAMP`/`TIMESTAMPTZ`, `AUTOINCREMENT`/`BIGSERIAL`), and add the `DROP` to the `Down` section. `TestMigrationParity` fails when they disagree.
+- **v0.0.1 is released: never edit `00001_init.sql`.** Add a migration with the same number and name to `sqlstore/migrations/sqlite/` **and** `sqlstore/migrations/postgres/` (types differ: `TIMESTAMP`/`TIMESTAMPTZ`, `AUTOINCREMENT`/`BIGSERIAL`), with a working `Down` section, and migrate existing rows when it changes data. Test an upgrade from the previous version with data in it. `TestMigrationParity` fails when the two directories disagree.
 - Add the table, its row type (`rows.go` or the file of the area) and the interface method together.
 - Existing databases are not migrated by this: say so in the PR when the change would break a database created by an earlier build.
 

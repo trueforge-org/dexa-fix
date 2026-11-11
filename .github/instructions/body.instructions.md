@@ -21,7 +21,7 @@ description: "Rules for the body service: scale readings, DEXA scans, estimates 
 
 ## As a process of its own
 
-`serve body` (`cmd/body.go`) opens `sqlstore.OpenBody`: a database that holds only the body tables (`migrations/body/`, version table `goose_body_version`) and a key of its own, checked by `body_meta`. Inside the api process the same code runs on the main database (`Store.BodyStore`, key derived from the main key). Keep both working: a change to a body table goes in `migrations/body/{sqlite,postgres}/00001_init.sql` (no new migration files before 1.0), is tested in `bodystore_test.go` and in `bodysplit_test.go` (the whole stack over two databases and real TCP), and does not read or write anything outside the body tables. Key checks decide first and write after, for every domain (`verifyKey` returns the write), so a wrong key leaves nothing behind.
+`serve body` (`cmd/body.go`) opens `sqlstore.OpenBody`: a database that holds only the body tables (`migrations/body/`, version table `goose_body_version`) and a key of its own, checked by `body_meta`. Inside the api process the same code runs on the main database (`Store.BodyStore`, key derived from the main key). Keep both working: a change to a body table is a new numbered migration in `migrations/body/{sqlite,postgres}/` (v0.0.1 is released: `00001_init.sql` is frozen), is tested in `bodystore_test.go` and in `bodysplit_test.go` (the whole stack over two databases and real TCP), and does not read or write anything outside the body tables. Key checks decide first and write after, for every domain (`verifyKey` returns the write), so a wrong key leaves nothing behind.
 
 ## Changing the API
 
