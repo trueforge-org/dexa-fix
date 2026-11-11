@@ -116,6 +116,10 @@ type BodyStore interface {
 	// ListScaleReadingsPage lists one page. The cursor is non-nil when there are older readings.
 	ListScaleReadingsPage(ctx context.Context, userID int64, f ListFilter) ([]models.ScaleReading, *Cursor, error)
 	DeleteScaleReading(ctx context.Context, userID, id int64) error
+	// DeleteScaleReadings deletes the user's readings with these ids in one transaction and returns
+	// how many there were; ids that do not exist, or belong to somebody else, are not an error. The
+	// body version grows once, and only when something was deleted.
+	DeleteScaleReadings(ctx context.Context, userID int64, ids []int64) (int, error)
 
 	// BodyVersion counts the changes to a user's scans and readings (0 when there are none). It
 	// grows in the same transaction as each change, so a reader never sees new data under an old

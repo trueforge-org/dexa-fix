@@ -321,6 +321,9 @@ func faultOps() []faultOp {
 			return e1(s.ScaleReadingsForReconcile(c, f.user, store.ListFilter{}, "csv", []string{"e1"}))
 		}},
 		{"DeleteScaleReading", func(c context.Context, s *Store, f faultData) error { return s.DeleteScaleReading(c, f.user, 1) }},
+		{"DeleteScaleReadings", func(c context.Context, s *Store, f faultData) error {
+			return e1(s.DeleteScaleReadings(c, f.user, []int64{1}))
+		}},
 		{"BodyVersion", func(c context.Context, s *Store, f faultData) error { return e1(s.BodyVersion(c, f.user)) }},
 		{"DeleteUserBodyData", func(c context.Context, s *Store, f faultData) error { return s.DeleteUserBodyData(c, f.user) }},
 		{"BodyUserIDs", func(c context.Context, s *Store, f faultData) error { return e1(s.BodyUserIDs(c)) }},

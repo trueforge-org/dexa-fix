@@ -396,6 +396,27 @@ func (s *BodyStore) DeleteScaleReading(ctx context.Context, userID, id int64) er
 	return s.deleteOwned(ctx, (*scaleRow)(nil), userID, id)
 }
 
+func (s *BodyStore) DeleteScaleReadings(ctx context.Context, userID int64, ids []int64) (int, error) {
+	var deleted int
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		deleted = 0 // the transaction may be run again
+		for start := 0; start < len(ids); start += upsertChunk {
+			res, err := tx.NewDelete().Model((*scaleRow)(nil)).Where("user_id = ?", userID).
+				Where("id IN (?)", bun.In(ids[start:min(start+upsertChunk, len(ids))])).Exec(ctx)
+			if err != nil {
+				return err
+			}
+			n, _ := res.RowsAffected()
+			deleted += int(n)
+		}
+		if deleted == 0 {
+			return nil
+		}
+		return bumpBodyVersion(ctx, tx, userID)
+	})
+	return deleted, err
+}
+
 func (s *BodyStore) deleteOwned(ctx context.Context, model any, userID, id int64) error {
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewDelete().Model(model).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx)

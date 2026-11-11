@@ -103,3 +103,69 @@ func TestReadingsForAnImportAreThoseInTheWindowAndThoseWithAFetchedID(t *testing
 		}
 	})
 }
+
+func TestSeveralReadingsAreDeletedInOneTransactionWithOneVersionChange(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	alice, err := s.CreateUser(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := s.CreateUser(ctx, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := 80.0
+	at := time.Date(2026, 3, 10, 8, 0, 0, 0, time.UTC)
+	mk := func(d int) models.ScaleReading {
+		return models.ScaleReading{MeasuredAt: at.AddDate(0, 0, -d), WeightKg: &w}
+	}
+	if _, err := s.UpsertScaleReadings(ctx, alice.ID, []models.ScaleReading{mk(0), mk(1), mk(2), mk(3)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertScaleReadings(ctx, bob.ID, []models.ScaleReading{mk(0)}); err != nil {
+		t.Fatal(err)
+	}
+	mine, _ := s.ListScaleReadings(ctx, alice.ID)
+	bobs, _ := s.ListScaleReadings(ctx, bob.ID)
+	before, _ := s.BodyVersion(ctx, alice.ID)
+
+	t.Run("ids that exist, that do not and that are somebody else's", func(t *testing.T) {
+		ids := []int64{mine[0].ID, mine[1].ID, 987654, bobs[0].ID}
+		n, err := s.DeleteScaleReadings(ctx, alice.ID, ids)
+		if err != nil || n != 2 {
+			t.Fatalf("deleted %d, %v; want her 2", n, err)
+		}
+		if left, _ := s.ListScaleReadings(ctx, alice.ID); len(left) != 2 {
+			t.Fatalf("%d of her readings are left, want 2", len(left))
+		}
+		if left, _ := s.ListScaleReadings(ctx, bob.ID); len(left) != 1 {
+			t.Fatal("a reading of another user was deleted")
+		}
+		if after, _ := s.BodyVersion(ctx, alice.ID); after != before+1 {
+			t.Fatalf("the version went from %d to %d, want one change", before, after)
+		}
+	})
+	t.Run("nothing to delete changes nothing", func(t *testing.T) {
+		v, _ := s.BodyVersion(ctx, alice.ID)
+		for _, ids := range [][]int64{nil, {987654}} {
+			if n, err := s.DeleteScaleReadings(ctx, alice.ID, ids); err != nil || n != 0 {
+				t.Fatalf("deleted %d, %v", n, err)
+			}
+		}
+		if after, _ := s.BodyVersion(ctx, alice.ID); after != v {
+			t.Fatalf("the version went from %d to %d without a deletion", v, after)
+		}
+	})
+	t.Run("more ids than one statement holds", func(t *testing.T) {
+		left, _ := s.ListScaleReadings(ctx, alice.ID)
+		ids := make([]int64, 0, upsertChunk+10)
+		for i := 0; i < upsertChunk+9; i++ {
+			ids = append(ids, int64(1_000_000+i))
+		}
+		ids = append(ids, left[0].ID) // in the second chunk
+		if n, err := s.DeleteScaleReadings(ctx, alice.ID, ids); err != nil || n != 1 {
+			t.Fatalf("deleted %d, %v; want the one in the second chunk", n, err)
+		}
+	})
+}

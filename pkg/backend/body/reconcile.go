@@ -2,7 +2,6 @@ package bodybackend
 
 import (
 	"context"
-	"errors"
 	"math"
 	"sort"
 	"time"
@@ -165,8 +164,8 @@ func (s *Service) reconcile(ctx context.Context, userID int64, p bodyapi.Estimat
 			return importResult{}, err
 		}
 	}
-	for _, id := range c.Delete {
-		if err := s.store.DeleteScaleReading(ctx, userID, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if len(c.Delete) > 0 { // one transaction: all of them or none, and one change of the version
+		if _, err := s.store.DeleteScaleReadings(ctx, userID, c.Delete); err != nil {
 			return importResult{}, err
 		}
 	}
