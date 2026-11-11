@@ -1,10 +1,12 @@
-# For CI, tests and automation (the compose example in deploy/, split-mode tests, agents): it is NOT
-# part of the release, which publishes archives only. The prebuilt static binary is copied in (no Go
-# build stage). To build by hand:
+# For CI, tests and automation (the compose example in deploy/, split-mode tests, agents). It is NOT the
+# released image: that one is built by ContainerForge (github.com/trueforge-org/containerforge,
+# apps/dexafix) from a GitHub release of this repository and published as
+# ghcr.io/trueforge-org/dexafix. This release builds and publishes no image. The prebuilt static
+# binary is copied in (no Go build stage). To build by hand:
 #   CGO_ENABLED=0 go build -trimpath -o dexafix . && docker build -f Dockerfile.ci -t dexafix .
 # The final image is `scratch`: the binary embeds its own time zones (time/tzdata) and CA roots
 # (x509roots/fallback), so no OS files are needed. There is no shell: use `docker run ... <command>`
-# instead of `docker exec`. Pinned by digest; the docker Dependabot ecosystem keeps it current.
+# instead of `docker exec`. Pinned by digest; Renovate keeps it current.
 
 # Build-only helper stage (ContainerForge's Ubuntu, like the other images of this stack): creates the
 # /config directory with the right owner (scratch has no mkdir/chown).

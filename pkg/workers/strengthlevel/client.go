@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
 
@@ -92,10 +93,8 @@ func (c *Client) Login(ctx context.Context, email, password string) error {
 		return fmt.Errorf("%w: no token on the sign-in page", ErrPage)
 	}
 	form := url.Values{"email": {email}, "password": {password}, "csrf_token": {token}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/login", strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
+	// The GET of the same base just worked, so the request cannot be malformed.
+	req := must.Value(http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/login", strings.NewReader(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := c.http.Do(req)
@@ -248,14 +247,9 @@ func same(old Day, e workerapi.ExportEntry) bool {
 
 // write sends a JSON request that creates or changes an entry.
 func (c *Client) write(ctx context.Context, method, path, day string, payload map[string]any) error {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
+	// The payload is strings, numbers and nulls, and the base was used by a successful sign-in.
+	raw := must.Value(json.Marshal(payload))
+	req := must.Value(http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(raw)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-CSRF-Token", c.csrf)

@@ -23,6 +23,7 @@ import (
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexafix/pkg/shared/edge"
 	"github.com/trueforge-org/dexafix/pkg/shared/jobs"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/shared/timezones"
 	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 )
@@ -79,6 +80,7 @@ type frontendSettings struct {
 	tlsInfo       *tlsutil.Info
 	http3         bool
 	httpsPort     string // TCP port for HTTPS, and UDP port for HTTP/3
+	analytics     apiclient.Analytics
 }
 
 // NewFrontend builds a frontend that talks to the backend through api and parses the embedded
@@ -92,20 +94,16 @@ func NewFrontend(api *apiclient.Client) (*Frontend, error) {
 	static, _ := fs.Sub(assets, "static")
 	s.assetVer = staticVersions(static)
 	funcs := template.FuncMap{
-		"day": func(t time.Time) string { return t.Format("2006-01-02") },
-		"dt":  func(t time.Time) string { return t.Format("2006-01-02 15:04") },
-
-		"initial":   initial,
-		"help":      help,
-		"timezones": func() []string { return timezones.Common },
-		"asset":     s.assetURL,
+		"initial":    initial,
+		"help":       help,
+		"timezones":  func() []string { return timezones.Common },
+		"asset":      s.assetURL,
+		"repoURL":    func() string { return repoURL },
+		"sponsorURL": func() string { return sponsorURL },
 	}
 	for _, p := range pages {
-		t, err := template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", p, err)
-		}
-		s.tmpl[p] = t
+		// The templates are embedded in the binary, so a parse error is a bug found by any test.
+		s.tmpl[p] = must.Value(template.New(p).Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+p))
 	}
 	s.swapSettings(&frontendSettings{tlsMode: apiclient.TLSOff, httpsPort: defaultHTTPSPort})
 	return s, nil
@@ -163,7 +161,7 @@ func (s *Frontend) RefreshConfig(ctx context.Context) error {
 // applyFrontendConfig puts the settings in force and rebuilds what depends on them: the
 // same-origin check and the listeners.
 func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
-	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol}
+	l := &frontendSettings{tlsMode: c.TLSMode, httpsPort: c.HTTPSPort, proxyProtocol: c.ProxyProtocol, analytics: c.Analytics}
 	if l.tlsMode != apiclient.TLSUpload && l.tlsMode != apiclient.TLSSelfSigned {
 		l.tlsMode = apiclient.TLSOff
 	}
@@ -194,8 +192,10 @@ func (s *Frontend) applyFrontendConfig(c apiclient.FrontendConfig) error {
 // WaitForBackend fetches the first configuration, retrying until the backend answers or timeout
 // passes, so a frontend started together with its backend does not give up too early.
 func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	started := time.Now()
+	deadline := started.Add(timeout)
 	delay := 250 * time.Millisecond
+	var lastSaid time.Time
 	for {
 		err := s.RefreshConfig(ctx)
 		if err == nil {
@@ -207,7 +207,11 @@ func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) er
 		if time.Now().Add(delay).After(deadline) {
 			return fmt.Errorf("the backend is not available: %w", err)
 		}
-		log.Info().Err(err).Msg("waiting for the backend")
+		// Say it once, then every ten seconds: the retries are quick at first and would fill the log.
+		if lastSaid.IsZero() || time.Since(lastSaid) >= waitingLogEvery {
+			log.Info().Err(err).Dur("waited", time.Since(started).Round(time.Second)).Msg("waiting for the backend")
+			lastSaid = time.Now()
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -216,6 +220,9 @@ func (s *Frontend) WaitForBackend(ctx context.Context, timeout time.Duration) er
 		delay = min(delay*2, 5*time.Second)
 	}
 }
+
+// waitingLogEvery is how often WaitForBackend repeats that it is still waiting.
+const waitingLogEvery = 10 * time.Second
 
 // configPollInterval is how often the frontend asks whether the settings changed. The answer is a
 // cheap "not modified" in the normal case.

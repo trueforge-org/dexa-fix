@@ -61,13 +61,15 @@ type KeyView struct {
 }
 
 type AdminUser struct {
-	ID      int64
-	Name    string
-	Email   string
-	Admin   bool
-	Self    bool
-	Created string
-	SignIn  string
+	ID        int64
+	Username  string
+	FirstName string
+	LastName  string
+	Email     string
+	Admin     bool
+	Self      bool
+	Created   string
+	SignIn    string
 	// StrengthLevel is whether the user may sync to Strength Level automatically.
 	StrengthLevel bool
 	// StrengthLevelBulk is whether the user may also run the multi-day sync from Settings.
@@ -96,11 +98,13 @@ type AdminWithings struct {
 
 // ServerSettingsView is the stored text of the network and retention settings.
 type ServerSettingsView struct {
-	BaseURL         string
-	TrustedProxies  string
-	ProxyProtocol   bool
-	AuditDays       string
-	KeyReminderDays string
+	BaseURL               string
+	TrustedProxies        string
+	ProxyProtocol         bool
+	AllowPrivateProviders bool // sign-in providers may be on private network addresses
+	AllowPrivateMail      bool // the mail server may be on a private network address
+	AuditDays             string
+	KeyReminderDays       string
 }
 
 // SMTPView is what the Admin page shows and saves for e-mail.
@@ -140,6 +144,7 @@ type AdminPage struct {
 	Key             KeyView
 	Require2FA      string // off, admins or everyone
 	Server          ServerSettingsView
+	Analytics       Analytics
 	SMTP            SMTPView
 	ResetByEmail    bool // users can ask for a reset e-mail
 	TLS             TLSView
@@ -163,8 +168,8 @@ func adminUserPath(id int64, tail string) string {
 }
 
 // AdminAddUser creates an account with a password.
-func (c *Client) AdminAddUser(ctx context.Context, name, email, password string) (AdminResult, error) {
-	return c.adminDo(ctx, http.MethodPost, "/admin/users", map[string]string{"name": name, "email": email, "password": password})
+func (c *Client) AdminAddUser(ctx context.Context, username, email, password string) (AdminResult, error) {
+	return c.adminDo(ctx, http.MethodPost, "/admin/users", map[string]string{"username": username, "email": email, "password": password})
 }
 
 func (c *Client) AdminSetRole(ctx context.Context, id int64, role string) (AdminResult, error) {
@@ -239,10 +244,17 @@ func (c *Client) AdminSaveWithings(ctx context.Context, f WithingsForm) (AdminRe
 type ServerForm struct {
 	BaseURL, TrustedProxies, AuditDays, KeyReminderDays string
 	ProxyProtocol                                       bool
+	AllowPrivateProviders, AllowPrivateMail             bool
 }
 
 func (c *Client) AdminSaveServer(ctx context.Context, f ServerForm) (AdminResult, error) {
 	return c.adminDo(ctx, http.MethodPost, "/admin/server", f)
+}
+
+// AdminSaveAnalytics stores the identifiers of the optional analytics and ad services; an empty one
+// turns that service off.
+func (c *Client) AdminSaveAnalytics(ctx context.Context, a Analytics) (AdminResult, error) {
+	return c.adminDo(ctx, http.MethodPost, "/admin/analytics", a)
 }
 
 // SMTPForm is the text of the e-mail form, as typed.

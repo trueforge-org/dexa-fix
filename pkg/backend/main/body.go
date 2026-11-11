@@ -94,7 +94,13 @@ func (b bodyService) Reconcile(ctx context.Context, u models.User, req bodyapi.R
 }
 
 func (b bodyService) Estimates(ctx context.Context, u models.User, ifNoneMatch string) (bodyapi.EstimatesReply, error) {
-	r, err := b.c.Estimates(ctx, b.subject(u), ifNoneMatch)
+	return b.EstimatesWindow(ctx, u, ifNoneMatch, 0)
+}
+
+// EstimatesWindow is Estimates for a caller that needs only the days within days of the newest one
+// (0: all of them).
+func (b bodyService) EstimatesWindow(ctx context.Context, u models.User, ifNoneMatch string, days int) (bodyapi.EstimatesReply, error) {
+	r, err := b.c.EstimatesWindow(ctx, b.subject(u), ifNoneMatch, days)
 	return r, bodyErr(err)
 }
 
@@ -111,7 +117,13 @@ func (b bodyService) Stats(ctx context.Context) (bodyapi.Stats, error) {
 // computeEstimates asks the body service for a user's estimates. The result is shared with the
 // body service's cache, so callers must not modify it.
 func (s *Backend) computeEstimates(ctx context.Context, u models.User) (estimate.Result, error) {
-	r, err := s.body.Estimates(ctx, u, "")
+	return s.computeEstimatesWindow(ctx, u, 0)
+}
+
+// computeEstimatesWindow is computeEstimates for a caller that needs only the days within days of
+// the newest one (0: all of them), so that the rest never crosses the network.
+func (s *Backend) computeEstimatesWindow(ctx context.Context, u models.User, days int) (estimate.Result, error) {
+	r, err := s.body.EstimatesWindow(ctx, u, "", days)
 	return r.Result, err
 }
 

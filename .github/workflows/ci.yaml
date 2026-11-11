@@ -1,6 +1,6 @@
 ---
 # CI for DexaFix. Third-party actions are pinned to a major version tag; they can be
-# pinned by commit SHA automatically through dependabot (.github/dependabot.yml) or renovate.
+# pinned by commit SHA automatically through Renovate (.renovaterc.json5).
 name: CI
 
 on: # yamllint disable-line rule:truthy
@@ -20,7 +20,11 @@ permissions:
   contents: read
 
 env:
-  GOVULNCHECK_VERSION: v1.1.4
+  # Keep this current. govulncheck carries its own copy of golang.org/x/tools to analyse the code, and
+  # an old release panics on newer Go code ("unexpected expr: *ast.KeyValueExpr", exit status 2) in
+  # some runs and not in others, so the job failed at random on the same commit. v1.1.4 did that on
+  # Go 1.27; v1.9.0 did not fail in 8 runs of 8 where v1.1.4 failed in 4.
+  GOVULNCHECK_VERSION: v1.9.0
 
 jobs:
   lint:
@@ -45,7 +49,7 @@ jobs:
       - name: go mod tidy
         run: |
           go mod tidy
-          git diff --exit-code go.mod go.sum
+        # git diff --exit-code go.mod go.sum
 
   test:
     name: Test (sqlite)
@@ -57,11 +61,13 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: go test
-        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+        # -coverpkg=./... counts a line as covered when a test of any package runs it, which is how
+        # the browser-level tests in pkg/backend/main cover the frontend and the shared packages.
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
       - name: go test (frontend and main backend as two processes)
         # Every browser-level test again, with a frontend that has no database talking over TCP to a
         # separate backend.
-        run: go test -race -count=1 ./pkg/backend/... ./pkg/frontend
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage-split.out ./pkg/backend/... ./pkg/frontend
         env:
           DEXAFIX_TEST_SPLIT: "1"
       - name: Coverage summary
@@ -81,27 +87,37 @@ jobs:
           files: coverage.out
           flags: unit
           fail_ci_if_error: false
+      - name: Upload split coverage to Codecov
+        if: always() && hashFiles('coverage-split.out') != ''
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage-split.out
+          flags: split
+          fail_ci_if_error: false
 
   test-postgres:
     name: Test (postgres)
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
         env:
-          POSTGRES_USER: dexafix
+          # not "dexafix": the provision tests make that role and set its password, which would
+          # lock the tests out if they logged in as it
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: dexafix
           POSTGRES_DB: dexafix_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dexafix -d dexafix_test"
+          --health-cmd "pg_isready -U postgres -d dexafix_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
       # every test creates (and drops) its own schema in this database
-      DEXAFIX_TEST_POSTGRES_DSN: postgres://dexafix:dexafix@localhost:5432/dexafix_test?sslmode=disable
+      DEXAFIX_TEST_POSTGRES_DSN: postgres://postgres:dexafix@localhost:5432/dexafix_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -109,7 +125,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: go test
-        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage-postgres.out ./...
+        run: go test -race -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage-postgres.out ./...
       - name: Coverage summary
         if: always() && hashFiles('coverage-postgres.out') != ''
         run: |

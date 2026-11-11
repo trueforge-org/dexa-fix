@@ -1,0 +1,61 @@
+{{define "content"}}
+{{/* It must stay true to the software: the optional analytics and ads are the Admin page's "Analytics and ads" settings. */}}
+<article class="legal">
+<div class="page-head"><h1>Privacy Policy</h1></div>
+<p class="updated">Last updated 10 November 2026</p>
+
+<h2>1. Who is responsible</h2>
+<p>DexaFix is software that anyone can run. The <strong>operator</strong> of the copy you use decides what is done with your data and is responsible for it under data-protection law. The DexaFix project (<a href="{{repoURL}}" target="_blank" rel="noopener">trueforge-org/dexafix</a>) publishes the software and does not receive your account or your measurements. The only data that can reach the project or other companies from a copy is described in section 5, and only when the operator has turned it on. Ask the operator for their contact details if you cannot find them on the site.</p>
+
+<h2>2. What is stored</h2>
+<ul>
+  <li><strong>Your account:</strong> your name, your e-mail address, a salted hash of your password (never the password), the second factor or passkeys you set up, your settings (height, time zone, how readings are ranked) and the hidden columns of your tables.</li>
+  <li><strong>Your measurements:</strong> DEXA scans and scale readings, with the notes you add, and the estimates calculated from them. They are encrypted at rest with a key that the operator&rsquo;s servers hold, which means the operator can in principle read them.</li>
+  <li><strong>Connections:</strong> if you connect Withings or Strength Level, the tokens or login needed to talk to them, encrypted, and records of the import and sync jobs (when, what kind, whether they worked).</li>
+  <li><strong>Security records:</strong> an audit log of sign-ins, failed attempts and changes to accounts and settings, with the date and the IP address the request came from. By default the operator keeps it for 365 days, and can set another time. Failed sign-in attempts are counted per account and per address to slow down guessing.</li>
+  <li><strong>E-mail:</strong> if the operator set up an e-mail server, the messages it sends (for example to reset a password) go through it.</li>
+</ul>
+
+<h2>3. Cookies</h2>
+<ul>
+  <li><strong>Necessary:</strong> a session cookie (<code>dexafix_session</code>) that keeps you signed in, and short-lived cookies that carry a step you are in the middle of (a second factor, a passkey, connecting a provider, confirming an administrator action). They are not used to follow you, and they are removed when they expire or when you sign out.</li>
+  <li><strong>Remembering a choice:</strong> a cookie that notes you closed the sponsor reminder (<code>dexafix_sponsor</code>, 90 days) and, where the operator has turned on analytics or ads, a cookie that notes your choice about them (<code>dexafix_consent</code>, 180 days).</li>
+  <li><strong>Analytics and ads:</strong> only with your consent, see section 5.</li>
+</ul>
+
+<h2>4. Who receives your data</h2>
+<p>Nobody buys or sells it. It goes to:</p>
+<ul>
+  <li><strong>The operator&rsquo;s hosting</strong> (servers, database, backups), which store it for the operator.</li>
+  <li><strong>Withings and Strength Level</strong>, only if you connect them: Withings receives the login you authorise and sends back your readings; Strength Level receives the login you give and the estimates you choose to send. Their own policies cover what they do with it.</li>
+  <li><strong>The operator&rsquo;s e-mail server</strong>, when a message is sent to you.</li>
+  <li><strong>Authorities</strong>, where the operator is legally obliged to.</li>
+</ul>
+
+<h2 id="analytics">5. Analytics and ads (optional)</h2>
+<p>An operator can turn on measuring how the site is used and showing ads that help pay for it, in the Admin page under &ldquo;Analytics and ads&rdquo;. It is <strong>off unless the operator turns it on</strong>. When it is on:</p>
+<ul>
+  <li><strong>Where:</strong> only on the pages a visitor sees <em>before</em> signing in (the sign-in and sign-up page, the documentation, the status page, these terms and this policy). Never on a page of a signed-in person, so never on your readings, scans, estimates or settings, and your name, e-mail address and measurements are never passed to them.</li>
+  <li><strong>When:</strong> only after you press &ldquo;Accept&rdquo; on the notice. Until then nothing is loaded from them. &ldquo;Decline&rdquo; keeps it that way. You can change your mind at any time with &ldquo;Privacy choices&rdquo; in the footer.</li>
+  <li><strong>Scarf</strong> (<a href="https://about.scarf.sh/privacy-policy" target="_blank" rel="noopener">scarf.sh</a>) counts visits through a small image. It receives the address of the page, the page you came from, your IP address and your browser and device details.</li>
+  <li><strong>Google Analytics</strong> (<a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google</a>) measures page views. It receives your IP address, browser and device details and the page, and sets cookies to recognise a returning browser.</li>
+  <li><strong>Google AdSense</strong> shows and measures ads. Google may set cookies and use identifiers to choose and count ads, including ads based on your interests; <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">how Google uses data from sites that use its services</a>. Google decides for itself how it handles that data. You can manage ad personalisation in your Google settings.</li>
+</ul>
+<p>The basis for this is your consent, which you can withdraw at any time without it affecting what happened before.</p>
+
+<h2>6. How long it is kept</h2>
+<p>Your account and measurements stay until the operator deletes your account, at your request. Deleting an account removes its profile, readings, scans, connections, access tokens and sessions, and takes the account and the IP address out of the audit entries about it (the entry itself stays, for the time in section 2). Backups the operator makes keep older data until they expire.</p>
+
+<h2>7. Your rights</h2>
+<p>Under the data-protection law that applies to you (for example the GDPR) you can ask the operator for a copy of your data, to correct it, to delete it, to restrict or object to its use, and to receive it in a usable format. You can download your data yourself from your settings. You can withdraw consent for analytics and ads in the footer. If you think your data is handled wrongly, you can complain to the data-protection authority of your country.</p>
+
+<h2>8. Security</h2>
+<p>Passwords are stored as slow salted hashes, sessions and access tokens are stored hashed, measurements and credentials are encrypted at rest, the parts of the software talk to each other over authenticated connections, and failed sign-ins are rate limited. No system is perfectly secure; report a vulnerability privately as the repository&rsquo;s security policy describes.</p>
+
+<h2>9. Children</h2>
+<p>DexaFix is not meant for people under 16, and an operator should not knowingly keep their data.</p>
+
+<h2>10. Changes</h2>
+<p>This policy may change when the software or its settings do. The date above says when it last did. See also the <a href="/terms">Terms of Service</a>.</p>
+</article>
+{{end}}

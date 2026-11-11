@@ -31,6 +31,22 @@ type FrontendConfig struct {
 	KeyPEM    string `json:"key_pem,omitempty"` // only over the authenticated internal link
 	HTTPSPort string `json:"https_port,omitempty"`
 	HTTP3     bool   `json:"http3"`
+
+	// Analytics are the optional measuring and ad services an administrator turned on. The frontend
+	// loads them, after a visitor agrees, on the public pages only.
+	Analytics Analytics `json:"analytics"`
+}
+
+// Analytics holds the identifiers of the optional services. An empty one is off.
+type Analytics struct {
+	ScarfPixelID      string `json:"scarf_pixel_id,omitempty"`      // a UUID
+	GoogleAnalyticsID string `json:"google_analytics_id,omitempty"` // G-XXXXXXXXXX
+	AdSensePublisher  string `json:"adsense_publisher,omitempty"`   // ca-pub-0000000000000000
+}
+
+// Any reports whether at least one service is on.
+func (a Analytics) Any() bool {
+	return a.ScarfPixelID != "" || a.GoogleAnalyticsID != "" || a.AdSensePublisher != ""
 }
 
 // FrontendConfig fetches the configuration. If etag is the tag of the answer last seen and nothing

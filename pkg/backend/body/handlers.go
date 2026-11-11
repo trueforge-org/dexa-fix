@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/trueforge-org/dexafix/pkg/estimate"
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/store"
@@ -260,7 +261,11 @@ func (s *Service) estimatesHandler(w http.ResponseWriter, r *http.Request, c bod
 		storeError(w, err)
 		return
 	}
-	etag := s.estimateETag(c.Subject, key)
+	days, ok := estimateWindow(w, r)
+	if !ok {
+		return
+	}
+	etag := s.estimateETag(c.Subject, key, days)
 	w.Header().Set("ETag", etag)
 	if etagMatches(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
@@ -271,8 +276,27 @@ func (s *Service) estimatesHandler(w http.ResponseWriter, r *http.Request, c bod
 		storeError(w, err)
 		return
 	}
+	res.Days = estimate.WithinDays(res.Days, days) // a view of the shared slice; it is not modified
 	res.Days, res.Calibrations = orEmpty(res.Days), orEmpty(res.Calibrations)
 	writeJSON(w, http.StatusOK, res)
+}
+
+// maxEstimateWindow bounds ?days=: a window this long holds any history there can be.
+const maxEstimateWindow = 100000
+
+// estimateWindow reads the optional ?days=N of an estimates call: only the days within N days of
+// the newest one are wanted. 0 (absent) means all of them. It answers the error itself.
+func estimateWindow(w http.ResponseWriter, r *http.Request) (int, bool) {
+	v := r.URL.Query().Get("days")
+	if v == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > maxEstimateWindow {
+		fail(w, bodyapi.CodeInvalid, "days must be a whole number of days of at least 1")
+		return 0, false
+	}
+	return n, true
 }
 
 // ---- export, deletion, totals ----

@@ -55,7 +55,7 @@ func fillSensitive(t *testing.T, s *Store) models.User {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdateUserProfile(ctx, u.ID, "alice", "alice@example.com", nil); err != nil {
+	if err := s.UpdateUserProfile(ctx, u.ID, "alice", "", "", "alice@example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutIntegration(ctx, u.ID, "withings", []byte(`{"access_token":"plain-token"}`)); err != nil {
@@ -158,25 +158,25 @@ func TestEmailIsUniqueAndSearchableWhileEncrypted(t *testing.T) {
 	ctx := context.Background()
 	s := openFile(t, filepath.Join(t.TempDir(), "a.db"), WithCipher(testCipher(t, 1)))
 	id := models.Identity{Provider: models.ProviderLocal, Secret: "h"}
-	u, err := s.CreateUserWithIdentity(ctx, "a", "Same@Example.com", id)
+	u, err := s.CreateUserWithIdentity(ctx, "aa", "Same@Example.com", id)
 	if err != nil || u.Email != "same@example.com" {
 		t.Fatalf("create: %+v %v", u, err)
 	}
 	if lookup := rawColumn(t, s, `SELECT email_lookup FROM users LIMIT 1`); strings.Contains(lookup, "same") {
 		t.Fatalf("lookup is readable: %q", lookup)
 	}
-	if _, err := s.CreateUserWithIdentity(ctx, "b", "same@example.com", id); !errors.Is(err, store.ErrExists) {
+	if _, err := s.CreateUserWithIdentity(ctx, "bb", "same@example.com", id); !errors.Is(err, store.ErrExists) {
 		t.Fatalf("duplicate: %v", err)
 	}
 	got, err := s.GetUserByEmail(ctx, " SAME@example.COM ")
 	if err != nil || got.ID != u.ID || got.Email != "same@example.com" {
 		t.Fatalf("find: %+v %v", got, err)
 	}
-	other, err := s.CreateUser(ctx, "c")
+	other, err := s.CreateUser(ctx, "cc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdateUserProfile(ctx, other.ID, "c", "same@example.com", nil); !errors.Is(err, store.ErrExists) {
+	if err := s.UpdateUserProfile(ctx, other.ID, "cc", "", "", "same@example.com", nil); !errors.Is(err, store.ErrExists) {
 		t.Fatalf("taken on update: %v", err)
 	}
 	if _, err := s.GetUserByEmail(ctx, "nobody@example.com"); !errors.Is(err, store.ErrNotFound) {
@@ -188,8 +188,8 @@ func TestEmailBackfillClearsDuplicates(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "a.db")
 	s := openFile(t, path)
-	a, _ := s.CreateUser(ctx, "a")
-	b, _ := s.CreateUser(ctx, "b")
+	a, _ := s.CreateUser(ctx, "aa")
+	b, _ := s.CreateUser(ctx, "bb")
 	for _, id := range []int64{a.ID, b.ID} { // as written before addresses had to be unique
 		if _, err := s.db.ExecContext(ctx, `UPDATE users SET email = 'x@example.com', email_lookup = NULL WHERE id = ?`, id); err != nil {
 			t.Fatal(err)
@@ -208,8 +208,8 @@ func TestEmailBackfillClearsDuplicates(t *testing.T) {
 func TestCiphertextIsBoundToItsRow(t *testing.T) {
 	ctx := context.Background()
 	s := openFile(t, filepath.Join(t.TempDir(), "a.db"), WithCipher(testCipher(t, 1)))
-	a, _ := s.CreateUser(ctx, "a")
-	b, _ := s.CreateUser(ctx, "b")
+	a, _ := s.CreateUser(ctx, "aa")
+	b, _ := s.CreateUser(ctx, "bb")
 	if err := s.PutIntegration(ctx, a.ID, "withings", []byte("a-tokens")); err != nil {
 		t.Fatal(err)
 	}
@@ -227,8 +227,8 @@ func TestCiphertextIsBoundToItsRow(t *testing.T) {
 
 func TestSameValueEncryptsDifferently(t *testing.T) {
 	c := testCipher(t, 1)
-	x, _ := c.seal("v", "ctx")
-	y, _ := c.seal("v", "ctx")
+	x := c.seal("v", "ctx")
+	y := c.seal("v", "ctx")
 	if x == y {
 		t.Fatal("nonce reuse")
 	}

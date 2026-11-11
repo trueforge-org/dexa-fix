@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestDBProvisionValidatesItsFlags(t *testing.T) {
@@ -52,6 +55,47 @@ func TestDBProvisionValidatesItsFlags(t *testing.T) {
 		}
 		if err != nil && strings.Contains(err.Error(), "hunter2") {
 			t.Errorf("%s: the password was echoed: %v", name, err)
+		}
+	}
+}
+
+// Against a real server the command makes what the deployment runs on, says so, and can be run
+// again. It is skipped without a PostgreSQL, like the store's own provision tests.
+func TestDBProvisionSetsUpTheRolesTheDatabaseAndTheSchema(t *testing.T) {
+	dsn := os.Getenv("DEXAFIX_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("DEXAFIX_TEST_POSTGRES_DSN is not set")
+	}
+	// The store's tests provision the same roles and database in another package, at the same time:
+	// wait for them, with the lock they hold (provisionLockKey in pkg/store/sqlstore/provision_test.go).
+	ctx := context.Background()
+	lock, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close(ctx) }) // closing the connection releases the lock
+	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock($1)", 7274707); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	file := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o400); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	args := []string{"db", "provision",
+		"--admin-dsn-file", file("admin_dsn", dsn),
+		"--app-password-file", file("db_password", "app-password-for-the-test"),
+		"--body-password-file", file("body_db_password", "body-password-for-the-test")}
+	for round := 1; round <= 2; round++ { // the second run keeps what the first made
+		stdout, stderr, err := run(t, args...)
+		if err != nil {
+			t.Fatalf("round %d: %v (stderr %q)", round, err, stderr)
+		}
+		if !strings.Contains(stdout, "are in place") {
+			t.Fatalf("round %d: the command did not say that everything is in place: %q", round, stdout)
 		}
 	}
 }

@@ -197,7 +197,7 @@ func newSplitServer(t *testing.T, st store.Store, wo builtin.Options) *httptest.
 	b.OnSettingsChange(func() { f.RefreshConfig(context.Background()) })
 	ts := httptest.NewServer(f.Handler())
 	t.Cleanup(ts.Close)
-	testServers.Store(ts, &Server{Backend: b}) // no Frontend: it is a separate process here
+	testServers.Store(ts, &Server{Backend: b, stopWorkers: stopWorkers}) // no Frontend: it is a separate process here
 	return ts
 }
 

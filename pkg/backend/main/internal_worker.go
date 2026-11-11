@@ -131,11 +131,9 @@ func encodeJSON(v any) (string, error) {
 	return string(b), err
 }
 
-func newLeaseToken() (token, hash string, err error) {
-	if token, err = randomHex(32); err != nil {
-		return "", "", err
-	}
-	return token, hashToken(token), nil
+func newLeaseToken() (token, hash string) {
+	token = randomHex(32)
+	return token, hashToken(token)
 }
 
 // ---- configuration ----
@@ -213,11 +211,7 @@ func (s *Backend) workerLease(w http.ResponseWriter, r *http.Request) {
 				req.MaxRunning[k] = n
 			}
 		}
-		token, hash, err := newLeaseToken()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
+		token, hash := newLeaseToken()
 		req.TokenHash = hash
 		if err := s.store.TouchWorker(ctx, in.Worker, kinds, "", time.Now()); err != nil && ctx.Err() == nil {
 			log.Warn().Err(err).Msg("record the worker")

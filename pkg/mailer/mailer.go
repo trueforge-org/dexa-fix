@@ -17,7 +17,10 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // Sender sends one message to one recipient.
@@ -45,6 +48,9 @@ type Config struct {
 	Password string
 	From     string // address, optionally with a display name
 	TLS      string // StartTLS (default), TLS or None
+	// DialControl, when set, is the Control function of the connection's dialer: it sees the address
+	// the host name resolved to, before the connection is made, and may refuse it.
+	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // SMTP sends through an SMTP server.
@@ -100,7 +106,7 @@ func (m *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	}
 
 	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
-	dialer := &net.Dialer{Timeout: dialTimeout}
+	dialer := &net.Dialer{Timeout: dialTimeout, Control: m.cfg.DialControl}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", addr, err)
@@ -157,9 +163,7 @@ func (m *SMTP) message(to, subject, body string) (string, error) {
 		return "", errors.New("subject contains a line break")
 	}
 	id := make([]byte, 12)
-	if _, err := rand.Read(id); err != nil {
-		return "", err
-	}
+	_, _ = rand.Read(id) // never fails: since Go 1.24 a broken random source ends the program
 	domain := "localhost"
 	if _, d, ok := strings.Cut(m.from.Address, "@"); ok && d != "" {
 		domain = d
@@ -177,11 +181,7 @@ func (m *SMTP) message(to, subject, body string) (string, error) {
 	h("Auto-Submitted", "auto-generated")
 	b.WriteString("\r\n")
 	qp := quotedprintable.NewWriter(&b)
-	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\r\n", "\n"))); err != nil {
-		return "", err
-	}
-	if err := qp.Close(); err != nil {
-		return "", err
-	}
+	must.Value(qp.Write([]byte(strings.ReplaceAll(body, "\r\n", "\n")))) // writing to a strings.Builder cannot fail
+	must.Do(qp.Close())
 	return b.String(), nil
 }

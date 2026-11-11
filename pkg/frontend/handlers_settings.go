@@ -48,7 +48,7 @@ func (s *Frontend) renderSettingsPage(w http.ResponseWriter, u models.User, pg a
 		extra(sec)
 	}
 	s.render(w, "settings.html", status, pageData{
-		Title: u.Name + " · settings", Tab: "settings", User: &u, Error: errMsg,
+		Title: u.DisplayName() + " · settings", Tab: "settings", User: &u, Error: errMsg,
 		AthleteDefault: u.AthleteDefault, Ranking: rows, Saved: saved,
 		Withings:      pg.Withings,
 		StrengthLevel: pg.StrengthLevel,

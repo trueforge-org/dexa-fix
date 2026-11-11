@@ -103,8 +103,11 @@ const (
 	auditPageSize     = 100 // events on the admin page
 	auditActivitySize = 20  // events on the settings page
 	auditExportMax    = 100000
-	auditPurgeEvery   = 6 * time.Hour
 )
+
+// auditPurgeEvery is how often the maintenance loop runs; a variable, like settingsPollInterval,
+// so that a test can see more than one round.
+var auditPurgeEvery = 6 * time.Hour
 
 // audit records an event for the signed-in user (the actor) about the account target (0 for none).
 // Recording is best effort: a failure is logged and never fails the request that caused it.

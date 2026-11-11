@@ -30,12 +30,10 @@ const (
 var base32NoPad = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 // newTOTPSecret returns a random 160-bit shared secret in the base32 form apps expect.
-func newTOTPSecret() (string, error) {
+func newTOTPSecret() string {
 	b := make([]byte, 20)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base32NoPad.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return base32NoPad.EncodeToString(b)
 }
 
 // totpCode computes the code for one step.
@@ -108,17 +106,15 @@ func qrSVG(text string) (template.HTML, error) {
 }
 
 // newRecoveryCodes returns count fresh codes as shown to the user (xxxx-xxxx-xxxx-xxxx, 80 bits).
-func newRecoveryCodes(count int) ([]string, error) {
+func newRecoveryCodes(count int) []string {
 	out := make([]string, 0, count)
 	for range count {
 		b := make([]byte, 10)
-		if _, err := rand.Read(b); err != nil {
-			return nil, err
-		}
+		_, _ = rand.Read(b)
 		s := strings.ToLower(base32NoPad.EncodeToString(b))
 		out = append(out, s[0:4]+"-"+s[4:8]+"-"+s[8:12]+"-"+s[12:16])
 	}
-	return out, nil
+	return out
 }
 
 // recoveryHash is what is stored for a recovery code. The codes are long random values, so a fast

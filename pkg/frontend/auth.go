@@ -73,7 +73,7 @@ func (s *Frontend) renderLogin(w http.ResponseWriter, r *http.Request, errMsg st
 		s.fail(w, err)
 		return
 	}
-	s.render(w, "index.html", status, pageData{Title: "Sign in · DexaFix", Error: errMsg, Login: &view})
+	s.render(w, "index.html", status, pageData{Title: "Sign in · DexaFix", Error: errMsg, Login: &view, Track: s.trackingFor(nil)})
 }
 
 // signInOutcome continues after a step of signing in: to the page the backend named, or back to the
@@ -96,7 +96,7 @@ func (s *Frontend) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Frontend) signup(w http.ResponseWriter, r *http.Request) {
-	o, err := s.api.Signup(r.Context(), r.PostFormValue("name"), r.PostFormValue("email"), r.PostFormValue("password"), r.PostFormValue("confirm"))
+	o, err := s.api.Signup(r.Context(), r.PostFormValue("username"), r.PostFormValue("email"), r.PostFormValue("password"), r.PostFormValue("confirm"))
 	s.signInOutcome(w, r, o, err)
 }
 

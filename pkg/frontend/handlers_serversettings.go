@@ -11,6 +11,7 @@ import (
 
 func (s *Frontend) adminSettingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/server", s.admin(s.adminSaveServerSettings))
+	mux.HandleFunc("POST /admin/analytics", s.admin(s.adminSaveAnalytics))
 	mux.HandleFunc("POST /admin/smtp", s.admin(s.adminSaveSMTP))
 	mux.HandleFunc("POST /admin/smtp/test", s.admin(s.adminTestSMTP))
 }
@@ -18,8 +19,16 @@ func (s *Frontend) adminSettingRoutes(mux *http.ServeMux) {
 func (s *Frontend) adminSaveServerSettings(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminSaveServer(r.Context(), apiclient.ServerForm{
 		BaseURL: r.PostFormValue("base_url"), TrustedProxies: r.PostFormValue("trusted_proxies"),
-		ProxyProtocol: r.PostFormValue("proxy_protocol") != "",
-		AuditDays:     r.PostFormValue("audit_retention_days"), KeyReminderDays: r.PostFormValue("key_reminder_days"),
+		ProxyProtocol: r.PostFormValue("proxy_protocol") != "", AllowPrivateProviders: r.PostFormValue("allow_private_providers") != "", AllowPrivateMail: r.PostFormValue("allow_private_mail") != "",
+		AuditDays: r.PostFormValue("audit_retention_days"), KeyReminderDays: r.PostFormValue("key_reminder_days"),
+	})
+	s.adminDone(w, r, res, err)
+}
+
+func (s *Frontend) adminSaveAnalytics(w http.ResponseWriter, r *http.Request, _ models.User) {
+	res, err := s.api.AdminSaveAnalytics(r.Context(), apiclient.Analytics{
+		ScarfPixelID: r.PostFormValue("scarf_pixel_id"), GoogleAnalyticsID: r.PostFormValue("google_analytics_id"),
+		AdSensePublisher: r.PostFormValue("adsense_publisher"),
 	})
 	s.adminDone(w, r, res, err)
 }

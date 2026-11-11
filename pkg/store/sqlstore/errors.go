@@ -6,11 +6,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"modernc.org/sqlite"
+
+	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
 // SQLite result codes (https://www.sqlite.org/rescode.html).
 const (
-	sqliteConstraint           = 19   // SQLITE_CONSTRAINT
 	sqliteConstraintForeignKey = 787  // SQLITE_CONSTRAINT_FOREIGNKEY
 	sqliteConstraintPrimaryKey = 1555 // SQLITE_CONSTRAINT_PRIMARYKEY
 	sqliteConstraintUnique     = 2067 // SQLITE_CONSTRAINT_UNIQUE
@@ -21,6 +22,18 @@ const (
 	pgForeignKeyViolation = "23503"
 	pgUniqueViolation     = "23505"
 )
+
+// usernameIndex is the unique index on lower(username), see migration 00002.
+const usernameIndex = "users_username_lower"
+
+// uniqueError maps a unique violation to ErrUsernameTaken when it is the username's index, and to
+// ErrExists otherwise.
+func uniqueError(err error) error {
+	if strings.Contains(err.Error(), usernameIndex) {
+		return store.ErrUsernameTaken
+	}
+	return store.ErrExists
+}
 
 // isUnique reports whether err is a unique / primary key violation on either backend.
 func isUnique(err error) bool {
@@ -33,8 +46,6 @@ func isUnique(err error) bool {
 		switch sqErr.Code() {
 		case sqliteConstraintUnique, sqliteConstraintPrimaryKey:
 			return true
-		case sqliteConstraint: // extended codes not reported
-			return strings.Contains(err.Error(), "UNIQUE constraint failed")
 		}
 	}
 	return false
@@ -51,8 +62,6 @@ func isFK(err error) bool {
 		switch sqErr.Code() {
 		case sqliteConstraintForeignKey:
 			return true
-		case sqliteConstraint:
-			return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 		}
 	}
 	return false

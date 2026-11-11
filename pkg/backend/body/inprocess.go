@@ -7,6 +7,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/shared/inproc"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -16,22 +17,15 @@ import (
 // separate process would, with a secret and a signing key made for this run only.
 func NewInProcess(st store.BodyStore, opts ...Option) (*bodyapi.Client, *Service, error) {
 	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, nil, err
-	}
+	_, _ = rand.Read(raw) // never fails: since Go 1.24 a broken random source ends the program
 	secret := hex.EncodeToString(raw)
-	_, pub, priv, err := bodyapi.GenerateKey()
-	if err != nil {
-		return nil, nil, err
-	}
+	_, pub, priv := bodyapi.GenerateKey()
 	svc, err := New(st, secret, bodyapi.NewVerifier(pub), opts...)
 	if err != nil {
 		return nil, nil, err
 	}
-	c, err := bodyapi.New("http://body.internal", &http.Client{Transport: inproc.Transport(svc.Handler())}, secret, bodyapi.NewSigner(priv))
-	if err != nil {
-		return nil, nil, err
-	}
+	// The address is fixed and well formed, so the client cannot be refused.
+	c := must.Value(bodyapi.New("http://body.internal", &http.Client{Transport: inproc.Transport(svc.Handler())}, secret, bodyapi.NewSigner(priv)))
 	return c, svc, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // `dexafix secrets init` makes everything the Compose deployment (deploy/docker-compose.yaml)
@@ -36,6 +38,13 @@ import (
 //
 // A file is replaced atomically (written beside it, then renamed), so a process never reads half a
 // file.
+
+// Who runs it. The Compose file starts init as 568:568, the user of the other containers, so it
+// needs no extra rights. Changing the owner or the mode of something that belongs to somebody else
+// takes root, and init then stops and says so (needsRoot) instead of failing with a bare "permission
+// denied". Run as root once (docker compose run --rm --user 0:0 init), it hands the folders it
+// uses to the --chown owner, and every later run as that owner has nothing left to change.
+var initEuid = os.Geteuid
 
 // Names of the files in the per-process directories. The Compose file points the *_FILE variables
 // at them.
@@ -82,14 +91,15 @@ func (o initOptions) writeAtomic(dir, name, content string, mode os.FileMode, ch
 		return err
 	}
 	defer os.Remove(tmp.Name()) // a no-op after the rename
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		return err
+	// Write, set the mode and close; the first error is the one that counts.
+	_, err = tmp.WriteString(content)
+	if err == nil {
+		err = tmp.Chmod(mode)
 	}
-	if err := tmp.Close(); err != nil {
-		return err
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
 	}
-	if err := os.Chmod(tmp.Name(), mode); err != nil {
+	if err != nil {
 		return err
 	}
 	if chown && o.uid >= 0 {
@@ -115,7 +125,7 @@ func existing(dir, name string) (string, error) {
 // keep returns the value in dir/name, making it with gen first if there is none. host files are
 // readable by everyone (the containers run as other users and a bind-mounted secret keeps the
 // host's mode; the directory stays private); the others are for their owner only.
-func (o initOptions) keep(dir, name string, host bool, gen func() (string, error)) (string, error) {
+func (o initOptions) keep(dir, name string, host bool, gen func() string) (string, error) {
 	v, err := existing(dir, name)
 	if err != nil {
 		return "", err
@@ -124,14 +134,12 @@ func (o initOptions) keep(dir, name string, host bool, gen func() (string, error
 		o.say("kept      %s", filepath.Join(dir, name))
 		return v, nil
 	}
-	if v, err = gen(); err != nil {
-		return "", err
-	}
+	v = gen()
 	mode := os.FileMode(0o400)
 	if host {
 		mode = 0o444
 	}
-	if err := o.writeAtomic(dir, name, v+"\n", mode, !host); err != nil {
+	if err := o.writeAtomic(dir, name, v+"\n", mode, true); err != nil {
 		return "", err
 	}
 	o.say("created   %s", filepath.Join(dir, name))
@@ -162,18 +170,66 @@ func (o initOptions) share(dir, name, value string) error {
 }
 
 // hostValue reads a value made in the host directory.
-func (o initOptions) hostValue(name string) (string, error) {
-	v, err := existing(o.hostDir, name)
-	if err != nil {
-		return "", err
-	}
-	if v == "" {
-		return "", fmt.Errorf("%s is missing in %s", name, o.hostDir)
-	}
-	return v, nil
+func (o initOptions) hostValue(name string) string {
+	// Cannot fail: keep read or made every file that is read here a moment ago.
+	return must.Value(existing(o.hostDir, name))
 }
 
-func (o initOptions) run() error {
+// run makes everything. A permission error while not root means that an owner or a mode would have
+// to change: it is reported with the way out.
+func (o initOptions) run() error { return o.explain(o.makeAll()) }
+
+// explain adds the way out to a permission error that init, not being root, cannot fix itself.
+func (o initOptions) explain(err error) error {
+	if err != nil && errors.Is(err, fs.ErrPermission) && initEuid() != 0 {
+		return o.needsRoot(err)
+	}
+	return err
+}
+
+func (o initOptions) needsRoot(err error) error {
+	owner := "568:568"
+	if o.uid >= 0 {
+		owner = fmt.Sprintf("%d:%d", o.uid, o.gid)
+	}
+	return fmt.Errorf(`%w
+
+init runs as %d:%d and may not change the owner or the permissions of this folder. Do one of these, once:
+  - Run init as root this one time. It gives the folders to %s, so later runs (a plain
+    docker compose up) work as %s again and need no root:
+        docker compose run --rm --user 0:0 init
+  - Or prepare the folder on the host yourself:
+        sudo chown -R %s ./secrets && sudo chmod 700 ./secrets
+    (a volume that an earlier version made may need the same: run init as root once.)`,
+		err, initEuid(), os.Getegid(), owner, owner, owner)
+}
+
+// adopt hands a directory and the files in it to the --chown owner, when init is root. Without it, a
+// later run as that owner could not write there: a bind-mounted ./secrets belongs to root, and so does
+// a volume that an earlier version made. Not root, it does nothing: whatever is wrong shows up as a
+// permission error and run explains it.
+func (o initOptions) adopt(dir string) error {
+	if dir == "" || o.uid < 0 || initEuid() != 0 {
+		return nil
+	}
+	entries, readErr := os.ReadDir(dir) // its error is reported after the folder itself was given away
+	// The folder first, then the files in it (not folders, not links).
+	type item struct{ path, label string }
+	items := []item{{dir, dir}}
+	for _, e := range entries {
+		if !e.IsDir() && e.Type()&fs.ModeSymlink == 0 {
+			items = append(items, item{filepath.Join(dir, e.Name()), e.Name()})
+		}
+	}
+	for _, it := range items {
+		if err := os.Chown(it.path, o.uid, o.gid); err != nil {
+			return fmt.Errorf("give %s to %d:%d: %w", it.label, o.uid, o.gid, err)
+		}
+	}
+	return readErr
+}
+
+func (o initOptions) makeAll() error {
 	if o.hostDir == "" {
 		return errors.New("--host-dir is required: the directory for the passwords and keys you must back up")
 	}
@@ -185,7 +241,13 @@ func (o initOptions) run() error {
 		if d == "" {
 			continue
 		}
-		if err := os.MkdirAll(d, 0o700); err != nil {
+		// As root: give the folder to the owner the containers run as, so that init itself can run as
+		// that owner from now on. (The files that are made later are given to it one by one.)
+		err := os.MkdirAll(d, 0o700)
+		if err == nil {
+			err = o.adopt(d)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -205,13 +267,10 @@ func (o initOptions) run() error {
 	}
 	// The passwords are hex, so they are safe inside a URL. The connection strings are made from
 	// the passwords on disk, so they stay right if a password was put there by hand.
-	dsn := func(file, user, query string) func() (string, error) {
-		return func() (string, error) {
-			pw, err := existing(o.hostDir, file)
-			if err != nil || pw == "" {
-				return "", fmt.Errorf("read %s: %v", file, err)
-			}
-			return fmt.Sprintf("postgres://%s:%s@%s:5432/dexafix?%ssslmode=disable", user, pw, o.dbHost, query), nil
+	dsn := func(file, user, query string) func() string {
+		return func() string {
+			pw := must.Value(existing(o.hostDir, file)) // the password file was made or read just above
+			return fmt.Sprintf("postgres://%s:%s@%s:5432/dexafix?%ssslmode=disable", user, pw, o.dbHost, query)
 		}
 	}
 	if _, err := o.keep(o.hostDir, "dsn", true, dsn("db_password", "dexafix", "")); err != nil {
@@ -223,17 +282,12 @@ func (o initOptions) run() error {
 
 	// ---- copies for the containers that are not DexaFix processes, and the database secrets of the two that are ----
 	// The password files are the source: a password put there by hand is what the others get.
-	adminPW, err := o.hostValue("db_admin_password")
-	if err != nil {
-		return err
-	}
+	adminPW := o.hostValue("db_admin_password")
 	if err := o.share(o.dbDir, "db_admin_password", adminPW); err != nil {
 		return err
 	}
 	if o.valkeyDir != "" {
-		if pw, err := o.hostValue("valkey_password"); err != nil {
-			return err
-		} else if err := o.share(o.valkeyDir, "valkey_password", pw); err != nil {
+		if err := o.share(o.valkeyDir, "valkey_password", o.hostValue("valkey_password")); err != nil {
 			return err
 		}
 	}
@@ -244,11 +298,7 @@ func (o initOptions) run() error {
 			return err
 		}
 		for _, name := range []string{"db_password", "body_db_password"} {
-			pw, err := o.hostValue(name)
-			if err != nil {
-				return err
-			}
-			if err := o.share(o.dbsetupDir, name, pw); err != nil {
+			if err := o.share(o.dbsetupDir, name, o.hostValue(name)); err != nil {
 				return err
 			}
 		}
@@ -267,11 +317,7 @@ func (o initOptions) run() error {
 		if c.dir == "" {
 			continue
 		}
-		v, err := o.hostValue(c.name)
-		if err != nil {
-			return err
-		}
-		if err := o.share(c.dir, c.name, v); err != nil {
+		if err := o.share(c.dir, c.name, o.hostValue(c.name)); err != nil {
 			return err
 		}
 	}
@@ -289,24 +335,17 @@ func (o initOptions) run() error {
 	if err != nil {
 		return err
 	}
-	tokenKey, err := o.keep(o.apiDir, fileBodyTokenKey, false, func() (string, error) {
-		_, _, priv, err := bodyapi.GenerateKey()
-		if err != nil {
-			return "", err
-		}
-		return bodyapi.EncodePrivateKey(priv), nil
+	tokenKey, err := o.keep(o.apiDir, fileBodyTokenKey, false, func() string {
+		_, _, priv := bodyapi.GenerateKey()
+		return bodyapi.EncodePrivateKey(priv)
 	})
 	if err != nil {
 		return err
 	}
 	// The URL of the optional Valkey server, with the password in it, for the api process only. It is
 	// made from the password on disk, so it stays right if a password was put there by hand.
-	if pw, err := existing(o.hostDir, "valkey_password"); err != nil {
+	if err := o.put(o.apiDir, fileValkeyURL, fmt.Sprintf("redis://:%s@%s:6379/0", o.hostValue("valkey_password"), o.valkeyHost)); err != nil {
 		return err
-	} else if pw != "" {
-		if err := o.put(o.apiDir, fileValkeyURL, fmt.Sprintf("redis://:%s@%s:6379/0", pw, o.valkeyHost)); err != nil {
-			return err
-		}
 	}
 	if service == worker || service == bodySecret || worker == bodySecret {
 		return errors.New("the service, worker and body secrets must all differ: they open different doors; delete the duplicates and run init again")
@@ -351,10 +390,7 @@ func (o initOptions) run() error {
 	if o.bodyDir != "" {
 		// The link to the body service has a CA of its own: a certificate of one link opens nothing
 		// of the other.
-		body, err := mtls.GenerateValid(o.bodyNames, "DexaFix body", "DexaFix api", o.validity)
-		if err != nil {
-			return err
-		}
+		body := must.Value(mtls.GenerateValid(o.bodyNames, "DexaFix body", "DexaFix api", o.validity)) // the same validity worked for the other link
 		files = append(files,
 			pemFile{o.bodyDir, fileMTLSCA, body.CA}, pemFile{o.bodyDir, fileMTLSCert, body.ServerCert}, pemFile{o.bodyDir, fileMTLSKey, body.ServerKey},
 			pemFile{o.apiDir, fileBodyMTLSCA, body.CA}, pemFile{o.apiDir, fileBodyMTLSCert, body.ClientCert}, pemFile{o.apiDir, fileBodyMTLSKey, body.ClientKey})
@@ -410,6 +446,15 @@ mutual TLS certificates.
 The api and body directories also get their connection string and encryption key (dsn and
 encryption_key, body_dsn and body_encryption_key), so a container needs no file from the host.
 
+Who runs it: the Compose file starts init as 568:568, like the other containers, with --chown 568:568.
+Then the folders must already belong to that user (the host folder ./secrets: chown 568:568 and
+chmod 700; the volumes are made that way by the image). If an owner or a mode would have to change
+and init may not change it, it stops and tells you to run it as root once:
+
+  docker compose run --rm --user 0:0 init
+
+As root it gives the folders to --chown's owner, so later runs as 568:568 need nothing.
+
 The certificates are replaced atomically and are valid for --mtls-days days (397 by default, so
 run init at least once a year; the Compose file runs it at every start). The processes read changed
 certificate files again within 30 seconds, so they need no restart.`,
@@ -462,6 +507,6 @@ func init() {
 	f.StringSlice("api-name", []string{"api"}, "host name the web process and workers reach the api process by (repeatable)")
 	f.StringSlice("body-name", []string{"body"}, "host name the api process reaches the body service by (repeatable)")
 	f.Int("mtls-days", 397, "days the mutual TLS certificates are valid")
-	f.String("chown", "", "give the files in the process directories to uid:gid, such as 568:568 (needs permission to)")
+	f.String("chown", "", "give the directories and files to uid:gid, such as 568:568. As root init does it; as that user it has nothing to change; as anybody else it stops and tells you to run it as root once")
 	secretsCmd.AddCommand(secretsInitCmd)
 }

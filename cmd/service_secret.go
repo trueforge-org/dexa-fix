@@ -72,12 +72,10 @@ func (k secretFile) load(path string) ([]string, error) {
 	return out, nil
 }
 
-func newServiceSecret() (string, error) {
+func newServiceSecret() string {
 	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }
 
 var secretsCmd = &cobra.Command{
@@ -92,11 +90,7 @@ var serviceSecretCmd = &cobra.Command{
 		"to both with --service-secret-file:\n\n  dexafix secrets service-secret > service.secret && chmod 600 service.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := newServiceSecret()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), s)
+		fmt.Fprintln(cmd.OutOrStdout(), newServiceSecret())
 		return nil
 	},
 }
@@ -109,11 +103,7 @@ var workerSecretCmd = &cobra.Command{
 		"  dexafix secrets worker-secret > worker.secret && chmod 600 worker.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := newServiceSecret()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), s)
+		fmt.Fprintln(cmd.OutOrStdout(), newServiceSecret())
 		return nil
 	},
 }

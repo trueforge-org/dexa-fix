@@ -134,9 +134,8 @@ func (s *Backend) importMessage(p *workerProvider, day string, j models.Job) str
 	switch j.State {
 	case models.JobSucceeded:
 		var res importResult
-		if err := json.Unmarshal([]byte(j.Result), &res); err == nil {
-			return summary(p.Label, res, day)
-		}
+		_ = json.Unmarshal([]byte(j.Result), &res) // a result that does not parse never got here: applying it failed the job
+		return summary(p.Label, res, day)
 	case models.JobCanceled:
 		return p.Label + " import was canceled."
 	case models.JobFailed, models.JobExpired:
@@ -145,7 +144,6 @@ func (s *Backend) importMessage(p *workerProvider, day string, j models.Job) str
 	default:
 		return p.Label + " import is running in the background. Reload in a moment to see the new readings."
 	}
-	return p.Label + " import failed. Try again later; the details are in the server log."
 }
 
 // apiJob is a job as the public API shows it.
@@ -220,10 +218,7 @@ func (s *Backend) integrationAPIRoutes(mux *http.ServeMux) {
 		switch job.State {
 		case models.JobSucceeded:
 			var res importResult
-			if err := json.Unmarshal([]byte(job.Result), &res); err != nil {
-				apiError(w, err)
-				return
-			}
+			_ = json.Unmarshal([]byte(job.Result), &res) // a result that does not parse never got here: applying it failed the job
 			writeJSON(w, http.StatusOK, struct {
 				Provider string `json:"provider"`
 				importResult

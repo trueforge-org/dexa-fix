@@ -39,6 +39,7 @@ processes of a [split deployment](15-split-deployment.md). `serve body` is the
 | `--body-server-name`       | `DEXAFIX_BODY_SERVER_NAME`       | empty                                                                 | `serve api` only. Name the body service's certificate must carry, if it is not the host of `--body-url`. |
 | `--listen` (`serve body`)  | `DEXAFIX_BODY_LISTEN`            | `:8082`                                                               | `serve body` only. Address of the body service; keep it on a private network. |
 | `--health-listen`          | `DEXAFIX_HEALTH_LISTEN`          | empty (off)                                                           | `serve api`, `serve body` and `serve worker`. A listener that answers `/healthz` and `/readyz` only, for a container health check, such as `127.0.0.1:8083`. See [Status and health checks](15-split-deployment.md#status-and-health-checks). |
+| `--pprof`                  | `DEXAFIX_PPROF`                  | off                                                                   | `serve api`, `serve body` and `serve worker`. Also serves Go profiling data under `/debug/pprof/` on the `--health-listen` listener, which must then be a loopback address (the process refuses to start otherwise). See [Profiling](15-split-deployment.md#profiling). |
 | `--valkey-url`             | `DEXAFIX_VALKEY_URL`             | empty (off)                                                           | `serve api` only. Keep the failed sign-in counters, single-use values and sessions in Valkey (`redis://host:6379/0`, `rediss://` for TLS) instead of the database. A password in the URL is refused on the command line: use the file. See [Valkey](15-split-deployment.md#valkey). |
 | `--valkey-url-file`        | `DEXAFIX_VALKEY_URL_FILE`        | empty                                                                 | `serve api` only. File with the Valkey URL, which may hold the password: `redis://:password@host:6379/0`. |
 | `--body-token-public-key-file` | `DEXAFIX_BODY_TOKEN_PUBLIC_KEY_FILE` | empty                                                           | `serve body` only. Required. Public key(s) of the api process's token key, one per line (`secrets body-token-public`). |
@@ -69,10 +70,14 @@ change them on the [Admin page](06-using-the-app.md):
   - Base URL, such as `https://dexa.example.com`. Empty by default.
   - Trusted proxies. Empty by default, which trusts nobody. See [Running behind a reverse proxy](03-reverse-proxy.md).
   - Accept the PROXY protocol from the trusted proxies. Off by default. See [PROXY protocol](03-reverse-proxy.md#proxy-protocol).
+  - Allow sign-in providers on private network addresses. Off by default. See [Outgoing connections](14-limitations-and-security.md#outgoing-connections).
+  - Allow the mail server on a private network address. Off by default, and separate from the one for providers.
+  - **Upgrading:** a sign-in provider or mail server that runs on a private address (`10.x`, `172.16.x`–`172.31.x`, `192.168.x`, `100.64.x`, `fc00::/7`) stops working until you turn on the setting for it; password sign-in keeps working, so you can still reach the Admin page.
   - Keep the audit log for N days. 365 by default; `0` keeps it forever.
   - Remind me to rotate the encryption key after N days. Empty or `0` never reminds. Rotation stays manual.
 - **E-mail**: SMTP server, port (587 by default), encryption (`starttls` by default, `tls`, or `none` for a server on localhost only), user name, password (stored encrypted, never shown again) and sender address. See [Password reset](07-accounts-and-sign-in.md#password-reset).
 - **HTTPS, HTTP/2 and HTTP/3**: certificate, HTTPS port (8443 by default) and HTTP/3. Plain HTTP stays on `--listen`. See [HTTPS, HTTP/2 and HTTP/3](03-reverse-proxy.md#https-http2-and-http3).
+- **Analytics and ads**: off by default. A Scarf pixel ID (a UUID), a Google Analytics measurement ID (`G-…`) and a Google AdSense publisher ID (`ca-pub-…`). When one is set, a visitor who is **not signed in** is asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether to accept it. Nothing is loaded from Scarf or Google before they press Accept, signed-in people never get it, and the footer's **Privacy choices** reopens the question. On those pages the content security policy allows the hosts of the services that are on; AdSense also needs inline scripts and images from any HTTPS address, so turn it on only if you accept that. The [privacy policy](https://github.com/trueforge-org/dexafix/blob/main/pkg/frontend/templates/privacy.html) (`/privacy` in the app) describes it to visitors. The ad wiring follows Google's published requirements and has not been tried against a live AdSense account.
 
 There are no flags or environment variables for these settings, and none for
 SMTP. If `DEXAFIX_TRUSTED_PROXIES`, `DEXAFIX_BASE_URL` or
@@ -86,8 +91,24 @@ database: the listen address, the database, the encryption key and
 
 - `LOGLEVEL` sets the log level: `trace`, `debug`, `info`, `warn`, `error`,
   `fatal` or `panic`. The default is `info`.
-- `DEBUG` turns off coloured console output when set to any value. It does not
-  change the log level.
+- `LOGFORMAT` sets the format of the log on stdout: `console` (the default,
+  readable lines) or `json` (one JSON object per line, for a log collector, with
+  `time`, `level`, `message` and, for `serve`, `service` and the fields of the
+  event).
+- Colour and the short time of day are used only when stdout is a terminal, so
+  `docker logs` and files stay plain. `NO_COLOR` (any value) or `DEBUG` (any
+  value) turns the colour off on a terminal too; neither changes the log level.
+
+Every process says which one it is. A line of `serve api` looks like this, and
+the combined `dexafix serve` has no prefix:
+
+```text
+2026-11-10T11:39:12Z INF api │ serving the backend db=postgres internal=:8081 public=
+```
+
+The banner (`DexaFix 1.2.3 · api`) goes to stderr, in the console format only, and
+a process logs `shutting down` and `stopped` when it is stopped by a signal. In
+the Compose file Docker keeps at most three files of 10 MB per container.
 
 Postgres example:
 

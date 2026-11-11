@@ -43,7 +43,7 @@ func newProxyServer(t *testing.T, proxies, base string) (*httptest.Server, *sqls
 // signupVia signs up through the proxy-facing server with the given extra request headers.
 func signupVia(t *testing.T, ts *httptest.Server, hdr map[string]string) *http.Response {
 	t.Helper()
-	form := url.Values{"name": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
+	form := url.Values{"username": {"root"}, "email": {"root@example.com"}, "password": {testPassword}, "confirm": {testPassword}}
 	req, _ := http.NewRequest("POST", ts.URL+"/signup", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for k, v := range hdr {

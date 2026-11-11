@@ -52,13 +52,13 @@ sign-in. The change is not written to the audit log of a running server.`,
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("no account has the e-mail address %q", args[0])
 		}
+		if err == nil {
+			err = st.DeleteTOTP(ctx, u.ID)
+		}
 		if err != nil {
 			return err
 		}
-		if err := st.DeleteTOTP(ctx, u.ID); err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "two-step verification removed for %s\n", u.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "two-step verification removed for %s\n", u.Username)
 		return nil
 	},
 }

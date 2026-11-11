@@ -42,6 +42,7 @@
         <li><a href="#admin-network">Network and retention</a></li>
         <li><a href="#admin-email">E-mail</a></li>
         <li><a href="#admin-tls">HTTPS</a></li>
+        <li><a href="#admin-analytics">Analytics and ads</a></li>
         <li><a href="#admin-workers">Workers</a></li>
       </ul></li>
     <li><a href="#server-config">Server configuration</a></li>
@@ -94,11 +95,12 @@
 </ol>
 <p>Stored readings are never changed. Every estimate is calculated from them, so you can change settings at any time and see the result at once.</p>
 <p>This page is the same for everyone and needs no sign-in. Small <span class="help-link" aria-hidden="true">?</span> badges throughout the app link to the matching section here.</p>
+<p><strong>Footer, terms and privacy.</strong> Every page has a footer with links to the documentation, the status page, the <a href="/terms">Terms of Service</a>, the <a href="/privacy">Privacy Policy</a>, the project's sponsor page on <a href="https://opencollective.com/dexafix" target="_blank" rel="noopener">Open Collective</a> and, as a GitHub icon, the source code, which the AGPL asks a server to offer. Signed-in people see a short, dismissible reminder above the estimates that the project lives on support; closing it is remembered for 90 days in a cookie.</p>
 </section>
 
 <section id="accounts">
 <h2>Accounts and sign-in</h2>
-<p>Each user has an account and sees only their own data. The e-mail address is the account's unique key and what you sign in with. It is compared case-insensitively and stored in lowercase. Names are display names: 1 to 64 characters, and they need not be unique. The <strong>first account becomes the administrator</strong>. Administrators can make other users administrators; the last administrator cannot be removed.</p>
+<p>Each user has an account and sees only their own data. The e-mail address is the account's key and what you sign in with. It is compared case-insensitively and stored in lowercase. The username is unique too, also ignoring case: 2 to 32 letters, digits, <code>.</code>, <code>_</code> or <code>-</code>, starting with a letter or digit. A first and last name (optional, up to 64 characters each) can be added on the Settings page. The <strong>first account becomes the administrator</strong>. Administrators can make other users administrators; the last administrator cannot be removed.</p>
 
 <h3 id="password-login">Password sign-in</h3>
 <ul>
@@ -328,10 +330,10 @@
 
 <section id="settings-page">
 <h2>Settings</h2>
-<p>Page: <code>/u/{id}/settings</code>, from the menu under your name in the header. It also has <strong>Sign out</strong>.</p>
+<p>Page: <code>/u/{id}/settings</code>, from the menu under your first name (or username) in the header. It also has <strong>Sign out</strong>.</p>
 <dl>
   <dt id="profile-settings">Profile</dt>
-  <dd>Name (1 to 64 characters), e-mail (required, it is how you sign in; changing it asks for your current password) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
+  <dd>Username (unique), first and last name (both optional), e-mail (required, it is how you sign in; changing it asks for your current password) and <strong>height</strong> in cm (50 to 280, optional). Height is needed for BMI, FMI and LMI.</dd>
   <dt id="time-zone">Time zone</dt>
   <dd>Your IANA time zone, such as <code>Europe/Amsterdam</code> (default <code>UTC</code>). It decides which calendar day a scale reading belongs to, how the date and time you type for a reading are read and shown, what "today" is, and which day a Withings import covers. DEXA scans are plain dates and are not moved by it. Changing it re-groups your readings into days, so the estimates are recalculated.</dd>
   <dt>Access tokens</dt><dd>See <a href="#access-tokens">Access tokens</a>.</dd>
@@ -423,7 +425,7 @@
   <dt>Display name</dt>
   <dd>The text of the button: <em>Continue with Google</em>.</dd>
   <dt id="provider-issuer">Issuer URL</dt>
-  <dd>OpenID Connect only. The base URL of the provider, which serves <code>/.well-known/openid-configuration</code>. Example: <code>https://accounts.google.com</code>. For Apple it is fixed.</dd>
+  <dd>OpenID Connect only. The base URL of the provider, which serves <code>/.well-known/openid-configuration</code>. Example: <code>https://accounts.google.com</code>. For Apple it is fixed. A provider on a private network address needs <strong>Allow sign-in providers on private network addresses</strong> under <a href="#admin-network">Network and retention</a>.</dd>
   <dt id="provider-client-id">Client ID</dt>
   <dd>The id of the application you registered at the provider. For Apple, the <em>Services ID</em>.</dd>
   <dt id="provider-client-secret">Client secret</dt>
@@ -437,7 +439,7 @@
   <dt id="provider-scopes">Scopes</dt>
   <dd>Space-separated. Default for OpenID Connect and Apple: <code>openid email profile</code>; for OAuth 2.0: <code>name email</code>. Leave empty for the default.</dd>
   <dt id="provider-name-claim">Name field</dt>
-  <dd>The field to take the display name from. If empty or missing, <code>preferred_username</code>, <code>name</code> and <code>email</code> are tried in that order.</dd>
+  <dd>The field to take the username from, with other characters changed to <code>-</code>. If empty or missing, <code>preferred_username</code>, <code>name</code> and <code>email</code> are tried in that order. A taken username gets <code>-2</code>, <code>-3</code> and so on. The <code>given_name</code> and <code>family_name</code> fields fill the first and last name.</dd>
   <dt id="provider-allow-signup">Create accounts on first sign-in</dt>
   <dd>Default off. When on (and sign-up is open), an unknown person who signs in with this provider gets a new account. When off, only people who linked the provider from Settings can use it.</dd>
 </dl>
@@ -450,12 +452,16 @@
   <li><strong>Base URL:</strong> the public address, scheme and host only, such as <code>https://dexa.example.com</code>. Saving it is accepted only while you use that address.</li>
   <li><strong>Trusted proxies:</strong> addresses or ranges of your reverse proxies, as in <a href="#reverse-proxy">Running behind a reverse proxy</a>. Empty trusts nobody.</li>
   <li><strong>Accept the PROXY protocol from the trusted proxies:</strong> off by default; needs trusted proxies. See <a href="#proxy-protocol">PROXY protocol</a>.</li>
+  <li><strong>Allow sign-in providers on private network addresses:</strong> off by default. The server then refuses to connect to a sign-in provider on a <code>10.x</code>, <code>172.16.x</code>–<code>172.31.x</code>, <code>192.168.x</code>, <code>100.64.x</code> or <code>fc00::/7</code> address, so that a provider setting cannot be used to reach other machines on your network. Turn it on when your provider (Authentik, Keycloak, ...) runs on your own network. Cloud metadata and other link-local addresses are always refused, and a provider on this machine (<code>localhost</code>) is always allowed.</li>
+  <li><strong>Allow the mail server on a private network address:</strong> off by default, for the same reason, for the SMTP server of the <a href="#admin-email">E-mail</a> settings. It is separate from the setting for providers: turning one on does not open the other. After an upgrade, a provider or mail server on a private address stops working until you turn on the setting for it; password sign-in keeps working.</li>
   <li><strong>Keep the audit log for (days):</strong> 365 by default; <code>0</code> keeps it forever.</li>
   <li><strong>Remind me to rotate the encryption key after (days):</strong> empty by default, which never reminds. See <a href="#key-rotation">Rotating the key</a>.</li>
 </ul>
 <p>These take effect at once, without a restart, and are stored encrypted in the database. There are no flags or environment variables for them.</p>
+<h3 id="admin-analytics">Analytics and ads</h3>
+<p>Off by default. A Scarf pixel ID (a UUID), a Google Analytics measurement ID (<code>G-…</code>) and a Google AdSense publisher ID (<code>ca-pub-…</code>). When one is set, a visitor who is <strong>not signed in</strong> is asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether to accept it. Nothing is loaded from Scarf or Google before they press Accept, signed-in people never get it, and the footer's <strong>Privacy choices</strong> reopens the question. On those pages the content security policy allows the hosts of the services that are on; AdSense also needs inline scripts and images from any HTTPS address, so turn it on only if you accept that. The <a href="/privacy">privacy policy</a> describes it to visitors. The ad wiring follows Google's published requirements and has not been tried against a live AdSense account.</p>
 <h3 id="admin-email">E-mail</h3>
-<p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links.</p>
+<p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links. A mail server on a private network address needs <strong>Allow the mail server on a private network address</strong> under <a href="#admin-network">Network and retention</a>; when the test e-mail fails, the page says so without what the server answered, and the details are in the server log.</p>
 <h3 id="admin-tls">HTTPS, HTTP/2 and HTTP/3</h3>
 <p>An optional HTTPS listener on its own port, with an uploaded certificate or a generated self-signed one. The page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. See <a href="#https">HTTPS, HTTP/2 and HTTP/3</a>.</p>
 <h3 id="admin-workers">Workers</h3>
@@ -477,6 +483,7 @@
     <tr><td><code>secrets body-token-key</code></td><td>Print a new private key for the api process to sign body service tokens with. Keep it to that process.</td></tr>
     <tr><td><code>secrets body-token-public --key-file FILE</code></td><td>Print the public key of that private key, for <code>serve body</code>.</td></tr>
     <tr><td><code>healthcheck URL</code></td><td>Make one GET request and exit 0 if the answer is 2xx, 1 otherwise. For the container health check: the image has no shell and no curl. See <a href="#status">Status and health checks</a>.</td></tr>
+    <tr><td><code>--pprof</code></td><td><code>DEXAFIX_PPROF</code></td><td>off</td><td><code>serve api</code>, <code>serve body</code> and <code>serve worker</code>. Also serves Go profiling data under <code>/debug/pprof/</code> on the <code>--health-listen</code> listener, which must then be a loopback address (the process refuses to start otherwise).</td></tr>
     <tr><td><code>secrets init</code></td><td>Create every secret and the mutual TLS certificates of the <a href="#deploy">Compose deployment</a> in directories you name (<code>--host-dir</code>, <code>--api-dir</code>, <code>--web-dir</code>, <code>--worker-dir</code>, <code>--body-dir</code>). It never replaces a password, key or shared secret that exists, and makes new certificates at every run (<code>--mtls-days</code>, default 397). <code>--chown uid:gid</code> hands the files to the containers' user. This is what the <code>init</code> container runs.</td></tr>
     <tr><td><code>secrets mtls --link body</code></td><td>Create certificates for the link between the api process and the body service (see <a href="#body-mutual-tls">Mutual TLS</a>).</td></tr>
   </tbody>
@@ -517,7 +524,7 @@
   </tbody>
 </table></div>
 <p><code>serve body</code> takes the database and key flags too, for the database and key of the body service. It has no <code>--maintenance</code>, and its <code>--auto-migrate</code> migrates the body database only.</p>
-<p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>DEBUG</code> turns off coloured console output when set to any value.</p>
+<p>Boolean variables are read as: <code>DEXAFIX_AUTO_MIGRATE</code> is true unless set to <code>false</code>; <code>DEXAFIX_FORCE_PASSWORD_LOGIN</code> is true only when set to <code>true</code>. Other environment variables: <code>LOGLEVEL</code> sets the log level (<code>trace</code>, <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>, <code>fatal</code>, <code>panic</code>; default <code>info</code>); <code>LOGFORMAT</code> is <code>console</code> (readable lines, the default) or <code>json</code> (one JSON object per line, with a <code>service</code> field, for a log collector); colour and the short time of day appear only when stdout is a terminal, and <code>NO_COLOR</code> or <code>DEBUG</code> (any value) turns the colour off there too without changing the log level. Each process names itself in front of the message (<code>api │ serving the backend</code>), prints a one-line banner on stderr, and logs <code>shutting down</code> and <code>stopped</code> when a signal ends it.</p>
 <pre><code>dexafix serve --listen 127.0.0.1:8080
 export DEXAFIX_DSN='postgres://user:secret@localhost/dexafix'
 dexafix serve --db-driver postgres</code></pre>
@@ -634,8 +641,13 @@ stream {
 <h3 id="deploy">The recommended deployment: deploy/</h3>
 <p><code>deploy/docker-compose.yaml</code> runs everything as containers: PostgreSQL, Valkey, the api process, the body service, the web process and one worker container per provider. Every link between them is protected by a secret <em>and</em> by mutual TLS. Two short-lived containers prepare the rest: <code>init</code>, which is <code>dexafix secrets init</code> and makes every password, key, secret and certificate, and <code>db-setup</code>, which is <code>dexafix db provision</code> and makes the database roles and the schema.</p>
 <pre><code>cd deploy
+mkdir -m 700 secrets &amp;&amp; sudo chown 568:568 secrets
 docker compose up -d</code></pre>
-<p>Open <a href="http://localhost:8080">http://localhost:8080</a> and create the first account: it becomes the administrator. There is nothing to prepare first: no file has to exist before <code>up</code>, because the containers read their secrets from volumes that <code>init</code> fills. <code>init</code> and <code>db-setup</code> run again at every <code>docker compose up -d</code>.</p>
+<p>Open <a href="http://localhost:8080">http://localhost:8080</a> and create the first account: it becomes the administrator. No file has to exist before <code>up</code> except that folder, because the containers read their secrets from volumes that <code>init</code> fills. <code>init</code> and <code>db-setup</code> run again at every <code>docker compose up -d</code>.</p>
+<p><strong>Who <code>init</code> runs as.</strong> <code>init</code> runs as the unprivileged user <code>568:568</code>, the user of all the other containers, with no capabilities. The folders it writes must already belong to that user: <code>./secrets</code> on the host (owner <code>568:568</code>, mode <code>700</code>; a folder that Docker makes by itself belongs to root) and the <code>secrets-*</code> volumes (the image makes new ones that way; a volume that an earlier version made may belong to root). If an owner or a mode would have to change and <code>init</code> may not change it, it stops with an error that says what to do, and nothing else starts. Either prepare the folder yourself (<code>sudo chown -R 568:568 ./secrets &amp;&amp; sudo chmod 700 ./secrets</code>), or run <code>init</code> as root the first time:</p>
+<pre><code>docker compose run --rm --user 0:0 init   # once: fixes the owner of ./secrets and the volumes
+docker compose up -d                      # every time after that</code></pre>
+<p>As root, <code>init</code> gives <code>./secrets</code>, the files in it and the volumes to <code>568:568</code> (it has the two capabilities it needs for that, <code>CHOWN</code> and <code>DAC_OVERRIDE</code>, and nothing else). From then on nothing has to change, so the plain <code>up</code> runs it as <code>568:568</code> again.</p>
 <div class="scroll"><table>
   <thead><tr><th>Where</th><th>What</th><th>When it changes</th></tr></thead>
   <tbody>
@@ -645,9 +657,23 @@ docker compose up -d</code></pre>
     <tr><td>Volumes <code>secrets-db</code>, <code>secrets-dbsetup</code>, <code>secrets-valkey</code></td><td>The superuser's password (the database), the administrator's connection string and the two role passwords (<code>db-setup</code>), the Valkey password</td><td>They follow the files in <code>./secrets</code></td></tr>
   </tbody>
 </table></div>
-<p class="docs-note"><strong>Back up <code>./secrets/encryption_key</code> and <code>./secrets/body_encryption_key</code> together with the database.</strong> Without an encryption key the encrypted values cannot be read again. They are on the host, so <code>docker compose down -v</code> does not delete them. <code>./secrets</code> is private to root; read it with <code>sudo</code>.</p>
+<p class="docs-note"><strong>Back up <code>./secrets/encryption_key</code> and <code>./secrets/body_encryption_key</code> together with the database.</strong> Without an encryption key the encrypted values cannot be read again. They are on the host, so <code>docker compose down -v</code> does not delete them. <code>./secrets</code> is private to <code>568:568</code> (mode <code>700</code>); read it with <code>sudo</code>.</p>
 <p>The certificates are valid for 397 days and are replaced at every <code>docker compose up</code>, so run it at least once a year. The CA's private key is thrown away as soon as the certificates are made. The containers read changed certificate files again within 30 seconds and need no restart. While they do, a process may be briefly ahead of the others: expect one <code>bad certificate</code> line in the api's log and a <code>could not refresh the settings</code> warning in web's, which heal by themselves. The web process and the workers share one client certificate: it proves the link, and the service or worker secret proves the role. The link to the body service has a CA of its own, so a certificate of one link opens nothing of the other.</p>
 <p>The database image is <code>ghcr.io/trueforge-org/postgresql</code> (ContainerForge). It runs as uid 568 and keeps its data in <code>/config/18</code>, and so do the other images of this stack: DexaFix runs as uid 568 too and keeps its data in <code>/config</code>. The <code>db-setup</code> container runs <code>dexafix db provision</code> against it, so the application never runs as the superuser <code>postgres</code>. The api's role <code>dexafix</code> owns the database; the body service's role <code>dexafix_body</code> owns the schema <code>body</code> and can use nothing else. The image can make no roles from environment variables, so <code>db provision</code> does it. It can be repeated: what exists is kept and the passwords are set again, so a failed start is mended by the next <code>up</code>, and a password you changed in <code>./secrets</code> takes effect there too.</p>
+<p><strong>Resource limits.</strong> Every container in the Compose file has a ceiling on memory, CPU and processes, so that one runaway process cannot starve the others on the same host. The defaults are generous for a household or a small team:</p>
+<div class="scroll"><table>
+  <thead><tr><th>Container</th><th>Memory</th><th>CPUs</th><th>Processes</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td><code>api</code></td><td>512 MB</td><td>2</td><td>256</td><td>Sign-in work (bcrypt) and the pages' data</td></tr>
+    <tr><td><code>body</code></td><td>768 MB</td><td>2</td><td>256</td><td>The estimates: CPU heavy, and it keeps the results of up to 32 users in memory (about 160 MB at most)</td></tr>
+    <tr><td><code>web</code></td><td>256 MB</td><td>1</td><td>256</td><td>Pages and static files</td></tr>
+    <tr><td><code>worker-withings</code>, <code>worker-strengthlevel</code></td><td>256 MB</td><td>0.5</td><td>128</td><td>Waiting for jobs and talking to the provider</td></tr>
+    <tr><td><code>db</code></td><td>1 GB</td><td>2</td><td>512</td><td>PostgreSQL, with up to 20 connections each from <code>api</code> and <code>body</code></td></tr>
+    <tr><td><code>valkey</code></td><td>512 MB</td><td>1</td><td>128</td><td>At most 256 MB of data (<code>--maxmemory</code>), more while it rewrites its file</td></tr>
+    <tr><td><code>init</code>, <code>db-setup</code></td><td>128 MB</td><td>0.5</td><td>64</td><td>They run for a moment and exit</td></tr>
+  </tbody>
+</table></div>
+<p>The Go containers also get <code>GOMEMLIMIT</code> at about 80% of their memory limit, so the garbage collector works harder before the kernel kills the process. Change a limit in a <code>docker-compose.override.yaml</code> next to the file (Compose merges it) and raise <code>GOMEMLIMIT</code> with it. <code>docker stats</code> shows the use against the limit; a container killed for using too much memory shows <code>OOMKilled: true</code> in <code>docker inspect</code>. Each of <code>api</code> and <code>body</code> opens up to 20 database connections, so PostgreSQL's <code>max_connections</code> (100 by default) must cover every <code>api</code> and <code>body</code> container you run.</p>
 <h3 id="status">Status and health checks</h3>
 <p><strong>The status page.</strong> <a href="/status">/status</a> shows the health of each part: the web process itself, the api process, the database, the body service and the workers of each provider. It is the same for everybody, signed in or not, and shows a state per part and nothing else: no versions, host names, worker names or reasons. It answers 503 while a part is down, so a monitor needs no parsing, and 200 otherwise. Every response is <code>no-store</code> and the list is identical for all visitors, so a cache cannot mix them up.</p>
 <div class="scroll"><table>
@@ -660,6 +686,7 @@ docker compose up -d</code></pre>
 </table></div>
 <p>A worker gets a new random name every time it starts, so workers of replaced containers stay on record for a day. They count for nothing once one worker of the provider is running. Give a worker a fixed <code>--worker-id</code> to keep its name. The api process keeps its answer for 5 seconds. Administrators also get <a href="/admin/status">/admin/status</a>, linked from the Admin page: the workers by name, version and last request, and the reason a part is down.</p>
 <p><strong>Health checks for containers.</strong> The images have no shell and no curl. <code>serve api</code>, <code>serve body</code> and <code>serve worker</code> take <code>--health-listen 127.0.0.1:8083</code>, a listener that answers <code>/healthz</code> (the process runs) and <code>/readyz</code> (it can do its work: the database answers, or for a worker the api process answered in the last 90 seconds) and nothing else. It needs no secret or certificate, so bind it to the loopback address. The web process needs no extra listener: <code>/healthz</code> and <code>/readyz</code> are on its normal one.</p>
+<p><strong>Profiling.</strong> Start an api, body or worker process with <code>--pprof</code> and a loopback <code>--health-listen</code> (for example <code>127.0.0.1:8083</code>) and run <code>go tool pprof http://127.0.0.1:8083/debug/pprof/profile?seconds=30</code>. The pages are on the health listener only; a profile shows memory and stacks, so the process refuses to start when <code>--pprof</code> is set without a loopback address. The web process has no health listener and no profiling pages. It is off by default.</p>
 <pre><code>healthcheck:
   test: ["CMD", "/dexafix", "healthcheck", "http://127.0.0.1:8083/readyz"]
   interval: 10s
@@ -889,7 +916,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix-dsn</code></p
     <tr><td>POST</td><td><code>/users/{id}/scale-readings</code></td><td>Add a batch: a JSON array of up to 5000 readings. Upserted on <code>source</code> and <code>external_id</code>.</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/settings</code></td><td>Athlete-mode default and method ranking.</td></tr>
     <tr><td>PUT</td><td><code>/users/{id}/settings</code></td><td>Replace them: <code>{"athlete_default": true, "method_ranking": [...]}</code>.</td></tr>
-    <tr><td>GET</td><td><code>/users/{id}/estimates</code></td><td>Daily estimates and calibrations. Supports <code>ETag</code> / <code>If-None-Match</code> (304 when unchanged).</td></tr>
+    <tr><td>GET</td><td><code>/users/{id}/estimates</code></td><td>Daily estimates and calibrations. Supports <code>ETag</code> / <code>If-None-Match</code> (304 when unchanged). <code>?days=N</code> returns only the days within N days of the newest one (all calibrations); the ETag differs per window.</td></tr>
     <tr><td>POST</td><td><code>/users/{id}/import/{provider}</code></td><td>Import from a provider (<code>withings</code>). Optional <code>since</code> (RFC 3339) and <code>day</code> (<code>YYYY-MM-DD</code>; wins over <code>since</code>).</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/export/profile</code></td><td>Download settings and personal details (JSON file).</td></tr>
     <tr><td>GET</td><td><code>/users/{id}/export/data</code></td><td>Download all scans and readings (JSON file).</td></tr>
@@ -932,7 +959,7 @@ curl -s -X POST -H "Authorization: Bearer $DEXAFIX_TOKEN" \
 <section id="security">
 <h2>Security notes and limitations</h2>
 <ul>
-  <li><strong>Encryption is partial.</strong> Height and names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
+  <li><strong>Encryption is partial.</strong> Height, usernames and first and last names are not encrypted by the application. Protect the database file or Postgres database and its backups with disk or database encryption. Losing the encryption key makes the encrypted values unreadable. See <a href="#encryption">Encryption</a>.</li>
   <li><strong>Rate limiting is in memory and basic.</strong> It covers failed password sign-ins only and resets on restart. Add limits at the proxy on a public deployment.</li>
   <li><strong>Secrets stay off command lines.</strong> Use environment variables or <code>*-file</code> flags for the Withings secret, database passwords and the encryption key.</li>
   <li><strong>Browser hardening.</strong> A strict Content-Security-Policy (scripts from the app itself only), <code>X-Frame-Options: DENY</code>, same-origin checks on form posts, and <code>no-store</code> caching for pages.</li>

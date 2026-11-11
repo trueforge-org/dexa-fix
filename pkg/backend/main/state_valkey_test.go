@@ -193,8 +193,8 @@ func TestStatusShowsValkey(t *testing.T) {
 	}
 	mr.Close()
 	code, page = body(t, anon, ts.URL+"/status")
-	if code != http.StatusServiceUnavailable || !strings.Contains(page, `state-down">Down</span> <span>Valkey`) {
-		t.Errorf("/status with Valkey down: %d", code)
+	if code != http.StatusServiceUnavailable || !strings.Contains(page, `<li class="comp-down"><span class="comp-name">Valkey`) {
+		t.Errorf("/status with Valkey down: %d, %.700s", code, statusList.FindString(page))
 	}
 }
 

@@ -22,9 +22,10 @@ DexaFix is one Go binary that corrects smart-scale readings with DEXA scans. It 
 - State that must agree across processes lives in the database, not in memory: the job queue always; single-use nonces, failed-attempt counters and sessions in the database or, with `--valkey-url` on `serve api`, in Valkey (`pkg/store/valkeystate`, never both). Security checks fail closed, with Valkey down nobody signs in. Sessions in Valkey are ended explicitly (sign-out, password change or reset, deleted account) and the user row is read from the database on every request.
 - Settings live on the Admin page (stored in the database), not in flags or environment variables. A flag is only for boot-critical things: addresses, database, key and secret files, backend URL, TLS files.
 - Secrets are never flag values or URL parts; flags take file paths. Do not log secrets, tokens or cookies.
-- No migration files before 1.0: edit `00001_init.sql` for both SQLite and PostgreSQL, in step.
+- v0.0.1 is released: never edit `00001_init.sql`. Every schema change is a new numbered migration, same file name for both SQLite and PostgreSQL, with a working `Down`.
 - Keep user-visible strings and status codes. Keep `docs/` and the in-app `docs.html` true.
 - Do not weaken a test to make it pass.
+- Keep the merged coverage of the test modes at 100% of statements: new and changed code comes with tests in the same commit, and error branches are covered by making the real thing fail (see `tests.instructions.md`).
 
 ## Validate
 

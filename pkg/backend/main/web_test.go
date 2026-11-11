@@ -86,7 +86,7 @@ func (ct cookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // signup creates an account and makes the client act as it.
 func signup(t *testing.T, ts *httptest.Server, c *http.Client, name string) {
 	t.Helper()
-	resp := post(t, c, ts.URL+"/signup", url.Values{"name": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
+	resp := post(t, c, ts.URL+"/signup", url.Values{"username": {name}, "email": {name + "@example.com"}, "password": {testPassword}, "confirm": {testPassword}})
 	if resp.StatusCode != 303 {
 		t.Fatalf("signup %s: %d", name, resp.StatusCode)
 	}
@@ -254,10 +254,17 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("users without sign-in: %d", code)
 	}
 	signup(t, ts, c, "admin")
-	if code, b := do("GET", "/api/v1/users", ""); code != 200 || !strings.Contains(b, `"name":"admin"`) || !strings.Contains(b, `"role":"admin"`) {
+	if code, b := do("GET", "/api/v1/users", ""); code != 200 || !strings.Contains(b, `"username":"admin"`) || !strings.Contains(b, `"name":"admin"`) ||
+		!strings.Contains(b, `"first_name":""`) || !strings.Contains(b, `"role":"admin"`) { // "name" is the username as v0.0.1 called it
 		t.Fatalf("users: %d %s", code, b)
 	}
-	if code, _ := do("POST", "/api/v1/users", `{"name":"carol","email":"carol@example.com"}`); code != 201 {
+	if code, b := do("POST", "/api/v1/users", `{"username":"dave","email":"dave@example.com"}`); code != 201 || !strings.Contains(b, `"username":"dave"`) || !strings.Contains(b, `"name":"dave"`) {
+		t.Fatalf("create with a username: %d %s", code, b)
+	}
+	if code, b := do("POST", "/api/v1/users", `{"username":"DAVE","email":"dave2@example.com"}`); code != 409 || !strings.Contains(b, "username") {
+		t.Fatalf("a taken username: %d %s", code, b)
+	}
+	if code, _ := do("POST", "/api/v1/users", `{"name":"carol","email":"carol@example.com"}`); code != 201 { // the old field name still works
 		t.Fatalf("create: %d", code)
 	}
 	if code, _ := do("POST", "/api/v1/users", `{"name":"carol","email":"carol@example.com"}`); code != 409 {
@@ -577,7 +584,7 @@ func TestDailyTableFollowsChartRange(t *testing.T) {
 func TestEstimatesShowBodyIndices(t *testing.T) {
 	ts, c := newTestServer(t)
 	signup(t, ts, c, "bob")
-	post(t, c, ts.URL+"/u/1/profile", url.Values{"name": {"bob"}, "email": {"bob@example.com"}, "height_cm": {"200"}})
+	post(t, c, ts.URL+"/u/1/profile", url.Values{"username": {"bob"}, "email": {"bob@example.com"}, "height_cm": {"200"}})
 	post(t, c, ts.URL+"/u/1/scale", url.Values{"measured_at": {"2026-03-01T07:30"}, "weight_kg": {"100"}})
 	_, b := body(t, c, ts.URL+"/u/1/estimates?range=all")
 	for _, want := range []string{">BMI <small>", ">FMI <small>", ">LMI <small>", ">A/G ratio<", ">25.00"} {

@@ -17,6 +17,7 @@ import (
 	bodybackend "github.com/trueforge-org/dexafix/pkg/backend/body"
 	"github.com/trueforge-org/dexafix/pkg/shared/bodyapi"
 	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
@@ -98,10 +99,8 @@ func bodyClient(cmd *cobra.Command) (c *bodyapi.Client, secrets []string, remote
 		log.Warn().Str("body", rawURL).Msg("the body service is reached over plain HTTP at an address that is not private: " +
 			"the link carries every reading and scan; use a private network or mutual TLS (dexafix secrets mtls --link body)")
 	}
-	c, err = bodyapi.New(rawURL, bodyapi.HTTPClient(tlsConfig), secrets[0], bodyapi.NewSigner(priv))
-	if err != nil {
-		return nil, nil, false, err
-	}
+	// Cannot fail: the address was checked above, and the secret and the key are there.
+	c = must.Value(bodyapi.New(rawURL, bodyapi.HTTPClient(tlsConfig), secrets[0], bodyapi.NewSigner(priv)))
 	return c, secrets, true, nil
 }
 
@@ -240,11 +239,9 @@ dexafix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/b
 		}
 		defer st.Close()
 
-		svc, err := bodybackend.New(st, secrets[0], bodyapi.NewVerifier(pubs...),
-			bodybackend.WithVersion(Version), bodybackend.WithSpareSecrets(secrets[1:]...))
-		if err != nil {
-			return err
-		}
+		// Cannot fail: a store, a secret that is not empty and a verifier.
+		svc := must.Value(bodybackend.New(st, secrets[0], bodyapi.NewVerifier(pubs...),
+			bodybackend.WithVersion(Version), bodybackend.WithSpareSecrets(secrets[1:]...)))
 		srv := newHTTPServer(listen, svc.Handler())
 		var wrap func(l net.Listener) net.Listener
 		if tlsConfig != nil {
@@ -263,7 +260,10 @@ dexafix serve body --listen :8082 --db-driver postgres --dsn-file /run/secrets/b
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
-			return shutdown(srv, health)
+			log.Info().Msg("shutting down")
+			err := shutdown(srv, health)
+			log.Info().Msg("stopped")
+			return err
 		}
 	},
 }
@@ -278,11 +278,7 @@ var secretsBodySecretCmd = &cobra.Command{
 		"  dexafix secrets body-secret > body.secret && chmod 600 body.secret",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s, err := newServiceSecret()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), s)
+		fmt.Fprintln(cmd.OutOrStdout(), newServiceSecret())
 		return nil
 	},
 }
@@ -295,10 +291,7 @@ var secretsBodyTokenKeyCmd = &cobra.Command{
 		"  dexafix secrets body-token-key > body-token.key && chmod 600 body-token.key",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, _, priv, err := bodyapi.GenerateKey()
-		if err != nil {
-			return err
-		}
+		_, _, priv := bodyapi.GenerateKey()
 		fmt.Fprintln(cmd.OutOrStdout(), bodyapi.EncodePrivateKey(priv))
 		return nil
 	},

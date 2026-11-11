@@ -431,7 +431,7 @@ func TestResetLinkDiesWhenPasswordOrEmailChanges(t *testing.T) {
 
 	// a new e-mail address: a link made for the old one stops working
 	fresh, _ := makeResetLink(t, ts, admin, 2)
-	r, _ = tfRequest(t, bob, "POST", ts.URL+"/u/2/profile", url.Values{"name": {"bob"}, "email": {"bob.new@example.com"}, "current": {own}})
+	r, _ = tfRequest(t, bob, "POST", ts.URL+"/u/2/profile", url.Values{"username": {"bob"}, "email": {"bob.new@example.com"}, "current": {own}})
 	if r.StatusCode != 303 {
 		t.Fatalf("change e-mail address: %d", r.StatusCode)
 	}

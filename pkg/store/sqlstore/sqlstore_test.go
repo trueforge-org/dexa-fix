@@ -68,17 +68,20 @@ func TestUsers(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	u, err := s.CreateUser(ctx, "  alice ")
-	if err != nil || u.Name != "alice" || u.ID == 0 {
+	if err != nil || u.Username != "alice" || u.ID == 0 {
 		t.Fatalf("create: %+v %v", u, err)
 	}
-	if _, err := s.CreateUser(ctx, "alice"); err != nil { // names need not be unique
-		t.Fatalf("same name: %v", err)
+	if _, err := s.CreateUser(ctx, "alice"); !errors.Is(err, store.ErrUsernameTaken) { // usernames are unique
+		t.Fatalf("same username: %v", err)
 	}
 	if _, err := s.CreateUser(ctx, " "); !errors.Is(err, store.ErrInvalid) {
 		t.Fatalf("want ErrInvalid, got %v", err)
 	}
 	if _, err := s.GetUser(ctx, 999); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+	if _, err := s.CreateUser(ctx, "bob"); err != nil {
+		t.Fatal(err)
 	}
 	us, _ := s.ListUsers(ctx)
 	if len(us) != 2 {
@@ -89,8 +92,8 @@ func TestUsers(t *testing.T) {
 func TestDexaRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "a")
-	other, _ := s.CreateUser(ctx, "b")
+	u, _ := s.CreateUser(ctx, "aa")
+	other, _ := s.CreateUser(ctx, "bb")
 	d := &models.DexaScan{UserID: u.ID, MeasuredAt: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), WeightKg: f(80.5), BMDGCm2: f(1.25), Notes: "x"}
 	if err := s.CreateDexaScan(ctx, d); err != nil || d.ID == 0 {
 		t.Fatal(err)
@@ -119,7 +122,7 @@ func TestDexaRoundTrip(t *testing.T) {
 func TestScaleUpsertIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "a")
+	u, _ := s.CreateUser(ctx, "aa")
 	ext := "grp-1"
 	at := time.Date(2026, 3, 2, 7, 30, 0, 0, time.UTC)
 	batch := []models.ScaleReading{
@@ -190,7 +193,7 @@ func TestIntegrations(t *testing.T) {
 func TestUserSettings(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "a")
+	u, _ := s.CreateUser(ctx, "aa")
 	got, err := s.GetUser(ctx, u.ID)
 	if err != nil || got.AthleteDefault || !reflect.DeepEqual(got.MethodRanking, models.DefaultRanking()) {
 		t.Fatalf("defaults: %+v %v", got, err)
@@ -214,7 +217,7 @@ func TestUserSettings(t *testing.T) {
 func TestScaleMethodAndAthleteModeAreKeptOnUpsert(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	u, _ := s.CreateUser(ctx, "a")
+	u, _ := s.CreateUser(ctx, "aa")
 	ext := "grp-1"
 	at := time.Date(2026, 3, 2, 7, 30, 0, 0, time.UTC)
 	r := models.ScaleReading{MeasuredAt: at, WeightKg: f(81), Source: "withings", ExternalID: &ext, Method: models.MethodTape, AthleteMode: true}

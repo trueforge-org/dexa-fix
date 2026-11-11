@@ -105,28 +105,32 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, 
 	return s.userModel(&row)
 }
 
-func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, name, email string, heightCm *float64) error {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 64 {
-		return fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
+func (s *Store) UpdateUserProfile(ctx context.Context, userID int64, username, firstName, lastName, email string, heightCm *float64) error {
+	username = strings.TrimSpace(username)
+	var current userRow
+	if err := s.db.NewSelect().Model(&current).Column("username").Where("id = ?", userID).Scan(ctx); err != nil {
+		return notFound(err)
+	}
+	// Usernames from before the rules (spaces and the like) stay usable: only a change is checked.
+	if username != current.Username && !models.ValidUsername(username) {
+		return fmt.Errorf("%w: username must be 2-32 letters, digits, '.', '_' or '-'", store.ErrInvalid)
+	}
+	firstName, okFirst := models.CleanPersonName(firstName)
+	lastName, okLast := models.CleanPersonName(lastName)
+	if !okFirst || !okLast {
+		return fmt.Errorf("%w: first and last name must be at most %d characters, without control characters", store.ErrInvalid, models.MaxPersonNameLen)
 	}
 	email = models.NormalizeEmail(email)
-	enc, err := s.encrypt(email, emailContext(userID))
-	if err != nil {
-		return err
-	}
-	res, err := s.db.NewUpdate().Model((*userRow)(nil)).
-		Set("name = ?", name).Set("email = ?", enc).Set("email_lookup = ?", s.emailLookup(email)).Set("height_cm = ?", heightCm).
+	enc := s.encrypt(email, emailContext(userID))
+	_, err := s.db.NewUpdate().Model((*userRow)(nil)).
+		Set("username = ?", username).Set("first_name = ?", firstName).Set("last_name = ?", lastName).Set("email = ?", enc).Set("email_lookup = ?", s.emailLookup(email)).Set("height_cm = ?", heightCm).
 		Set("data_version = data_version + 1").
 		Where("id = ?", userID).Exec(ctx)
 	if err != nil {
 		if isUnique(err) {
-			return store.ErrExists
+			return uniqueError(err)
 		}
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return store.ErrNotFound
 	}
 	return nil
 }
@@ -382,10 +386,7 @@ func (s *Store) GetSetting(ctx context.Context, name string) (string, error) {
 }
 
 func (s *Store) PutSetting(ctx context.Context, name, value string) error {
-	enc, err := s.encrypt(value, settingContext(name))
-	if err != nil {
-		return err
-	}
+	enc := s.encrypt(value, settingContext(name))
 	row := settingRow{Name: name, Value: enc, UpdatedAt: now()}
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(&row).
@@ -452,10 +453,7 @@ func (s *Store) providerModel(r providerRow) (models.AuthProvider, error) {
 }
 
 func (s *Store) PutAuthProvider(ctx context.Context, p models.AuthProvider) error {
-	var err error
-	if p.ClientSecret, err = s.encrypt(p.ClientSecret, providerContext(p.Slug)); err != nil {
-		return err
-	}
+	p.ClientSecret = s.encrypt(p.ClientSecret, providerContext(p.Slug))
 	row := providerRow{Slug: p.Slug, Label: p.Label, Kind: p.Kind, Issuer: p.Issuer, AuthURL: p.AuthURL, TokenURL: p.TokenURL,
 		UserinfoURL: p.UserinfoURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret, AppleTeamID: p.AppleTeamID, AppleKeyID: p.AppleKeyID,
 		Scopes: p.Scopes, SubjectClaim: p.SubjectClaim, NameClaim: p.NameClaim, AllowSignup: p.AllowSignup, CreatedAt: now()}
@@ -464,7 +462,7 @@ func (s *Store) PutAuthProvider(ctx context.Context, p models.AuthProvider) erro
 		"apple_team_id", "apple_key_id", "scopes", "subject_claim", "name_claim", "allow_signup"} {
 		q = q.Set(col + " = EXCLUDED." + col)
 	}
-	_, err = q.Exec(ctx)
+	_, err := q.Exec(ctx)
 	return err
 }
 

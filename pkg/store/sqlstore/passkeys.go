@@ -37,9 +37,7 @@ func (s *Store) EnsurePasskeyHandle(ctx context.Context, userID int64) (string, 
 		return *row.PasskeyHandle, nil
 	}
 	b := make([]byte, 64)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
 	handle := base64.RawURLEncoding.EncodeToString(b)
 	// Only set it when it is still empty, so two requests agree on one value.
 	if _, err := s.db.NewUpdate().Model((*userRow)(nil)).Set("passkey_handle = ?", handle).

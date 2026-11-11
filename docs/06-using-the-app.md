@@ -1,12 +1,13 @@
 # Using the app
 
-Settings and Admin are in a menu under your name in the header, which also has
-**Sign out**.
+Settings and Admin are in a menu under your first name (or your username, when
+you have not set one) in the header, which also has **Sign out**.
 
 - `/`: the sign-in page. Sign in with an e-mail address and password, with a
   passkey (**Sign in with a passkey**), create an account, or use a provider
-  button. Names are display names. They need not be unique and have 1 to 64
-  characters.
+  button. A username is unique (ignoring case) and has 2 to 32 letters, digits,
+  `.`, `_` or `-`, starting with a letter or digit. You sign in with your
+  e-mail address, not your username.
 - `/u/{id}`: redirects to the estimates page.
 - `/u/{id}/estimates`: one row per day with the estimated values, an overview
   with the latest values and a trend chart, the calibrations in use, and the
@@ -21,7 +22,8 @@ Settings and Admin are in a menu under your name in the header, which also has
   section connects, imports from and disconnects the user's Withings account. It
   says so when Withings credentials are missing, either on the Admin page or in
   the environment. Also:
-  - **Profile**: name, e-mail, time zone and height in cm. The e-mail is
+  - **Profile**: username, first name and last name (both optional, up to 64
+    characters), e-mail, time zone and height in cm. The e-mail is
     required, because it is how you sign in; changing it asks for your current
     password. The time zone (an IANA name such as `Europe/Amsterdam`, default
     `UTC`) decides which calendar day a scale reading belongs to, how the date
@@ -46,7 +48,8 @@ Settings and Admin are in a menu under your name in the header, which also has
   - **Sign-in providers**: add, edit and remove providers.
   - **Withings application**: the client ID, client secret and redirect URL.
   - **Network and retention**: the base URL, trusted proxies, the PROXY protocol,
-    how long the audit log is kept and the encryption key reminder. See
+    whether sign-in providers and the mail server may be on private network
+    addresses (one setting for each), how long the audit log is kept and the encryption key reminder. See
     [Settings on the Admin page](02-configuration.md#settings-on-the-admin-page).
   - **E-mail**: the SMTP server for password reset e-mails, and a test e-mail.
   - **HTTPS, HTTP/2 and HTTP/3**: an optional HTTPS listener with a certificate.
@@ -71,3 +74,12 @@ scan day) per method and mode. Days with only a DEXA scan appear too. The
 daily table shows the same period as the chart (30 days, 90 days, 1 year or
 all time, 90 days by default). The Columns menu above the daily table shows
 and hides columns, and the choice is remembered per account.
+
+## The footer, terms and privacy
+
+Every page has a footer with links to the documentation, the status page, the
+**Terms of Service** (`/terms`), the **Privacy Policy** (`/privacy`), the
+project's sponsor page on [Open Collective](https://opencollective.com/dexafix)
+and, as a GitHub icon, the source code (which the AGPL asks a server to offer).
+Signed-in people see a short, dismissible reminder above the estimates that the
+project lives on support; closing it is remembered for 90 days in a cookie.

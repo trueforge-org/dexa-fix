@@ -15,8 +15,8 @@ user's role is not enough. See [Authentication](#authentication).
 
 | Method | Path                            | Description                                                                                                                                             |
 | ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/users`                        | List users. Administrators only.                                                                                                                        |
-| POST   | `/users`                        | Create a user. Administrators only. Body: `{"name": "...", "email": "...", "password": "..."}`. `email` is required and unique. `password` is optional. |
+| GET    | `/users`                        | List users. Administrators only. Each has `username`, `first_name` and `last_name`; `name` repeats the username for scripts written for v0.0.1. |
+| POST   | `/users`                        | Create a user. Administrators only. Body: `{"username": "...", "email": "...", "password": "..."}`. `username` and `email` are required and unique; a taken username is 409. `password` is optional. |
 | GET    | `/users/{id}/dexa-scans`        | List DEXA scans.                                                                                                                                        |
 | POST   | `/users/{id}/dexa-scans`        | Add a scan. `measured_at` is required (RFC 3339).                                                                                                       |
 | GET    | `/users/{id}/scale-readings`    | List scale readings.                                                                                                                                    |
@@ -48,7 +48,11 @@ endpoints always return everything.
 
 Batch readings with an `external_id` are upserted on `source` and
 `external_id`, so repeated imports do not duplicate. Readings without a
-`source` get `manual`.
+`source` get `manual`. A `source` is 1 to 32 characters of `a-z`, `0-9`, `_` and
+`-`; an `external_id` is at most 128 characters; `measured_at` is required. A
+batch that breaks one of these is refused as a whole with a 400 that names the
+item. Do not use the name of a provider (`withings`) for readings of your own: the
+next import from that provider treats them as its own and may replace them.
 
 Readings also take `method` (`scale` by default, or `hydrostatic`, `bodpod`,
 `caliper`, `tape`, `visual-ai`, `manual-entry`) and `athlete_mode`. When `athlete_mode` is left
@@ -63,7 +67,7 @@ export DEXAFIX_USER=...        # your user id: the number in the address of your
 curl -s -X POST localhost:8080/api/v1/users \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Alice", "email": "alice@example.com"}'
+  -d '{"username": "alice", "email": "alice@example.com"}'
 
 curl -s -X POST localhost:8080/api/v1/users/$DEXAFIX_USER/dexa-scans \
   -H "Authorization: Bearer $DEXAFIX_TOKEN" \
@@ -102,6 +106,11 @@ Send one of these with each request:
   use a personal access token.
 
 - The browser session cookie, set when you sign in on the website.
+
+The administrator routes of the API (`/users` and the like) accept the token of
+an administrator without the second proof the Admin pages ask for. Treat an
+administrator's token like their password: create it only where you need it, give
+it an expiry and delete it when it is no longer used.
 
 A user can reach only their own `/users/{id}/...` routes. Other ids answer 404.
 `GET /users` and `POST /users` are for administrators only.

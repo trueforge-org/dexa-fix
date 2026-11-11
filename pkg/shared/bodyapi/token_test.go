@@ -11,10 +11,7 @@ import (
 
 func newPair(t *testing.T) (*Signer, ed25519.PublicKey) {
 	t.Helper()
-	_, pub, priv, err := GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, pub, priv := GenerateKey()
 	return NewSigner(priv), pub
 }
 
@@ -52,6 +49,7 @@ func TestTokenRefusals(t *testing.T) {
 		"tampered subject":           {tamper(t, good, `"sub":1`, `"sub":2`), now},
 		"tampered scope":             {tamper(t, good, `"scope":"read"`, `"scope":"admin"`), now},
 		"garbage":                    {"abc.def", now},
+		"signature not base64":       {strings.SplitN(good, ".", 2)[0] + ".!!!", now},
 		"signature of another token": {strings.SplitN(good, ".", 2)[0] + "." + strings.SplitN(s.Sign(2, ScopeRead, nil, now), ".", 2)[1], now},
 	} {
 		if _, err := v.Verify(tc.token, tc.at); err == nil {
@@ -71,7 +69,7 @@ func TestTokenRefusals(t *testing.T) {
 // A token that is signed correctly but made to last long is refused: the signer is not trusted to
 // choose the lifetime either, so a leaked token stops working soon.
 func TestTokenWithLongLifetimeIsRefused(t *testing.T) {
-	_, pub, priv, _ := GenerateKey()
+	_, pub, priv := GenerateKey()
 	now := time.Now()
 	long := NewSigner(priv)
 	token := long.Sign(1, ScopeRead, nil, now.Add(time.Hour)) // exp is an hour and a minute away
@@ -81,7 +79,7 @@ func TestTokenWithLongLifetimeIsRefused(t *testing.T) {
 }
 
 func TestWrongAudienceIsRefused(t *testing.T) {
-	_, pub, priv, _ := GenerateKey()
+	_, pub, priv := GenerateKey()
 	now := time.Now()
 	s := NewSigner(priv)
 	token := s.Sign(1, ScopeRead, nil, now)
@@ -145,12 +143,12 @@ func signRaw(t *testing.T, key ed25519.PrivateKey, payload string) string {
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func TestKeyFilesRoundTrip(t *testing.T) {
-	_, pub, priv, _ := GenerateKey()
+	_, pub, priv := GenerateKey()
 	got, err := ParsePrivateKey("# the signing key of the main backend\n" + EncodePrivateKey(priv) + "\n")
 	if err != nil || !got.Equal(priv) {
 		t.Fatalf("private key: %v", err)
 	}
-	_, pub2, _, _ := GenerateKey()
+	_, pub2, _ := GenerateKey()
 	pubs, err := ParsePublicKeys(EncodePublicKey(pub) + "\n\n# the next key\n" + EncodePublicKey(pub2) + "\n")
 	if err != nil || len(pubs) != 2 || !pubs[0].Equal(pub) || !pubs[1].Equal(pub2) {
 		t.Fatalf("public keys: %v", err)

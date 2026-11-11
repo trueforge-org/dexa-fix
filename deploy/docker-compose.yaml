@@ -19,18 +19,26 @@
 #                  v                                         |                            v
 #                db (PostgreSQL) <---------------------------+  "data"          Withings, Strength Level
 #
-# Start:
+# Start, with the folder for the secrets made first (init runs as the unprivileged user 568:568,
+# like the other containers, so ./secrets must belong to it; a folder that Docker makes by itself
+# belongs to root and init then stops and tells you so):
+#   mkdir -m 700 secrets && sudo chown 568:568 secrets
 #   docker compose up -d
 #   Open http://localhost:8080 and create the first account: it becomes the administrator.
 #
-# Nothing has to be made by hand first. Two short-lived containers run at every `docker compose up`:
+# Or let init do the chown/chmod for you, as root, the first time only:
+#   docker compose run --rm --user 0:0 init     (gives ./secrets and the volumes to 568:568)
+#   docker compose up -d                        (init runs as 568:568 from now on: nothing to change)
+# Plain `docker compose up -d` on a folder that belongs to somebody else stops at init with that advice.
+#
+# Two short-lived containers run at every `docker compose up`:
 #
 #   init       is `dexafix secrets init`. It makes every secret and certificate:
 #                ./secrets/   passwords, connection strings and the two encryption keys, created only
 #                             when missing and never replaced. BACK UP encryption_key and
 #                             body_encryption_key together with the database: without them the encrypted
 #                             values (stored passwords, keys, tokens, the readings and scans) cannot be
-#                             read. The directory is private to root; read it with sudo.
+#                             read. The directory is private (mode 700) to 568:568; read it with sudo.
 #                volumes secrets-api, -web, -worker, -body, -db, -dbsetup, -valkey
 #                             what each container needs and nothing more: its connection string and key,
 #                             the shared secrets (kept once) and the mutual TLS certificates (new at
@@ -81,20 +89,81 @@ x-health: &health
   retries: 5
   start_period: 20s
 
+# Resource limits. Every container has a default ceiling on memory, CPU and processes, so that one
+# runaway process (a flood of requests, a very large import, a leak) cannot starve the others on the
+# same host. They are generous for a household or a small team; raise one in a
+# docker-compose.override.yaml next to this file, for example:
+#
+#   services:
+#     body:
+#       deploy:
+#         resources:
+#           limits: {memory: 2G}
+#
+# The Go containers also get GOMEMLIMIT at about 80% of their memory limit, so the garbage collector
+# works harder before the kernel kills the process. If you raise a memory limit, raise GOMEMLIMIT too.
+# "pids" caps the number of processes and threads (a fork bomb or a thread leak stops there).
+#
+#   api     the sign-in work (bcrypt) and the pages' data
+#   body    the estimates: CPU heavy, and it keeps up to 32 users' results in memory (about 160 MB at most)
+#   db      PostgreSQL, with up to 20 connections each from api and body
+#   valkey  holds at most 256 MB of data (--maxmemory), more while it rewrites its file
+# Logs go to stdout and Docker keeps them in a file per container, which by default is never rotated.
+# This keeps at most 3 files of 10 MB for each container (`docker compose logs` shows the last ones).
+# Set LOGFORMAT=json in a container's environment for one JSON object per line, for a log collector.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+x-limits-oneshot: &limits-oneshot
+  deploy:
+    resources:
+      limits: {cpus: "0.50", memory: 128M, pids: 64}
+x-limits-web: &limits-web
+  deploy:
+    resources:
+      limits: {cpus: "1.00", memory: 256M, pids: 256}
+x-limits-api: &limits-api
+  deploy:
+    resources:
+      limits: {cpus: "2.00", memory: 512M, pids: 256}
+x-limits-body: &limits-body
+  deploy:
+    resources:
+      limits: {cpus: "2.00", memory: 768M, pids: 256}
+x-limits-worker: &limits-worker
+  deploy:
+    resources:
+      limits: {cpus: "0.50", memory: 256M, pids: 128}
+x-limits-db: &limits-db
+  deploy:
+    resources:
+      limits: {cpus: "2.00", memory: 1G, pids: 512}
+x-limits-valkey: &limits-valkey
+  deploy:
+    resources:
+      limits: {cpus: "1.00", memory: 512M, pids: 128}
+
 # Every container that reads secrets waits for init, so it never starts with old certificates.
 x-after-init: &after-init
   init:
     condition: service_completed_successfully
 
 services:
-  # Makes the secrets and certificates, then exits. It needs no network. It runs as root with two
-  # capabilities only: to write ./secrets (owned by root) and to hand the files in the volumes to the
-  # unprivileged user (568) of the other containers.
+  # Makes the secrets and certificates, then exits. It needs no network, and runs as the unprivileged
+  # user 568:568 like the other containers: the folders it writes must belong to that user (./secrets:
+  # chown 568:568 and chmod 700; the volumes are made that way by the image). If an owner or a mode
+  # would have to change, it stops with an error that says so. Run it once as root to have it done:
+  #   docker compose run --rm --user 0:0 init
+  # cap_add is for that one run only: a process that is not root has no capabilities, so as 568:568
+  # the two are of no use, and as root they are all it has (no other capability, no network).
   init:
+    <<: [*limits-oneshot, *logging]
     image: *image
     restart: "no"
     read_only: true
-    user: "0:0"
+    user: "568:568"
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
@@ -122,6 +191,7 @@ services:
       - secrets-valkey:/secrets/valkey
 
   db:
+    <<: [*limits-db, *logging]
     image: ghcr.io/trueforge-org/postgresql:18@sha256:ebc55059b971628b4db5105c28558e53693709eb65879015701848052c0c2106
     restart: unless-stopped
     cap_drop: [ALL]
@@ -152,6 +222,7 @@ services:
   # files init made, so it also mends a start that failed half way. Only this container and the
   # database see the superuser's password.
   db-setup:
+    <<: [*limits-oneshot, *logging]
     image: *image
     restart: "no"
     read_only: true
@@ -172,6 +243,7 @@ services:
 
   # The failed sign-in counters, the single-use values and the sessions (see the top of this file).
   valkey:
+    <<: [*limits-valkey, *logging]
     image: ghcr.io/trueforge-org/valkey:9@sha256:bc2f4df96ee1e33d95b44fc0ca1ab8d1c561e4f3e0c58eebbb108e939662a561
     restart: unless-stopped
     cap_drop: [ALL]
@@ -199,13 +271,14 @@ services:
       start_period: 10s
 
   api:
-    <<: *hardened
+    <<: [*hardened, *limits-api, *logging]
     image: *image
     # --listen= turns the public JSON API (/api/v1) off: the pages do not use it, and the less is
     # exposed the better. To offer it to scripts and apps, remove the flag, publish port 8080 of
     # this service behind your reverse proxy (route /api/ to it) or set DEXAFIX_API_UPSTREAM on web.
     command: ["serve", "api", "--listen="]
     environment:
+      GOMEMLIMIT: 400MiB # 80% of the memory limit above
       DEXAFIX_DB_DRIVER: postgres
       DEXAFIX_DSN_FILE: /secrets/api/dsn
       DEXAFIX_ENCRYPTION_KEY_FILE: /secrets/api/encryption_key
@@ -250,10 +323,11 @@ services:
   # sees the schema "body" and nothing else. Only the api can reach it (network "bodylink"), and only
   # with the api's client certificate.
   body:
-    <<: *hardened
+    <<: [*hardened, *limits-body, *logging]
     image: *image
     command: ["serve", "body"]
     environment:
+      GOMEMLIMIT: 600MiB # about 80% of the memory limit above
       DEXAFIX_DB_DRIVER: postgres
       DEXAFIX_DSN_FILE: /secrets/body/body_dsn
       DEXAFIX_ENCRYPTION_KEY_FILE: /secrets/body/body_encryption_key
@@ -276,10 +350,11 @@ services:
     networks: [data, bodylink]
 
   web:
-    <<: *hardened
+    <<: [*hardened, *limits-web, *logging]
     image: *image
     command: ["serve", "web"]
     environment:
+      GOMEMLIMIT: 200MiB # about 80% of the memory limit above
       DEXAFIX_BACKEND_URL: https://api:8081
       DEXAFIX_SERVICE_SECRET_FILE: /secrets/web/service_secret
       DEXAFIX_BACKEND_CA_FILE: /secrets/web/mtls_ca
@@ -313,10 +388,11 @@ services:
   # Admin page, under Workers. The workers use the web container's client certificate: it proves the
   # link, and the worker secret proves the role.
   worker-withings:
-    <<: *hardened
+    <<: [*hardened, *limits-worker, *logging]
     image: *image
     command: ["serve", "worker", "--providers", "withings"]
     environment: &worker-env
+      GOMEMLIMIT: 200MiB # about 80% of the memory limit above
       DEXAFIX_BACKEND_URL: https://api:8081
       DEXAFIX_WORKER_SECRET_FILE: /secrets/worker/worker_secret
       DEXAFIX_HEALTH_LISTEN: "127.0.0.1:8083"
@@ -335,7 +411,7 @@ services:
     networks: [link, egress]
 
   worker-strengthlevel:
-    <<: *hardened
+    <<: [*hardened, *limits-worker, *logging]
     image: *image
     command: ["serve", "worker", "--providers", "strengthlevel"]
     environment: *worker-env

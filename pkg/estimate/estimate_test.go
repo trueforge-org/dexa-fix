@@ -697,3 +697,27 @@ func TestCalculatedMassDoesNotKeepTheScalesRawReading(t *testing.T) {
 		t.Errorf("fat mass: %+v, want 16 without a raw value", got)
 	}
 }
+
+func TestWithinDays(t *testing.T) {
+	mk := func(n int) []DayEstimate { // newest first, one per day
+		var ds []DayEstimate
+		for i := 0; i < n; i++ {
+			ds = append(ds, DayEstimate{Date: time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -i)})
+		}
+		return ds
+	}
+	days := mk(100)
+	for _, c := range []struct{ n, want int }{{0, 100}, {-3, 100}, {1, 1}, {30, 30}, {100, 100}, {500, 100}} {
+		if got := len(WithinDays(days, c.n)); got != c.want {
+			t.Errorf("WithinDays(100 days, %d) = %d days, want %d", c.n, got, c.want)
+		}
+	}
+	if got := WithinDays(nil, 5); len(got) != 0 {
+		t.Errorf("no days: %d", len(got))
+	}
+	// Gaps count in calendar days, not entries.
+	gappy := []DayEstimate{{Date: days[0].Date}, {Date: days[0].Date.AddDate(0, 0, -2)}, {Date: days[0].Date.AddDate(0, 0, -9)}}
+	if got := len(WithinDays(gappy, 3)); got != 2 {
+		t.Errorf("within 3 days of a gappy list: %d, want 2", got)
+	}
+}

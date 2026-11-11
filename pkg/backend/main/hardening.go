@@ -75,6 +75,24 @@ func (l *failureLimiter) Blocked(ctx context.Context, key string, max int) bool 
 	return n >= max
 }
 
+// Attempt notes an attempt for key before it is checked, and reports whether it may go on: at most
+// max attempts in the window do. Counting first and deciding after is what keeps a burst of
+// parallel guesses from all passing a check that none of them has been counted for yet. The caller
+// resets the key when the attempt turns out to be right, so a correct code or password costs
+// nothing. An error from the state store refuses (fails closed).
+func (l *failureLimiter) Attempt(ctx context.Context, key string, max int) bool {
+	if err := l.st.RecordFailure(ctx, key, l.now()); err != nil {
+		log.Error().Err(err).Msg("record an attempt: refusing it")
+		return false
+	}
+	n, err := l.st.CountFailures(ctx, key, l.now().Add(-failWindow))
+	if err != nil {
+		log.Error().Err(err).Msg("count attempts: refusing the attempt")
+		return false
+	}
+	return n <= max
+}
+
 // Fail notes a failed attempt. If it cannot be stored the attempt is not counted; that is logged.
 func (l *failureLimiter) Fail(ctx context.Context, key string) {
 	if err := l.st.RecordFailure(ctx, key, l.now()); err != nil {
@@ -136,9 +154,8 @@ func (s *Backend) throttled(r *http.Request, login string) bool {
 	return s.limiter.Blocked(ctx, ipKey(r), maxIPFail) || (login != "" && s.limiter.Blocked(ctx, loginKey(login), maxLoginFail))
 }
 
-func (s *Backend) recordFailure(r *http.Request, login string) {
+// recordFailure counts a wrong password against the client address. The login name was counted
+// before the password was checked (Attempt in throttledVerify).
+func (s *Backend) recordFailure(r *http.Request) {
 	s.limiter.Fail(r.Context(), ipKey(r))
-	if login != "" {
-		s.limiter.Fail(r.Context(), loginKey(login))
-	}
 }

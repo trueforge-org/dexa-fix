@@ -141,7 +141,6 @@ func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 	s := &Backend{
 		bg:          jobs.New(),
 		store:       st,
-		httpClient:  &http.Client{Timeout: providerTimeout},
 		oidcCache:   map[string]*oidc.Provider{},
 		sessions:    st,
 		limiter:     newFailureLimiter(st),
@@ -150,6 +149,7 @@ func NewBackend(st store.Store, opts ...Option) (*Backend, error) {
 		bcryptSlots: make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/4)),
 		auditNoise:  newAuditNoise(),
 	}
+	s.httpClient = s.newProviderClient()
 	for _, o := range opts {
 		o(s)
 	}

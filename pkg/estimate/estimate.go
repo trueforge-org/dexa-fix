@@ -125,6 +125,20 @@ type Result struct {
 	Calibrations []Calibration `json:"calibrations"` // oldest first
 }
 
+// WithinDays returns the part of days (newest first) within n days of the newest day, the newest
+// day counting as the first. An n of 0 or less returns all of them. The result shares the slice.
+func WithinDays(days []DayEstimate, n int) []DayEstimate {
+	if n <= 0 || len(days) == 0 {
+		return days
+	}
+	cutoff := days[0].Date.AddDate(0, 0, -(n - 1))
+	k := 0
+	for k < len(days) && !days[k].Date.Before(cutoff) {
+		k++
+	}
+	return days[:k]
+}
+
 const dayDur = 24 * time.Hour
 
 // day is the calendar date of t in UTC, as a UTC midnight. It is used for DEXA scans, which are

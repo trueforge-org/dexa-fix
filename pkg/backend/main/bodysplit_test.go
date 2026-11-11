@@ -64,10 +64,7 @@ func TestBodyServiceInItsOwnDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { bodySt.Close() })
 
-	_, pub, priv, err := bodyapi.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, pub, priv := bodyapi.GenerateKey()
 	const secret = "the-body-secret-of-this-test-0123456789"
 	svc, err := bodybackend.New(bodySt, secret, bodyapi.NewVerifier(pub))
 	if err != nil {

@@ -155,9 +155,6 @@ func (w *Worker) call(ctx context.Context, path, bearer string, form url.Values,
 		}
 		return err
 	}
-	if out == nil {
-		return nil
-	}
 	return json.Unmarshal(env.Body, out)
 }
 

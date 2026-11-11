@@ -113,7 +113,7 @@ func TestCopyIncludesAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := src.UpdateUserProfile(ctx, u.ID, "alice", "a@example.com", &height); err != nil {
+	if err := src.UpdateUserProfile(ctx, u.ID, "alice", "", "", "a@example.com", &height); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.CreateAccessToken(ctx, &models.AccessToken{UserID: u.ID, Name: "t", Prefix: "p", Hash: "h"}); err != nil {
@@ -150,8 +150,8 @@ func TestCopyIncludesAccounts(t *testing.T) {
 func TestLastAdminGuards(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	a, _ := s.CreateUser(ctx, "a")
-	b, _ := s.CreateUser(ctx, "b")
+	a, _ := s.CreateUser(ctx, "aa")
+	b, _ := s.CreateUser(ctx, "bb")
 	if !a.IsAdmin() || b.IsAdmin() {
 		t.Fatalf("roles: %s %s", a.Role, b.Role)
 	}

@@ -28,17 +28,14 @@ type rig struct {
 }
 
 // newRig starts a body service over an in-memory store, with three users, and a client for it.
-func newRig(t *testing.T) *rig {
+func newRig(t testing.TB) *rig {
 	t.Helper()
 	st, err := sqlstore.Open(context.Background(), sqlstore.DriverSQLite, "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	_, pub, priv, err := bodyapi.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, pub, priv := bodyapi.GenerateKey()
 	svc, err := New(st, testSecret, bodyapi.NewVerifier(pub), WithVersion("test"))
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +97,7 @@ func TestEveryCallNeedsTheSecretAndAValidToken(t *testing.T) {
 		t.Fatalf("control: %d", resp.StatusCode)
 	}
 
-	_, _, otherPriv, _ := bodyapi.GenerateKey()
+	_, _, otherPriv := bodyapi.GenerateKey()
 	expired := bodyapi.NewSigner(otherPriv)
 	for name, h := range map[string]map[string]string{
 		"no headers":         {},
@@ -461,5 +458,64 @@ func TestConcurrentWritesAndEstimates(t *testing.T) {
 	wg.Wait()
 	if rs, _, _ := r.client.Readings(ctx, alice, bodyapi.Page{}); len(rs) != 8 {
 		t.Errorf("%d readings", len(rs))
+	}
+}
+
+func TestEstimatesWindowTrimsDaysNotCalibrations(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	alice := r.sub(0)
+	scan := models.DexaScan{MeasuredAt: day(0), WeightKg: fl(80), FatRatioPct: fl(20), FatMassKg: fl(16), FatFreeMassKg: fl(64), LeanMassKg: fl(60)}
+	if err := r.client.CreateScan(ctx, alice, &scan); err != nil {
+		t.Fatal(err)
+	}
+	var rs []models.ScaleReading
+	for i := 0; i < 40; i++ {
+		rs = append(rs, models.ScaleReading{MeasuredAt: day(i), WeightKg: fl(80 + float64(i)/10), FatRatioPct: fl(21)})
+	}
+	if _, err := r.client.UpsertReadings(ctx, alice, rs); err != nil {
+		t.Fatal(err)
+	}
+
+	full, err := r.client.Estimates(ctx, alice, "")
+	if err != nil || len(full.Result.Days) < 10 {
+		t.Fatalf("full: %d days, %v", len(full.Result.Days), err)
+	}
+	win, err := r.client.EstimatesWindow(ctx, alice, "", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(win.Result.Days) != 7 {
+		t.Fatalf("a window of 7 gave %d days", len(win.Result.Days))
+	}
+	for i, d := range win.Result.Days {
+		if !d.Date.Equal(full.Result.Days[i].Date) {
+			t.Fatalf("day %d: %v, want %v (newest first, the same days)", i, d.Date, full.Result.Days[i].Date)
+		}
+	}
+	if len(win.Result.Calibrations) != len(full.Result.Calibrations) {
+		t.Errorf("calibrations were trimmed: %d of %d", len(win.Result.Calibrations), len(full.Result.Calibrations))
+	}
+	if win.ETag == "" || win.ETag == full.ETag {
+		t.Errorf("a window needs an ETag of its own: %q and %q", win.ETag, full.ETag)
+	}
+
+	// A validator matches the representation it came with and no other.
+	again, err := r.client.EstimatesWindow(ctx, alice, win.ETag, 7)
+	if err != nil || !again.NotModified {
+		t.Errorf("same window and ETag: %+v %v", again, err)
+	}
+	other, err := r.client.EstimatesWindow(ctx, alice, win.ETag, 30)
+	if err != nil || other.NotModified || len(other.Result.Days) != 30 {
+		t.Errorf("another window with the first window's ETag: %d days, not modified %v, %v", len(other.Result.Days), other.NotModified, err)
+	}
+
+	// A window longer than the history is the whole history.
+	huge, err := r.client.EstimatesWindow(ctx, alice, "", 99999)
+	if err != nil || len(huge.Result.Days) != len(full.Result.Days) {
+		t.Errorf("a huge window: %d days of %d, %v", len(huge.Result.Days), len(full.Result.Days), err)
+	}
+	if _, err := r.client.EstimatesWindow(ctx, alice, "", maxEstimateWindow+1); err == nil {
+		t.Error("a window beyond the bound must be refused")
 	}
 }

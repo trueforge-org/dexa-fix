@@ -154,13 +154,54 @@ which is `dexafix db provision` and makes the database roles and the schema.
 
 ```bash
 cd deploy
+mkdir -m 700 secrets && sudo chown 568:568 secrets
 docker compose up -d
 ```
 
 Open <http://localhost:8080> and create the first account: it becomes the
-administrator. There is nothing to prepare first: no file has to exist before
-`up`, because the containers read their secrets from volumes that `init` fills.
-`init` and `db-setup` run again at every `docker compose up -d`.
+administrator. No file has to exist before `up` except that folder, because the
+containers read their secrets from volumes that `init` fills. `init` and
+`db-setup` run again at every `docker compose up -d`.
+
+### Who `init` runs as
+
+`init` runs as the unprivileged user `568:568`, the user of all the other
+containers, with no capabilities. That keeps a root process out of the
+deployment, but it means the folders `init` writes must already belong to that
+user:
+
+| Folder | Must be | Who makes it so |
+| --- | --- | --- |
+| `./secrets` on the host (mounted at `/secrets/host`) | Owned by `568:568`, mode `700` | You, once: `mkdir -m 700 secrets && sudo chown 568:568 secrets`. A folder that Docker makes by itself belongs to root. |
+| The volumes `secrets-api`, `-web`, `-worker`, `-body`, `-db`, `-dbsetup`, `-valkey` | Owned by `568:568` | The image: a new volume copies the owner of its mount point. A volume that an earlier version made may belong to root. |
+
+If an owner or a mode would have to change and `init` is not allowed to change
+it, `init` stops with an error that says what to do, and nothing else starts:
+
+```text
+open /secrets/host/.service_secret.123: permission denied
+
+init runs as 568:568 and may not change the owner or the permissions of this folder. Do one of these, once:
+  - Run init as root this one time. ...
+        docker compose run --rm --user 0:0 init
+  - Or prepare the folder on the host yourself:
+        sudo chown -R 568:568 ./secrets && sudo chmod 700 ./secrets
+```
+
+You can also skip the preparation and run `init` as root the first time. As
+root it gives `./secrets`, the files in it and the volumes to `568:568` (it has
+the two capabilities it needs for that, `CHOWN` and `DAC_OVERRIDE`, and
+nothing else). From then on nothing has to change, so the plain `up` runs it as
+`568:568` again:
+
+```bash
+cd deploy
+docker compose run --rm --user 0:0 init   # once: fixes the owner of ./secrets and the volumes
+docker compose up -d                      # every time after that
+```
+
+Another user id than `568` works too (set `user:` and `--chown=` of `init` to
+it, and run the other containers as it), but then the same rule holds.
 
 What `init` makes, and where it keeps it:
 
@@ -174,7 +215,7 @@ What `init` makes, and where it keeps it:
 **Back up `./secrets/encryption_key` and `./secrets/body_encryption_key`
 together with the database.** Without an encryption key the encrypted values
 cannot be read again. They are on the host, so `docker compose down -v` does not
-delete them. `./secrets` is private to root; read it with `sudo`.
+delete them. `./secrets` is private to `568:568` (mode `700`); read it with `sudo`.
 
 The certificates are valid for 397 days and are replaced at every `docker
 compose up`, so run it at least once a year. The CA's private key is thrown away
@@ -205,6 +246,47 @@ The Docker daemon may run on another host than your shell (Docker Desktop with a
 dev container). Then a bind mount such as `./secrets` is not visible to it: use a
 normal host, or put `./secrets` in a volume as the test setup in
 `deploy.instructions.md` does.
+
+### Resource limits
+
+Every container in the Compose file has a ceiling on memory, CPU and processes,
+so that one runaway process (a flood of requests, a very large import, a leak)
+cannot starve the others on the same host. The defaults are generous for a
+household or a small team:
+
+| Container | Memory | CPUs | Processes | Why |
+| --- | --- | --- | --- | --- |
+| `api` | 512 MB | 2 | 256 | Sign-in work (bcrypt) and the pages' data |
+| `body` | 768 MB | 2 | 256 | The estimates: CPU heavy, and it keeps the results of up to 32 users in memory (about 160 MB at most) |
+| `web` | 256 MB | 1 | 256 | Pages and static files |
+| `worker-withings`, `worker-strengthlevel` | 256 MB | 0.5 | 128 | Waiting for jobs and talking to the provider |
+| `db` | 1 GB | 2 | 512 | PostgreSQL, with up to 20 connections each from `api` and `body` |
+| `valkey` | 512 MB | 1 | 128 | At most 256 MB of data (`--maxmemory`), more while it rewrites its file |
+| `init`, `db-setup` | 128 MB | 0.5 | 64 | They run for a moment and exit |
+
+The Go containers also get `GOMEMLIMIT` at about 80% of their memory limit, so
+the garbage collector works harder before the kernel kills the process. Go also
+reads the CPU limit, so a container limited to one CPU does not start a thread
+pool for sixteen.
+
+Change a limit in a `docker-compose.override.yaml` next to the file (Compose
+merges it), and raise `GOMEMLIMIT` with it:
+
+```yaml
+services:
+  body:
+    deploy:
+      resources:
+        limits: {memory: 2G}
+    environment:
+      GOMEMLIMIT: 1600MiB
+```
+
+`docker stats` shows the use against the limit. A container that is killed for
+using too much memory shows `OOMKilled: true` in `docker inspect`; raise its
+limit then. Check the PostgreSQL side too: each of `api` and `body` opens up to
+20 connections, so the server's `max_connections` (100 by default) must cover
+every `api` and `body` container you run, plus some for yourself.
 
 ## Status and health checks
 
@@ -255,6 +337,24 @@ The listener needs no secret or certificate, which is why it is a separate one,
 and it answers nothing else. Bind it to the loopback address. The web process
 needs no extra listener: its own `/healthz` (the process runs) and `/readyz`
 (it can reach the api process) are on its normal listener.
+
+### Profiling
+
+To see where an api, body or worker process spends its time, start it with
+`--pprof` (or `DEXAFIX_PPROF=true`) together with a loopback
+`--health-listen`:
+
+```bash
+dexafix serve api --health-listen 127.0.0.1:8083 --pprof ...
+go tool pprof http://127.0.0.1:8083/debug/pprof/profile?seconds=30
+```
+
+The profiling pages are served on the health listener only, and the process
+refuses to start when `--pprof` is set without a loopback `--health-listen`,
+because a profile shows memory and stacks. In a container, run `go tool pprof`
+from the host through `docker exec` or a published loopback port. The web
+process has no health listener and no profiling pages. `--pprof` is off by
+default.
 
 `dexafix healthcheck <url>` makes one request and exits 0 for a 2xx answer, so
 the container can check itself:

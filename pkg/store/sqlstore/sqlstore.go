@@ -24,6 +24,7 @@ import (
 	_ "modernc.org/sqlite" // pure-Go sqlite driver
 
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -92,16 +93,13 @@ func connect(ctx context.Context, driver, dsn string) (db *bun.DB, maxConns int,
 	switch driver {
 	case DriverSQLite:
 		secureSQLiteFile(dsn)
-		sqlDB, err = sql.Open("sqlite", sqliteDSN(dsn))
+		sqlDB = must.Value(sql.Open("sqlite", sqliteDSN(dsn))) // the driver registers itself on import; nothing is parsed yet
 		dialect = sqlitedialect.New()
 	case DriverPostgres:
-		sqlDB, err = sql.Open("pgx", dsn)
+		sqlDB = must.Value(sql.Open("pgx", dsn)) // the connection string is only parsed at the first connection
 		dialect = pgdialect.New()
 	default:
 		return nil, 0, fmt.Errorf("unsupported db driver %q (use %q or %q)", driver, DriverSQLite, DriverPostgres)
-	}
-	if err != nil {
-		return nil, 0, err
 	}
 	switch {
 	case driver == DriverSQLite && sqliteInMemory(dsn):
@@ -152,10 +150,7 @@ func Open(ctx context.Context, driver, dsn string, opts ...Option) (*Store, erro
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	case migrateRequire:
-		p, err := s.provider()
-		if err == nil {
-			err = s.checkVersion(ctx, p)
-		}
+		err := s.checkVersion(ctx, s.provider())
 		if err == nil {
 			var pending bool
 			if pending, err = s.HasPending(ctx); err == nil && pending {
@@ -296,15 +291,13 @@ func now() time.Time { return time.Now().UTC() }
 // means "nobody" to the body service.
 // newUserID returns a uniformly random user id in [1, 2^53). Ids are random instead of counted so
 // that nobody can guess another user's id or tell how many users there are.
-func newUserID() (int64, error) {
+func newUserID() int64 {
 	var b [8]byte
 	for {
-		if _, err := crand.Read(b[:]); err != nil {
-			return 0, err
-		}
+		_, _ = crand.Read(b[:]) // never fails: since Go 1.24 a broken random source ends the program
 		// 53 random bits, rejecting 0, so every id is equally likely.
 		if id := int64(binary.BigEndian.Uint64(b[:]) >> 11); id > 0 {
-			return id, nil
+			return id
 		}
 	}
 }
@@ -323,6 +316,13 @@ func SequentialUserIDsForTests() { sequentialUserIDs.Store(true) }
 // the test that wants random ids in a binary that otherwise uses counted ones.
 func SetSequentialUserIDsForTests(on bool) { sequentialUserIDs.Store(on) }
 
+// ExecForTests runs one statement for a test that has to break the database on purpose, such as
+// renaming a table so that every query on it fails. Never call it from production code.
+func (s *Store) ExecForTests(ctx context.Context, query string, args ...any) error {
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
 // freeUserID picks a random id that no user has yet. A collision is 1 in 10^15 for a store of
 // millions of users, so a few tries are plenty.
 func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
@@ -334,10 +334,7 @@ func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
 		return max.Int64 + 1, nil
 	}
 	for range 5 {
-		id, err := userIDSource()
-		if err != nil {
-			return 0, err
-		}
+		id := userIDSource()
 		taken, err := tx.NewSelect().Model((*userRow)(nil)).Where("id = ?", id).Exists(ctx)
 		if err != nil {
 			return 0, err
@@ -349,19 +346,19 @@ func (s *Store) freeUserID(ctx context.Context, tx bun.Tx) (int64, error) {
 	return 0, errors.New("could not find a free user id")
 }
 
-func (s *Store) CreateUser(ctx context.Context, name string) (models.User, error) {
-	return s.createUser(ctx, name, "", nil)
+func (s *Store) CreateUser(ctx context.Context, username string) (models.User, error) {
+	return s.createUser(ctx, username, "", nil)
 }
 
 // CreateUserWithIdentity creates a user together with a way to sign in.
-func (s *Store) CreateUserWithIdentity(ctx context.Context, name, email string, id models.Identity) (models.User, error) {
-	return s.createUser(ctx, name, email, &id)
+func (s *Store) CreateUserWithIdentity(ctx context.Context, username, email string, id models.Identity) (models.User, error) {
+	return s.createUser(ctx, username, email, &id)
 }
 
-func (s *Store) createUser(ctx context.Context, name, email string, id *models.Identity) (models.User, error) {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 64 {
-		return models.User{}, fmt.Errorf("%w: name must be 1-64 characters", store.ErrInvalid)
+func (s *Store) createUser(ctx context.Context, username, email string, id *models.Identity) (models.User, error) {
+	username = strings.TrimSpace(username)
+	if !models.ValidUsername(username) {
+		return models.User{}, fmt.Errorf("%w: username must be 2-32 letters, digits, '.', '_' or '-'", store.ErrInvalid)
 	}
 	email = models.NormalizeEmail(email)
 	var row userRow
@@ -374,17 +371,14 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 		if err != nil {
 			return err
 		}
-		row = userRow{ID: uid, Name: name, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
+		row = userRow{ID: uid, Username: username, Role: models.RoleUser, Timezone: "UTC", CreatedAt: now(), EmailLookup: s.emailLookup(email), JobPriority: models.DefaultJobPriority}
 		if n == 0 {
 			row.Role = models.RoleAdmin
 		}
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return err
 		}
-		enc, err := s.encrypt(email, emailContext(row.ID)) // the context needs the new id
-		if err != nil {
-			return err
-		}
+		enc := s.encrypt(email, emailContext(row.ID)) // the context needs the new id
 		if _, err := tx.NewUpdate().Model((*userRow)(nil)).Set("email = ?", enc).Where("id = ?", row.ID).Exec(ctx); err != nil {
 			return err
 		}
@@ -400,7 +394,7 @@ func (s *Store) createUser(ctx context.Context, name, email string, id *models.I
 	})
 	if err != nil {
 		if isUnique(err) {
-			return models.User{}, store.ErrExists
+			return models.User{}, uniqueError(err)
 		}
 		return models.User{}, err
 	}
@@ -441,7 +435,7 @@ func (s *Store) UpdateUserHiddenColumns(ctx context.Context, userID int64, keys 
 
 func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	var rows []userRow
-	if err := s.db.NewSelect().Model(&rows).OrderExpr("name").Scan(ctx); err != nil {
+	if err := s.db.NewSelect().Model(&rows).OrderExpr("username").Scan(ctx); err != nil {
 		return nil, err
 	}
 	var out []models.User
@@ -488,12 +482,9 @@ func (s *Store) GetIntegration(ctx context.Context, userID int64, provider strin
 }
 
 func (s *Store) PutIntegration(ctx context.Context, userID int64, provider string, data []byte) error {
-	enc, err := s.encrypt(string(data), integrationContext(userID, provider))
-	if err != nil {
-		return err
-	}
+	enc := s.encrypt(string(data), integrationContext(userID, provider))
 	row := integrationRow{UserID: userID, Provider: provider, Data: enc, UpdatedAt: now()}
-	_, err = s.db.NewInsert().Model(&row).
+	_, err := s.db.NewInsert().Model(&row).
 		On("CONFLICT (user_id, provider) DO UPDATE").
 		Set("data = EXCLUDED.data").Set("updated_at = EXCLUDED.updated_at").Exec(ctx)
 	if isFK(err) {

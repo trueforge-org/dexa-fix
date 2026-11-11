@@ -85,10 +85,7 @@ func tfSecondStep(t *testing.T, c *http.Client, base string, mfa *http.Cookie, c
 func tfEnable(t *testing.T, srv *Server, uid int64) (string, []string) {
 	t.Helper()
 	ctx := context.Background()
-	secret, err := newTOTPSecret()
-	if err != nil {
-		t.Fatal(err)
-	}
+	secret := newTOTPSecret()
 	if err := srv.store.PutPendingTOTP(ctx, uid, secret); err != nil {
 		t.Fatal(err)
 	}

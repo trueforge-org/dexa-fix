@@ -20,6 +20,7 @@ import (
 	mainbackend "github.com/trueforge-org/dexafix/pkg/backend/main"
 	"github.com/trueforge-org/dexafix/pkg/frontend"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 	"github.com/trueforge-org/dexafix/pkg/store/valkeystate"
 )
@@ -121,10 +122,7 @@ from the api process and apply without a restart.`,
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		srv, err := frontend.NewFrontend(client)
-		if err != nil {
-			return err
-		}
+		srv := must.Value(frontend.NewFrontend(client)) // cannot fail: the templates are built into the binary
 		srv.Version = Version
 		defer srv.Close()
 		if upstream != "" {
@@ -152,7 +150,10 @@ from the api process and apply without a restart.`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
-			return shutdown(httpSrv)
+			log.Info().Msg("shutting down")
+			err := shutdown(httpSrv)
+			log.Info().Msg("stopped")
+			return err
 		}
 	},
 }
@@ -261,10 +262,7 @@ API and another the internal one on the same database.`,
 		backendOpts := []mainbackend.Option{mainbackend.WithBody(bodyClt)}
 		if !remoteBody {
 			// No --body-url: this process runs the body service too, on the same database.
-			inProcess, bodySvc, err := bodybackend.NewInProcess(st)
-			if err != nil {
-				return err
-			}
+			inProcess, bodySvc := must.Value2(bodybackend.NewInProcess(st)) // cannot fail: a store, a secret and a key of its own
 			bodySvc.SetVersion(Version)
 			backendOpts = []mainbackend.Option{mainbackend.WithBody(inProcess)}
 		}
@@ -334,8 +332,10 @@ API and another the internal one on the same database.`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
+			log.Info().Msg("shutting down")
 			err := shutdown(servers...)
 			srv.Close()
+			log.Info().Msg("stopped")
 			return err
 		}
 	},

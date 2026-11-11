@@ -70,10 +70,7 @@ func TestCheckTOTPWindow(t *testing.T) {
 var recoveryCodeShape = regexp.MustCompile(`^[a-z2-7]{4}-[a-z2-7]{4}-[a-z2-7]{4}-[a-z2-7]{4}$`)
 
 func TestRecoveryCodes(t *testing.T) {
-	codes, err := newRecoveryCodes(10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	codes := newRecoveryCodes(10)
 	if len(codes) != 10 {
 		t.Fatalf("got %d codes, want 10", len(codes))
 	}

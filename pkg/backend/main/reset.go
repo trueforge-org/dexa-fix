@@ -24,10 +24,7 @@ func (s *Backend) resetURL(r *http.Request, token string, emailed bool) (link st
 }
 
 func (s *Backend) newResetToken(ctx context.Context, userID int64, createdBy *int64, ttl time.Duration) (string, time.Time, error) {
-	token, err := randomHex(32)
-	if err != nil {
-		return "", time.Time{}, err
-	}
+	token := randomHex(32)
 	expires := time.Now().Add(ttl)
 	return token, expires, s.store.CreatePasswordReset(ctx, hashToken(token), userID, createdBy, expires)
 }
@@ -48,7 +45,7 @@ func (s *Backend) sendResetMail(u models.User, link string, ttl time.Duration) b
 	}
 	ctx, cancel := context.WithTimeout(s.bg.Ctx, 40*time.Second)
 	defer cancel()
-	subject, body := resetMail(u.Name, link, ttl)
+	subject, body := resetMail(u.DisplayName(), link, ttl)
 	if err := m.Send(ctx, u.Email, subject, body); err != nil {
 		log.Warn().Err(err).Int64("user", u.ID).Msg("could not send the password reset e-mail")
 		return false

@@ -19,6 +19,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/trueforge-org/dexafix/pkg/models"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -70,50 +71,22 @@ func newKeyEntry(key []byte) (*keyEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	bodyKey, err := hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)
-	if err != nil {
-		return nil, err
-	}
-	if e.body, err = newKeyEntryInfo(bodyKey, bodyInfo); err != nil {
-		return nil, err
-	}
+	// The body master key is KeySize bytes by construction, so deriving from it cannot fail.
+	e.body = must.Value(newKeyEntryInfo(must.Value(hkdf.Key(sha256.New, key, nil, bodyMasterInfo, KeySize)), bodyInfo))
 	return e, nil
 }
 
-// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string.
+// newKeyEntryInfo builds an entry whose v2 key is derived with the given HKDF info string. Once the
+// length of the key is right nothing below can fail, which is why it does not return errors.
 func newKeyEntryInfo(key []byte, dekInfo string) (*keyEntry, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("encryption key must be %d bytes, got %d", KeySize, len(key))
 	}
-	gcm := func(k []byte) (cipher.AEAD, error) {
-		block, err := aes.NewCipher(k)
-		if err != nil {
-			return nil, err
-		}
-		return cipher.NewGCM(block)
-	}
-	derive := func(info string) ([]byte, error) { return hkdf.Key(sha256.New, key, nil, info, KeySize) }
+	gcm := func(k []byte) cipher.AEAD { return must.Value(cipher.NewGCM(must.Value(aes.NewCipher(k)))) }
+	derive := func(info string) []byte { return must.Value(hkdf.Key(sha256.New, key, nil, info, KeySize)) }
 
-	e := &keyEntry{}
-	var err error
-	if e.v1, err = gcm(key); err != nil {
-		return nil, err
-	}
-	dek, err := derive(dekInfo)
-	if err != nil {
-		return nil, err
-	}
-	if e.v2, err = gcm(dek); err != nil {
-		return nil, err
-	}
-	if e.index, err = derive("dexa-fix e-mail lookup"); err != nil {
-		return nil, err
-	}
-	checkKey, err := derive("dexa-fix key check")
-	if err != nil {
-		return nil, err
-	}
-	m := hmac.New(sha256.New, checkKey)
+	e := &keyEntry{v1: gcm(key), v2: gcm(derive(dekInfo)), index: derive("dexa-fix e-mail lookup")}
+	m := hmac.New(sha256.New, derive("dexa-fix key check"))
 	m.Write([]byte("dexa-fix key check v1"))
 	e.check = hex.EncodeToString(m.Sum(nil))
 	id := sha256.Sum256(key)
@@ -192,14 +165,12 @@ func WithCipher(c *Cipher) Option { return func(o *openConfig) { o.cipher = c } 
 
 // seal encrypts a value with the current key. The context ties the ciphertext to its row, so that
 // copying it into another row, such as another user's tokens, makes decryption fail.
-func (c *Cipher) seal(value, context string) (string, error) {
+func (c *Cipher) seal(value, context string) string {
 	aead := c.current.v2
 	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
+	_, _ = rand.Read(nonce) // never fails: since Go 1.24 a broken random source ends the program
 	sealed := aead.Seal(nonce, nonce, []byte(value), []byte(context))
-	return encV2 + c.current.id + ":" + base64.RawStdEncoding.EncodeToString(sealed), nil
+	return encV2 + c.current.id + ":" + base64.RawStdEncoding.EncodeToString(sealed)
 }
 
 // open decrypts a value and reports which key made it. A v2 value names its key; a v1 value does
@@ -277,9 +248,9 @@ func (s *Store) emailLookup(email string) *string {
 	return &v
 }
 
-func (s *Store) encrypt(value, context string) (string, error) {
+func (s *Store) encrypt(value, context string) string {
 	if s.cipher == nil || value == "" {
-		return value, nil
+		return value
 	}
 	return s.cipher.seal(value, context)
 }
@@ -297,9 +268,9 @@ func (s *Store) decrypt(value, context string) (string, error) {
 
 // sealWith and openWith handle the values of a domain that has its own cipher (see bodyCipher). A
 // nil cipher leaves the value as it is, like encrypt and decrypt do for the main domain.
-func sealWith(c *Cipher, value, context string) (string, error) {
+func sealWith(c *Cipher, value, context string) string {
 	if c == nil || value == "" {
-		return value, nil
+		return value
 	}
 	return c.seal(value, context)
 }
@@ -406,10 +377,7 @@ func HasEncryptedValues(ctx context.Context, driver, dsn string) (bool, error) {
 	if found {
 		return true, nil
 	}
-	if s.BodyStore == nil {
-		return false, nil
-	}
-	return s.BodyStore.HasEncryptedValues(ctx)
+	return s.BodyStore.HasEncryptedValues(ctx) // Open without WithoutBody always has the body domain
 }
 
 // HasEncryptedBodyValues is HasEncryptedValues for a database that holds only the body domain.
@@ -519,10 +487,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.Data) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Data, integrationContext(r.UserID, r.Provider))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Data, integrationContext(r.UserID, r.Provider))
 			if _, err := tx.NewUpdate().Model((*integrationRow)(nil)).Set("data = ?", enc).
 				Where("user_id = ?", r.UserID).Where("provider = ?", r.Provider).Exec(ctx); err != nil {
 				return err
@@ -537,10 +502,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if r.Name == checkSetting || !needs(r.Value) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Value, settingContext(r.Name))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Value, settingContext(r.Name))
 			if _, err := tx.NewUpdate().Model((*settingRow)(nil)).Set("value = ?", enc).Where("name = ?", r.Name).Exec(ctx); err != nil {
 				return err
 			}
@@ -554,10 +516,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.ClientSecret) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.ClientSecret, providerContext(r.Slug))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.ClientSecret, providerContext(r.Slug))
 			if _, err := tx.NewUpdate().Model((*providerRow)(nil)).Set("client_secret = ?", enc).Where("slug = ?", r.Slug).Exec(ctx); err != nil {
 				return err
 			}
@@ -571,10 +530,7 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 			if !needs(r.Secret) {
 				continue
 			}
-			enc, err := s.cipher.seal(r.Secret, totpContext(r.UserID))
-			if err != nil {
-				return err
-			}
+			enc := s.cipher.seal(r.Secret, totpContext(r.UserID))
 			if _, err := tx.NewUpdate().Model((*totpRow)(nil)).Set("secret = ?", enc).Where("user_id = ?", r.UserID).Exec(ctx); err != nil {
 				return err
 			}
@@ -586,19 +542,13 @@ func (s *Store) encryptExisting(ctx context.Context) error {
 		}
 		for _, r := range jobs {
 			if needs(r.Payload) {
-				enc, err := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
-				if err != nil {
-					return err
-				}
+				enc := s.cipher.seal(r.Payload, jobPayloadContext(r.PublicID))
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("payload = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
 			}
 			if needs(r.Result) {
-				enc, err := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
-				if err != nil {
-					return err
-				}
+				enc := s.cipher.seal(r.Result, jobResultContext(r.PublicID))
 				if _, err := tx.NewUpdate().Model((*jobRow)(nil)).Set("result = ?", enc).Where("id = ?", r.ID).Exec(ctx); err != nil {
 					return err
 				}
@@ -634,9 +584,7 @@ func (s *Store) backfillEmails(ctx context.Context, tx bun.Tx) error {
 			log.Warn().Int64("user", r.ID).Msg("e-mail address already used by an older account: cleared")
 			enc, lookup = "", nil
 		case !strings.HasPrefix(r.Email, encPrefix):
-			if enc, err = s.cipher.seal(email, emailContext(r.ID)); err != nil {
-				return err
-			}
+			enc = s.cipher.seal(email, emailContext(r.ID))
 		}
 		if lookup != nil {
 			seen[*lookup] = true

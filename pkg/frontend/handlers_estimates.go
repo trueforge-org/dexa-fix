@@ -64,13 +64,13 @@ func (s *Frontend) columnsSave(w http.ResponseWriter, r *http.Request, u models.
 }
 
 func (s *Frontend) estimatesPage(w http.ResponseWriter, r *http.Request, u models.User) {
-	pg, err := s.api.EstimatesPage(r.Context(), u.ID)
+	window := selectedRange(r.URL.Query().Get("range"))
+	pg, err := s.api.EstimatesPage(r.Context(), u.ID, pageDays(window))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	res := pg.Result
-	window := selectedRange(r.URL.Query().Get("range"))
 	visible := daysInRange(res.Days, window.Days)
 	hidden := make(map[string]bool, len(u.HiddenColumns))
 	for _, key := range u.HiddenColumns {
@@ -129,7 +129,7 @@ func (s *Frontend) estimatesPage(w http.ResponseWriter, r *http.Request, u model
 	}
 	msg := flashParam(r)
 	data := pageData{
-		Title: u.Name + " · estimates", Tab: "estimates", User: &u,
+		Title: u.DisplayName() + " · estimates", Tab: "estimates", User: &u,
 		EstFields: shown, EstColumns: columns, EstRows: rows, EstRange: window.Desc, EstRangeKey: window.Key, Cals: cals, Msg: msg,
 		Overview: buildOverview(res, u.ID, r.URL.Query().Get("metric"), r.URL.Query().Get("range")),
 	}

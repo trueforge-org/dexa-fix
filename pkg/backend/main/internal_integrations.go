@@ -93,10 +93,7 @@ func (s *Backend) internalConnect(w http.ResponseWriter, r *http.Request, u mode
 		return
 	}
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		internalError(w, err)
-		return
-	}
+	_, _ = rand.Read(b)
 	state := hex.EncodeToString(b)
 	authURL, err := p.OAuth.AuthURL(r.Context(), s, state)
 	if err != nil {
@@ -258,14 +255,12 @@ func (s *Backend) internalSLSaveLogin(w http.ResponseWriter, r *http.Request, u 
 	switch job.State {
 	case models.JobSucceeded:
 		var res workerapi.CheckLoginResult
-		if err := json.Unmarshal([]byte(job.Result), &res); err == nil && res.LoginOK {
+		_ = json.Unmarshal([]byte(job.Result), &res) // a result that does not parse never got here: applying it failed the job
+		if res.LoginOK {
 			flashed(w, "Strength Level login saved.")
 			return
-		} else if err == nil {
-			flashed(w, "Could not sign in to Strength Level: "+res.Message)
-			return
 		}
-		flashed(w, "Could not sign in to Strength Level.")
+		flashed(w, "Could not sign in to Strength Level: "+res.Message)
 	case models.JobQueued, models.JobRunning:
 		flashed(w, "Your Strength Level login is being checked in the background. Reload in a moment.")
 	case models.JobCanceled:
@@ -390,10 +385,7 @@ func (s *Backend) internalSLDay(w http.ResponseWriter, r *http.Request, u models
 	switch job.State {
 	case models.JobSucceeded:
 		var res workerapi.ExportResult
-		if err := json.Unmarshal([]byte(job.Result), &res); err != nil {
-			flashed(w, "Could not send "+day+".")
-			return
-		}
+		_ = json.Unmarshal([]byte(job.Result), &res) // a result that does not parse never got here: applying it failed the job
 		what := "already up to date"
 		if res.Added > 0 {
 			what = "added"

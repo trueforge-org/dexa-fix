@@ -53,13 +53,13 @@ func TestMigrateRoundTrip(t *testing.T) {
 	if v, _ := s.SchemaVersion(ctx); v != 0 {
 		t.Fatalf("version after down = %d", v)
 	}
-	if _, err := s.CreateUser(ctx, "x"); err == nil {
+	if _, err := s.CreateUser(ctx, "xx"); err == nil {
 		t.Fatal("expected failure with no schema")
 	}
 	if _, err := s.Migrate(ctx); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if _, err := s.CreateUser(ctx, "x"); err != nil {
+	if _, err := s.CreateUser(ctx, "xx"); err != nil {
 		t.Fatalf("create after re-migrate: %v", err)
 	}
 }

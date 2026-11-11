@@ -33,8 +33,12 @@ func paramsHash(p bodyapi.EstimateParams) string {
 
 // estimateETag identifies the estimates answer for a user: it changes with their data and settings,
 // the day and the running version of the program, and so lets callers keep their own copy.
-func (s *Service) estimateETag(userID int64, k estimateKey) string {
-	return fmt.Sprintf(`W/"est-%d-%d-%s-%s-%s"`, userID, k.version, k.params, k.day, digest(s.version, 8))
+func (s *Service) estimateETag(userID int64, k estimateKey, days int) string {
+	e := fmt.Sprintf(`W/"est-%d-%d-%s-%s-%s`, userID, k.version, k.params, k.day, digest(s.version, 8))
+	if days > 0 {
+		e += fmt.Sprintf("-d%d", days) // a shorter answer is a different representation
+	}
+	return e + `"`
 }
 
 // estimates returns the user's estimates from the cache, or computes them from the whole history.

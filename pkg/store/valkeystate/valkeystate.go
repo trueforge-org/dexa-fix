@@ -19,7 +19,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/valkey-io/valkey-go"
@@ -57,7 +59,7 @@ func Open(ctx context.Context, rawURL string) (*Client, error) {
 	opt.ClientName = "dexafix"
 	c, err := valkey.NewClient(opt)
 	if err != nil {
-		return nil, fmt.Errorf("connect to Valkey: %w", redact(err))
+		return nil, fmt.Errorf("connect to Valkey: %w", redact(err, opt.Password))
 	}
 	v := &Client{c: c, now: time.Now}
 	if err := v.Ping(ctx); err != nil {
@@ -67,8 +69,16 @@ func Open(ctx context.Context, rawURL string) (*Client, error) {
 	return v, nil
 }
 
-// redact keeps a password out of an error that quotes the address.
-func redact(err error) error { return errors.New(err.Error()) }
+// redact keeps the password out of an error that quotes the address, as it is or escaped for a URL.
+func redact(err error, password string) error {
+	msg := err.Error()
+	if password != "" {
+		msg = strings.ReplaceAll(msg, password, "***")
+		msg = strings.ReplaceAll(msg, url.QueryEscape(password), "***")
+		msg = strings.ReplaceAll(msg, url.PathEscape(password), "***")
+	}
+	return errors.New(msg)
+}
 
 // Close closes the connections.
 func (v *Client) Close() { v.c.Close() }
@@ -97,9 +107,7 @@ func (v *Client) RecordFailure(ctx context.Context, key string, at time.Time) er
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	var salt [6]byte
-	if _, err := rand.Read(salt[:]); err != nil {
-		return err
-	}
+	_, _ = rand.Read(salt[:]) // never fails: since Go 1.24 a broken random source ends the program
 	// The member must be unique, or two failures in the same millisecond count once.
 	member := strconv.FormatInt(at.UnixNano(), 10) + "-" + hex.EncodeToString(salt[:])
 	k := failPrefix + key

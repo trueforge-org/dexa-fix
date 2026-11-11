@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var statusList = regexp.MustCompile(`(?s)<ul class="status-list">.*?</ul>`)
+var statusList = regexp.MustCompile(`(?s)<ul class="status-grid">.*?</ul>`)
 
 func noCache(t *testing.T) {
 	t.Helper()
@@ -89,7 +89,7 @@ func TestStatusPageDatabaseDown(t *testing.T) {
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("/status with the database closed: %d", code)
 	}
-	if !strings.Contains(page, "Some systems are down") || !strings.Contains(page, `state-down">Down</span> <span>Database`) {
+	if !strings.Contains(page, "Some systems are down") || !strings.Contains(page, `<span class="comp-name">Database</span><span class="state state-down">Down</span>`) {
 		t.Errorf("the database is not shown as down: %.600s", statusList.FindString(page))
 	}
 	if strings.Contains(page, "closed") {
@@ -125,7 +125,11 @@ func TestStatusWorkerStates(t *testing.T) {
 	if got := state("workers.strengthlevel"); got != "up" {
 		t.Errorf("a stale worker next to a live one: %s", got)
 	}
-	// Nobody asks for work any more.
+	// Nobody asks for work any more: the worker is stopped, not just judged against a tiny window.
+	// (Left running it asks every 25 ms in the tests, and a request that lands while the status is
+	// being worked out counts as recent however small the window is, which made this test fail one
+	// run in a few.)
+	serverOf(ts).stopWorkers()
 	old := workerSeen.Get()
 	workerSeen.Set(time.Nanosecond)
 	t.Cleanup(func() { workerSeen.Set(old) })

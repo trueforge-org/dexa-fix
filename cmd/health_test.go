@@ -120,3 +120,67 @@ func TestStartHealthServesOnlyWhenAsked(t *testing.T) {
 		t.Error("a taken address must fail at start")
 	}
 }
+
+func TestLoopbackAddr(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:8083": true, "[::1]:8083": true, "localhost:8083": true,
+		":8083": false, "0.0.0.0:8083": false, "[::]:8083": false, "10.0.0.5:8083": false, "nonsense": false,
+	} {
+		if got := loopbackAddr(addr); got != want {
+			t.Errorf("loopbackAddr(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+func TestPprofOnlyOnLoopbackHealthListener(t *testing.T) {
+	c := &cobra.Command{Use: "x"}
+	addHealthFlag(c)
+	errCh := make(chan error, 1)
+
+	c.Flags().Set("pprof", "true")
+	if _, err := startHealth(c, nil, errCh); err == nil {
+		t.Error("--pprof without --health-listen must fail")
+	}
+	c.Flags().Set("health-listen", "0.0.0.0:0")
+	if _, err := startHealth(c, nil, errCh); err == nil {
+		t.Error("--pprof on a non-loopback address must fail")
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	c.Flags().Set("health-listen", addr)
+	srv, err := startHealth(c, nil, errCh)
+	if err != nil || srv == nil {
+		t.Fatalf("start: %v %v", srv, err)
+	}
+	t.Cleanup(func() { shutdown(srv) })
+	var resp *http.Response
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if resp, err = http.Get("http://" + addr + "/debug/pprof/cmdline"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the listener never answered")
+		}
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/debug/pprof/cmdline = %d", resp.StatusCode)
+	}
+
+	// Without --pprof the same listener has no profiling pages.
+	plain := httptest.NewServer(healthHandler(nil))
+	defer plain.Close()
+	r, err := http.Get(plain.URL + "/debug/pprof/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Body.Close()
+	if r.StatusCode != http.StatusNotFound {
+		t.Errorf("health handler alone served /debug/pprof/: %d", r.StatusCode)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/trueforge-org/dexafix/pkg/shared/workerapi"
 )
@@ -114,6 +115,10 @@ func (f *fake) handler() http.Handler {
 
 func fp(v float64) *float64 { return &v }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func newFake(t *testing.T) (*fake, *Client) {
 	f := &fake{entries: map[string]map[string]any{
 		"2026-11-06": {"id": "e1", "date": "2026-11-06", "bodyweight": 72.7, "bodyfat": 15.8, "bodyfat_method": "caliper", "timezone": "Europe/Amsterdam", "timezone_offset_mins": -60},
@@ -155,6 +160,34 @@ func TestLoginAndSync(t *testing.T) {
 	}
 	if f.entries["2026-11-06"]["bodyweight"] != 72.7 {
 		t.Fatal("existing entry was changed")
+	}
+}
+
+func TestSyncStopsAtOnceWhenCancelledDuringThePauseBetweenImports(t *testing.T) {
+	_, c := newFake(t)
+	c.Delay = time.Hour
+	if err := c.Login(context.Background(), "a@b.c", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// cancel once Strength Level has answered the first write, while the sync pauses; cancelling when
+	// the fake only received it could cancel the request itself
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		resp, err := http.DefaultTransport.RoundTrip(r)
+		if err == nil && r.Method == http.MethodPost && r.URL.Path == "/api/bodyweights" {
+			cancel()
+		}
+		return resp, err
+	})
+	local := []workerapi.ExportEntry{{Day: "2026-11-08", WeightKg: 72}, {Day: "2026-11-07", WeightKg: 73}}
+	start := time.Now()
+	res, err := c.Sync(ctx, local, "2026-11-01", Options{})
+	if !errors.Is(err, context.Canceled) || res.Added != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if time.Since(start) > 30*time.Second {
+		t.Fatal("the sync waited for the pause")
 	}
 }
 

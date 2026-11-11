@@ -17,7 +17,7 @@ These are the instructions for AI coding agents working in the DexaFix repositor
 | `cmd/**`, `main.go`, `pkg/app/**` (flags, processes) | [`process-wiring.instructions.md`](.github/instructions/process-wiring.instructions.md) |
 | `pkg/estimate`, `pkg/mailer`, `pkg/models` | [`domain-libraries.instructions.md`](.github/instructions/domain-libraries.instructions.md) |
 | `pkg/workers/**` (workers for Withings, Strength Level, ...) | [`workers.instructions.md`](.github/instructions/workers.instructions.md), and [`shared.instructions.md`](.github/instructions/shared.instructions.md) for the contract `pkg/shared/workerapi` |
-| any `*_test.go` | [`tests.instructions.md`](.github/instructions/tests.instructions.md) |
+| any `*.go` (coverage) and every `*_test.go` | [`tests.instructions.md`](.github/instructions/tests.instructions.md) |
 | `docs/**`, `README.md` | [`docs.instructions.md`](.github/instructions/docs.instructions.md) |
 | `deploy/**`, `Dockerfile.ci` | [`deploy.instructions.md`](.github/instructions/deploy.instructions.md) |
 | `.github/workflows/**`, `.goreleaser.yaml`, `codecov.yml` | [`ci-release.instructions.md`](.github/instructions/ci-release.instructions.md) |
@@ -62,7 +62,7 @@ The dependency rules are enforced by tests (`go list -deps`), see [`shared.instr
 4. **State that must agree across processes lives in the database, or in Valkey when one is configured.** The job queue (queued, running and finished jobs, leases, schedules, worker liveness) is in tables always. Single-use nonces, failed-attempt counters and sessions are in tables (`used_nonces`, `auth_failures`, `sessions`) or, with `--valkey-url` on `serve api`, in Valkey (`pkg/store/valkeystate`), so that a flood of wrong passwords or of signed-in visitors costs the database nothing; the two are never mixed, and Valkey runs with `maxmemory-policy noeviction`. Memory is for caches only (estimate cache, OIDC discovery cache, audit-noise de-duplication). Security checks that cannot reach the database **or Valkey** **fail closed**. Sessions in Valkey are ended on purpose (sign-out, password change or reset, a deleted account), never left to a cache, and the user row (role) is read from the database on every request.
 5. **Settings live in the admin UI, not in flags or environment variables.** Runtime settings (base URL, trusted proxies, PROXY protocol, TLS, SMTP, retention, provider credentials) are stored in the database and applied without a restart. A new flag or variable is only for what must be known before the database is open or before the backend is reachable (listen addresses, database, key and secret files, backend URL, mutual TLS files).
 6. **Secrets never appear on a command line or in a URL.** Flags carry paths to files; values come from files or the environment. Tokens travel in headers. Do not log secrets, keys, tokens, passwords or full cookies.
-7. **No migration files before 1.0.** Change the schema by editing `pkg/store/sqlstore/migrations/{sqlite,postgres}/00001_init.sql` (both dialects, in step, including the `Down` section). `TestMigrationParity` checks that they agree.
+7. **Released schemas change only by a new migration.** v0.0.1 is out, so never edit `00001_init.sql`. Add a numbered migration with the same file name in `pkg/store/sqlstore/migrations/{sqlite,postgres}/` (a working `Down` section too), and test the upgrade of existing data. `TestMigrationParity` checks that the two agree.
 8. **Keep behaviour, strings and status codes** when you move or refactor code: tests and users depend on them.
 9. **Keep the documentation true.** A change to a flag, setting, route, cookie, header or deployment step updates `docs/`, the in-app `docs.html` and, if it changes how agents should work, these instructions. Document only what you ran.
 10. **Do not change CI workflows, release config or repository-wide tooling** unless the task is about them.
@@ -101,6 +101,6 @@ DEXAFIX_TEST_SPLIT=1 go test -race -count=1 ./pkg/backend/... ./pkg/frontend   #
 
 1. `gofmt -l .` is empty; `go build ./... && go vet ./...` pass.
 2. `go test -race -count=1 ./...` passes, and the split mode and PostgreSQL runs pass when you touched the store, the internal API or the frontend.
-3. New behaviour has tests next to it, at the level where it can fail: unit test, backend flow test, and a split test when it crosses the process boundary.
+3. New and changed code has tests next to it, at the level where it can fail: unit test, backend flow test, and a split test when it crosses the process boundary. The merged coverage of the test modes stays at 100% of statements; [`tests.instructions.md`](.github/instructions/tests.instructions.md) says how to measure it and how to cover an error branch.
 4. Docs and the in-app docs are updated; user-visible strings are unchanged unless the task changes them.
 5. No new dependency from the frontend or `pkg/shared` on forbidden packages (the boundary tests say so).

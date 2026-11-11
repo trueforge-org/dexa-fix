@@ -125,12 +125,10 @@ func (s *Store) loadJob(ctx context.Context, where string, args ...any) (jobRow,
 	return row, nil
 }
 
-func randomID() (string, error) {
+func randomID() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+	_, _ = rand.Read(b) // never fails: since Go 1.24 a broken random source ends the program
+	return hex.EncodeToString(b)
 }
 
 // EnqueueJob queues a job. When the job has a DedupeKey and one with that key is already queued or
@@ -139,14 +137,8 @@ func (s *Store) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bo
 	if n.UserID <= 0 || n.Kind == "" || n.Origin == "" || n.MaxAttempts < 1 || n.Timeout < time.Second {
 		return models.Job{}, false, fmt.Errorf("%w: incomplete job", store.ErrInvalid)
 	}
-	id, err := randomID()
-	if err != nil {
-		return models.Job{}, false, err
-	}
-	payload, err := s.encrypt(n.Payload, jobPayloadContext(id))
-	if err != nil {
-		return models.Job{}, false, err
-	}
+	id := randomID()
+	payload := s.encrypt(n.Payload, jobPayloadContext(id))
 	at := now()
 	runAfter := at
 	if !n.RunAfter.IsZero() {
@@ -166,9 +158,7 @@ func (s *Store) EnqueueJob(ctx context.Context, n models.NewJob) (models.Job, bo
 		if err != nil {
 			return models.Job{}, false, err
 		}
-		if c, err := res.RowsAffected(); err != nil {
-			return models.Job{}, false, err
-		} else if c > 0 {
+		if c, _ := res.RowsAffected(); c > 0 {
 			stored, err := s.loadJob(ctx, "public_id = ?", id)
 			if err != nil {
 				return models.Job{}, false, err
@@ -324,6 +314,9 @@ func (s *Store) LeaseJob(ctx context.Context, req models.LeaseRequest, at time.T
 // fails with ErrLeaseLost when the token is not the leaseholder's, or the lease or the job's hard
 // deadline has passed: the job then belongs to the reaper. cancel tells the worker to stop.
 func (s *Store) HeartbeatJob(ctx context.Context, publicID, tokenHash string, extend time.Duration, progress *string, at time.Time) (cancel bool, err error) {
+	if tokenHash == "" {
+		return false, store.ErrLeaseLost
+	}
 	at = at.UTC()
 	q := s.db.NewUpdate().Model((*jobRow)(nil)).Set("lease_until = ?", at.Add(extend)).Set("updated_at = ?", at)
 	if progress != nil {
@@ -389,10 +382,8 @@ func (s *Store) CompleteJob(ctx context.Context, publicID, tokenHash string, c m
 	var ok bool
 	switch c.Outcome {
 	case models.OutcomeOK:
-		result, err := s.encrypt(c.Result, jobResultContext(row.PublicID))
-		if err != nil {
-			return models.Job{}, err
-		}
+		result := s.encrypt(c.Result, jobResultContext(row.PublicID))
+		var err error
 		ok, err = s.finishUpdate(ctx, row, models.JobSucceeded, at, func(q *bun.UpdateQuery) *bun.UpdateQuery {
 			return q.Set("result = ?", result).Set("error = ''")
 		})
@@ -555,10 +546,18 @@ func (s *Store) PurgeJobs(ctx context.Context, before time.Time) (int64, error) 
 // TouchWorker records that a worker process asked for work.
 func (s *Store) TouchWorker(ctx context.Context, id string, kinds []string, version string, at time.Time) error {
 	row := workerRow{ID: id, Kinds: strings.Join(kinds, ","), Version: version, LastSeen: at.UTC()}
+	// A worker asks for work every second or so. A known worker is only written again when its row is
+	// older than workerTouchEvery (a worker counts as alive for far longer) or says something new, so
+	// an idle worker does not write to the database all day.
 	_, err := s.db.NewInsert().Model(&row).On("CONFLICT (id) DO UPDATE").
-		Set("kinds = EXCLUDED.kinds").Set("version = EXCLUDED.version").Set("last_seen = EXCLUDED.last_seen").Exec(ctx)
+		Set("kinds = EXCLUDED.kinds").Set("version = EXCLUDED.version").Set("last_seen = EXCLUDED.last_seen").
+		Where("worker_row.last_seen < ? OR worker_row.kinds <> EXCLUDED.kinds OR worker_row.version <> EXCLUDED.version", at.UTC().Add(-workerTouchEvery)).
+		Exec(ctx)
 	return err
 }
+
+// workerTouchEvery is how often the row of a worker that has nothing new to say is written.
+const workerTouchEvery = 20 * time.Second
 
 // ListWorkers returns the workers seen since a time, newest first.
 func (s *Store) ListWorkers(ctx context.Context, since time.Time) ([]models.WorkerInstance, error) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -70,7 +71,7 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		secondStepRedirect(w, "/")
 		return
 	}
-	if s.secondFactorBlocked(r, st.UID) {
+	if s.secondFactorRefused(r, st.UID) {
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
 		secondStepPage(w, apiclient.SecondStep{Mode: "verify", Error: "Too many wrong codes. Please wait a few minutes and sign in again."}, http.StatusTooManyRequests)
 		return
@@ -81,7 +82,6 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(st.UID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "")
 		secondStepPage(w, apiclient.SecondStep{Mode: "verify", Error: secondFactorMessage}, http.StatusUnauthorized)
@@ -135,11 +135,7 @@ func (s *Backend) internalLoginSetupView(w http.ResponseWriter, r *http.Request,
 		internalError(w, err)
 		return
 	}
-	setup, err := s.twoFactorSetupFor(u, secret)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	setup := s.twoFactorSetupFor(u, secret)
 	secondStepPage(w, apiclient.SecondStep{Mode: "setup", Error: errMsg, QR: string(setup.QR), Secret: setup.Secret}, status)
 }
 
@@ -154,7 +150,7 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 		secondStepRedirect(w, "/")
 		return
 	}
-	if s.secondFactorBlocked(r, st.UID) {
+	if s.secondFactorRefused(r, st.UID) {
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
 		s.internalLoginSetupView(w, r, st, "Too many wrong codes. Please wait a few minutes and sign in again.", http.StatusTooManyRequests)
 		return
@@ -166,7 +162,6 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	step, good := checkTOTP(t.Secret, in.Code, time.Now())
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(st.UID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "setup")
 		s.internalLoginSetupView(w, r, st, "That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
@@ -312,7 +307,7 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if has {
-		if s.secondFactorBlocked(r, u.ID) {
+		if s.secondFactorRefused(r, u.ID) {
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "reset")
 			form("Too many wrong codes. Please wait a few minutes.", http.StatusTooManyRequests)
 			return
@@ -323,7 +318,6 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !good {
-			s.limiter.Fail(r.Context(), mfaKey(u.ID))
 			s.limiter.Fail(r.Context(), ipKey(r))
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "reset")
 			form(secondFactorMessage, http.StatusUnauthorized)
@@ -331,11 +325,7 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		}
 		s.limiter.Reset(r.Context(), mfaKey(u.ID))
 	}
-	hash, err := hashPassword(in.Password)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	hash := must.Value(hashPassword(in.Password)) // cannot fail: validatePassword capped the length at bcrypt's limit
 	// The reset signs the user out everywhere. The sessions table is emptied by CompletePasswordReset
 	// itself; in Valkey it is done here first, and the reset fails if it cannot be.
 	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
@@ -346,6 +336,11 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		resetStepPage(w, apiclient.ResetStep{Mode: "invalid"}, http.StatusNotFound) // used or expired a moment ago
 		return
 	} else if err != nil {
+		internalError(w, err)
+		return
+	}
+	// A sign-in with the old password between the delete above and the reset must not survive.
+	if err := s.sessions.DeleteUserSessions(ctx, u.ID); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -396,21 +391,12 @@ func (s *Backend) internalProviderStart(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	st := providerState{Slug: p.Slug, Verifier: oauth2.GenerateVerifier()}
-	if st.State, err = randomHex(16); err == nil {
-		st.Nonce, err = randomHex(16)
-	}
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	st.State = randomHex(16)
+	st.Nonce = randomHex(16)
 	if linking {
 		st.Link = u.ID
 	}
-	sealed, err := s.sealState(st)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
+	sealed := s.sealState(st)
 	setProviderCookie(w, r, sealed, int(providerStateTTL.Seconds()))
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(st.Verifier)}
 	if p.Kind != models.ProviderKindOAuth2 {
@@ -451,8 +437,12 @@ func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	setProviderCookie(w, r, "", -1)
-	st, ok := s.openState(c.Value)
+	st, nonce, expires, ok := s.openState(c.Value)
 	if !ok || st.Slug != slug || !hmac.Equal([]byte(st.State), []byte(r.FormValue("state"))) {
+		providerCallbackInvalid(w)
+		return
+	}
+	if !s.nonces.use(ctx, nonce, expires) { // a state is good for one callback; fails closed
 		providerCallbackInvalid(w)
 		return
 	}
@@ -494,7 +484,7 @@ func (s *Backend) internalProviderCallback(w http.ResponseWriter, r *http.Reques
 		signInFail(w, "No account is linked to this "+p.Label+" login. Sign in another way and link it in Settings.", http.StatusForbidden)
 		return
 	}
-	u, err := s.createUserWithIdentity(ctx, providerUserName(p, subject, claims), verifiedEmail(claims), models.Identity{Provider: slug, Subject: subject})
+	u, err := s.createProviderUser(ctx, p, subject, claims)
 	if err == nil {
 		s.auditAs(r, u.ID, u.ID, auditSignup, slug)
 	}

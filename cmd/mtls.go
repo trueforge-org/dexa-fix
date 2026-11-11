@@ -14,6 +14,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
 	"github.com/trueforge-org/dexafix/pkg/shared/mtls"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 )
 
 // Mutual TLS between the web and api processes. It comes on top of the shared service secret, which
@@ -128,7 +129,6 @@ dexafix secrets mtls --link body --dir ./mtls-body --name body
 			return errors.New("give at least one --name: the host name or address the web process uses for the api process, such as api")
 		}
 		var b mtls.Bundle
-		var err error
 		type outFile struct {
 			name, content string
 			mode          os.FileMode
@@ -136,9 +136,7 @@ dexafix secrets mtls --link body --dir ./mtls-body --name body
 		var files []outFile
 		var summary string
 		if link == "body" {
-			if b, err = mtls.GenerateFor(names, "DexaFix body", "DexaFix api"); err != nil {
-				return err
-			}
+			b = must.Value(mtls.GenerateFor(names, "DexaFix body", "DexaFix api")) // cannot fail: the validity is fixed
 			files = []outFile{
 				{"ca.pem", b.CA, 0o644},
 				{"body.pem", b.ServerCert, 0o644}, {"body.key", b.ServerKey, 0o600},
@@ -147,9 +145,7 @@ dexafix secrets mtls --link body --dir ./mtls-body --name body
 			summary = `body service: --body-tls-cert-file body.pem --body-tls-key-file body.key --body-tls-client-ca-file ca.pem
 api process:  --body-url https://` + names[0] + `:8082 --body-ca-file ca.pem --body-client-cert-file api-client.pem --body-client-key-file api-client.key`
 		} else {
-			if b, err = mtls.Generate(names); err != nil {
-				return err
-			}
+			b = must.Value(mtls.Generate(names)) // cannot fail: the validity is fixed
 			files = []outFile{
 				{"ca.pem", b.CA, 0o644},
 				{"api.pem", b.ServerCert, 0o644}, {"api.key", b.ServerKey, 0o600},

@@ -6,6 +6,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -77,6 +78,10 @@ func (s *Backend) internalLogin(w http.ResponseWriter, r *http.Request) {
 		signInFail(w, "Too many failed attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
 		return
 	}
+	if errors.Is(err, errBusy) {
+		signInFail(w, "The server is busy. Please try again in a moment.", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		internalError(w, err)
 		return
@@ -90,7 +95,7 @@ func (s *Backend) internalLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name, Email, Password, Confirm string }
+	var in struct{ Username, Email, Password, Confirm string }
 	if !internalDecode(w, r, &in) {
 		return
 	}
@@ -118,18 +123,16 @@ func (s *Backend) internalSignup(w http.ResponseWriter, r *http.Request) {
 		signInFail(w, msg, http.StatusUnprocessableEntity)
 		return
 	}
-	hash, err := hashPassword(in.Password)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	u, err := s.createUserWithIdentity(r.Context(), in.Name, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
+	hash := must.Value(hashPassword(in.Password)) // cannot fail: validatePassword capped the length at bcrypt's limit
+	u, err := s.createUserWithIdentity(r.Context(), in.Username, email, models.Identity{Provider: models.ProviderLocal, Secret: hash})
 	switch {
+	case errors.Is(err, store.ErrUsernameTaken):
+		signInFail(w, usernameTaken, http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrExists):
 		s.limiter.Fail(r.Context(), ipKey(r)) // repeated probing for registered addresses is throttled
 		signInFail(w, "An account with that e-mail address already exists.", http.StatusUnprocessableEntity)
 	case errors.Is(err, store.ErrInvalid):
-		signInFail(w, "Please enter a name of 1-64 characters.", http.StatusUnprocessableEntity)
+		signInFail(w, usernameRule, http.StatusUnprocessableEntity)
 	case err != nil:
 		internalError(w, err)
 	default:

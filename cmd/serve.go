@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trueforge-org/dexafix/pkg/app"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store/sqlstore"
 )
 
@@ -69,9 +70,7 @@ func resolveEncryptionKey(envValue, path string, hasData func() (bool, error)) (
 		}
 	}
 	key = make([]byte, sqlstore.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		return nil, false, err
-	}
+	_, _ = rand.Read(key) // never fails: since Go 1.24 a broken random source ends the program
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, false, fmt.Errorf("create encryption key file: %w", err)
@@ -180,7 +179,7 @@ func loadCipherFor(ctx context.Context, cmd *cobra.Command, driver, dsn string, 
 	if err != nil {
 		return nil, err
 	}
-	return sqlstore.NewCipher(key, previous...)
+	return must.Value(sqlstore.NewCipher(key, previous...)), nil // cannot fail: every key was parsed above
 }
 
 func envOr(key, def string) string {
@@ -278,7 +277,8 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			return err
 		}
 		errCh := make(chan error, 1)
-		go func() { errCh <- httpSrv.Serve(srv.WrapListener(ln)) }()
+		wrapped := srv.WrapListener(ln) // before the goroutine: it records the address that StartListeners reads
+		go func() { errCh <- httpSrv.Serve(wrapped) }()
 		srv.StartListeners(handler)
 		log.Info().Str("listen", listen).Str("db", driver).Msg("serving")
 
@@ -286,6 +286,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 		case err := <-errCh:
 			return err
 		case <-ctx.Done():
+			log.Info().Msg("shutting down")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			err := httpSrv.Shutdown(shutdownCtx)
@@ -293,6 +294,7 @@ dexafix serve --db-driver postgres --dsn-file /run/secrets/dexafix_dsn`,
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
+			log.Info().Msg("stopped")
 			return nil
 		}
 	},

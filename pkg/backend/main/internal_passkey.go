@@ -17,6 +17,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/models"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/must"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
 
@@ -76,12 +77,12 @@ type passkeyUser struct {
 }
 
 func (p *passkeyUser) WebAuthnID() []byte          { return p.handle }
-func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.Name }
+func (p *passkeyUser) WebAuthnDisplayName() string { return p.user.FullName() }
 func (p *passkeyUser) WebAuthnName() string {
 	if p.user.Email != "" {
 		return p.user.Email
 	}
-	return p.user.Name
+	return p.user.Username
 }
 func (p *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return p.creds }
 
@@ -110,16 +111,12 @@ func credentialID(id []byte) string { return base64.RawURLEncoding.EncodeToStrin
 
 // ---- the signed cookie ----
 
-func (s *Backend) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) error {
-	sealed, _, err := s.sealValue(purpose, c, passkeyTTL)
-	if err != nil {
-		return err
-	}
+func (s *Backend) setPasskeyCookie(w http.ResponseWriter, r *http.Request, purpose string, c passkeyCeremony) {
+	sealed, _ := must.Value2(s.sealValue(purpose, c, passkeyTTL)) // cannot fail: the ceremony state is a plain struct
 	http.SetCookie(w, &http.Cookie{
 		Name: passkeyCookie, Value: sealed, Path: "/", MaxAge: int(passkeyTTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isSecure(r),
 	})
-	return nil
 }
 
 func clearPasskeyCookie(w http.ResponseWriter, r *http.Request) {
@@ -228,10 +225,7 @@ func (s *Backend) internalPasskeyRegisterBegin(w http.ResponseWriter, r *http.Re
 		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
 		return
 	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyRegister, passkeyCeremony{UID: u.ID, Name: name, Session: *session}); err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	s.setPasskeyCookie(w, r, sealPasskeyRegister, passkeyCeremony{UID: u.ID, Name: name, Session: *session})
 	internalJSON(w, http.StatusOK, creation)
 }
 
@@ -268,11 +262,7 @@ func (s *Backend) internalPasskeyRegisterFinish(w http.ResponseWriter, r *http.R
 		passkeyFail(w, http.StatusBadRequest, "The registration was already used. Start again.")
 		return
 	}
-	raw, err := json.Marshal(cred)
-	if err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	raw := must.Value(json.Marshal(cred)) // cannot fail: the library's own credential type
 	err = s.store.AddPasskey(ctx, models.Passkey{CredentialID: credentialID(cred.ID), UserID: u.ID, Name: c.Name,
 		Credential: string(raw), SignCount: cred.Authenticator.SignCount})
 	if errors.Is(err, store.ErrExists) {
@@ -371,16 +361,8 @@ func (s *Backend) internalPasskeyLoginBegin(w http.ResponseWriter, r *http.Reque
 		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
 		return
 	}
-	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))
-	if err != nil {
-		log.Error().Err(err).Msg("passkey sign-in could not start")
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
-	if err := s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session}); err != nil {
-		passkeyFail(w, http.StatusInternalServerError, passkeyWentWrong)
-		return
-	}
+	assertion, session := must.Value2(wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))) // cannot fail: it only draws a random challenge
+	s.setPasskeyCookie(w, r, sealPasskeyLogin, passkeyCeremony{Session: *session})
 	internalJSON(w, http.StatusOK, assertion)
 }
 
@@ -429,15 +411,13 @@ func (s *Backend) internalPasskeyLoginFinish(w http.ResponseWriter, r *http.Requ
 		passkeyFail(w, http.StatusBadRequest, "The sign-in was already used. Try again.")
 		return
 	}
-	raw, err := json.Marshal(cred)
-	if err == nil {
-		err = s.store.UpdatePasskeyUse(ctx, credentialID(cred.ID), string(raw), cred.Authenticator.SignCount)
-	}
-	if err != nil {
+	raw := must.Value(json.Marshal(cred)) // cannot fail: the library's own credential type
+	if err := s.store.UpdatePasskeyUse(ctx, credentialID(cred.ID), string(raw), cred.Authenticator.SignCount); err != nil {
 		log.Error().Err(err).Msg("could not record the passkey use")
 	}
 	clearPasskeyCookie(w, r)
-	s.limiter.Reset(r.Context(), ipKey(r))
+	// The address counter is not cleared: anybody can hold a passkey of their own, so a success here
+	// proves nothing about the other names that address has been trying.
 	s.markAdminVerified(w, r, signedIn.ID) // a passkey with its unlock is two factors: the Admin pages do not ask again
 	s.internalSignIn(w, r, signedIn, models.ProviderPasskey)
 }

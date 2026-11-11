@@ -1,12 +1,18 @@
 {{define "content"}}
 {{with .Status}}
-<div class="page-head"><h1>Status</h1></div>
-<p class="{{if eq .Overall "up"}}notice{{else}}error{{end}}" role="status">{{.OverallText}}</p>
-<section class="card" id="components">
-  <ul class="status-list">
-    {{range .Rows}}<li><span class="state state-{{.State}}">{{.StateText}}</span> <span>{{.Label}}</span>{{if .Note}} <small>{{.Note}}</small>{{end}}</li>{{end}}
+<div class="page-head"><h1>Status</h1><span class="checked">Checked {{.CheckedAt}}</span></div>
+<section class="status-hero status-hero-{{.Overall}}" role="status" id="overall">
+  <span class="hero-mark" aria-hidden="true">{{if eq .Overall "up"}}✓{{else if eq .Overall "degraded"}}!{{else}}✕{{end}}</span>
+  <div>
+    <h2>{{.OverallText}}</h2>
+    <p>{{if eq .Overall "up"}}Every part answers.{{else if eq .Overall "degraded"}}Everything works, but not as it should.{{else}}Something does not answer. The page returns 503 while that lasts, for monitors.{{end}}</p>
+  </div>
+</section>
+<section id="components" aria-label="Components">
+  <ul class="status-grid">
+    {{range .Rows}}<li class="comp-{{.State}}"><span class="comp-name">{{.Label}}</span><span class="state state-{{.State}}">{{.StateText}}</span>{{if .Note}}<small>{{.Note}}</small>{{end}}</li>{{end}}
   </ul>
-  <p class="help">Checked {{.CheckedAt}}. The backend keeps an answer for a few seconds. The page answers 503 while something is down, for monitors.{{if .AdminLink}} <a href="/admin/status">Details for administrators</a>.{{end}}</p>
+  <p class="help">The backend keeps an answer for a few seconds; reload the page to ask again.{{if .AdminLink}} <a href="/admin/status">Details for administrators</a>.{{end}}</p>
 </section>
 {{if .Detail}}
 <section class="card" id="workers">
