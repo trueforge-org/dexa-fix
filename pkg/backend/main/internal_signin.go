@@ -78,6 +78,10 @@ func (s *Backend) internalLogin(w http.ResponseWriter, r *http.Request) {
 		signInFail(w, "Too many failed attempts. Please wait a few minutes and try again.", http.StatusTooManyRequests)
 		return
 	}
+	if errors.Is(err, errBusy) {
+		signInFail(w, "The server is busy. Please try again in a moment.", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		internalError(w, err)
 		return

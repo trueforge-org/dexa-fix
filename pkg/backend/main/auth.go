@@ -105,18 +105,8 @@ func (s *Backend) authBasic(r *http.Request) (models.User, bool, error) {
 	if !found || !strings.HasPrefix(r.URL.Path, "/api/") || !s.passwordEnabled(r.Context()) {
 		return models.User{}, false, nil
 	}
-	// Checking a password costs a lot of CPU. A flood of Basic credentials must not use all of it,
-	// so only a few run at once; the rest wait a moment and then give up.
-	select {
-	case s.bcryptSlots <- struct{}{}:
-		defer func() { <-s.bcryptSlots }()
-	case <-time.After(bcryptWait):
-		return models.User{}, false, nil
-	case <-r.Context().Done():
-		return models.User{}, false, nil
-	}
 	u, ok, err := s.throttledVerify(r, login, password)
-	if errors.Is(err, errThrottled) {
+	if errors.Is(err, errThrottled) || errors.Is(err, errBusy) {
 		return models.User{}, false, nil
 	}
 	if err == nil && !ok {
@@ -232,6 +222,23 @@ func localSubject(id int64) string { return strconv.FormatInt(id, 10) }
 // passwords, so response times do not reveal which accounts exist.
 var errThrottled = errors.New("too many failed sign-in attempts")
 
+// errBusy is a password check that found every slot taken for bcryptWait.
+var errBusy = errors.New("every password check slot is busy")
+
+// bcryptSlot takes one of the few places where a password may be checked. Checking costs a lot of
+// CPU, and a flood of sign-ins, Basic credentials or confirmations must not use all of it, so only
+// a few run at once; the rest wait a moment and then give up. The caller releases the slot.
+func (s *Backend) bcryptSlot(ctx context.Context) (release func(), ok bool) {
+	select {
+	case s.bcryptSlots <- struct{}{}:
+		return func() { <-s.bcryptSlots }, true
+	case <-time.After(bcryptWait):
+		return nil, false
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
 // throttledVerify checks a password after the failure limiter let the attempt through. A blocked
 // client does not even cost a bcrypt run.
 func (s *Backend) throttledVerify(r *http.Request, login, password string) (models.User, bool, error) {
@@ -250,6 +257,11 @@ func (s *Backend) throttledVerify(r *http.Request, login, password string) (mode
 }
 
 func (s *Backend) verifyPassword(ctx context.Context, login, password string) (models.User, bool, error) {
+	release, ok := s.bcryptSlot(ctx)
+	if !ok {
+		return models.User{}, false, errBusy
+	}
+	defer release()
 	fail := func() (models.User, bool, error) {
 		bcrypt.CompareHashAndPassword(dummyHash(), []byte(password))
 		return models.User{}, false, nil
