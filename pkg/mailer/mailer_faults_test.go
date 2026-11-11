@@ -3,9 +3,12 @@ package mailer
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -179,5 +182,29 @@ func TestSendToAServerThatIsNotThereNamesTheAddress(t *testing.T) {
 	err = m.Send(context.Background(), "alice@example.com", "Subject", "body")
 	if err == nil || !strings.Contains(err.Error(), "connect to 127.0.0.1:") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSendAsksTheDialControlBeforeConnectingAndStopsWhenItRefuses(t *testing.T) {
+	refused := errors.New("the guard said no")
+	var asked atomic.Int32
+	m, err := New(Config{
+		Host: "127.0.0.1", Port: 1, TLS: None, From: "noreply@example.com",
+		DialControl: func(network, address string, _ syscall.RawConn) error {
+			asked.Add(1)
+			if address != "127.0.0.1:1" {
+				t.Errorf("the control saw %q, want the resolved address and port", address)
+			}
+			return refused
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Send(context.Background(), "to@example.com", "s", "b"); !errors.Is(err, refused) {
+		t.Fatalf("Send: %v, want the refusal", err)
+	}
+	if asked.Load() != 1 {
+		t.Fatalf("the control was asked %d times, want once", asked.Load())
 	}
 }

@@ -101,6 +101,7 @@ type ServerSettingsView struct {
 	BaseURL         string
 	TrustedProxies  string
 	ProxyProtocol   bool
+	AllowPrivate    bool // sign-in providers and the mail server may be on private network addresses
 	AuditDays       string
 	KeyReminderDays string
 }
@@ -242,6 +243,7 @@ func (c *Client) AdminSaveWithings(ctx context.Context, f WithingsForm) (AdminRe
 type ServerForm struct {
 	BaseURL, TrustedProxies, AuditDays, KeyReminderDays string
 	ProxyProtocol                                       bool
+	AllowPrivate                                        bool
 }
 
 func (c *Client) AdminSaveServer(ctx context.Context, f ServerForm) (AdminResult, error) {

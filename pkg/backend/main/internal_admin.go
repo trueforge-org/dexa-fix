@@ -565,7 +565,7 @@ func (s *Backend) prepareProvider(ctx context.Context, p *models.AuthProvider) s
 		}
 		s.forgetOIDCProvider(p.Issuer)
 		if _, err := s.oidcProvider(ctx, *p); err != nil {
-			return "Could not read the OpenID configuration from that issuer: " + err.Error()
+			return outboundFailure(err, "Could not read the OpenID configuration from that issuer")
 		}
 	case models.ProviderKindApple:
 		p.Issuer = appleIssuer
@@ -711,6 +711,7 @@ func (s *Backend) serverSettingsFor(ctx context.Context) (apiclient.ServerSettin
 	}
 	v.BaseURL, v.TrustedProxies = get(settingBaseURL), get(settingTrustedProxies)
 	v.ProxyProtocol = get(settingProxyProtocol) == valueEnabled
+	v.AllowPrivate = get(settingAllowPrivate) == valueEnabled
 	v.AuditDays, v.KeyReminderDays = get(settingAuditRetention), get(settingKeyReminder)
 	return v, err
 }
@@ -789,8 +790,12 @@ func (s *Backend) internalAdminSaveServer(w http.ResponseWriter, r *http.Request
 	if in.ProxyProtocol {
 		proxyValue = valueEnabled
 	}
+	allowValue := valueDisabled
+	if in.AllowPrivate {
+		allowValue = valueEnabled
+	}
 	for _, p := range []struct{ name, value string }{
-		{settingBaseURL, baseText}, {settingTrustedProxies, proxiesText}, {settingProxyProtocol, proxyValue},
+		{settingBaseURL, baseText}, {settingTrustedProxies, proxiesText}, {settingProxyProtocol, proxyValue}, {settingAllowPrivate, allowValue},
 		{settingAuditRetention, audit}, {settingKeyReminder, reminder},
 	} {
 		if err := s.putOrClear(ctx, p.name, p.value); err != nil {
@@ -887,7 +892,7 @@ func (s *Backend) internalAdminTestSMTP(w http.ResponseWriter, r *http.Request, 
 	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
 	if err := m.Send(ctx, u.Email, "DexaFix test e-mail", "This is a test e-mail from DexaFix. E-mail is working.\n"); err != nil {
-		adminMsg(w, "Could not send the test e-mail: "+err.Error())
+		adminMsg(w, outboundFailure(err, "Could not send the test e-mail"))
 		return
 	}
 	adminMsg(w, "A test e-mail was sent to "+u.Email+".")

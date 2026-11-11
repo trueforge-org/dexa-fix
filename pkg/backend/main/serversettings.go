@@ -13,6 +13,7 @@ import (
 
 	"github.com/trueforge-org/dexafix/pkg/mailer"
 	"github.com/trueforge-org/dexafix/pkg/shared/apiclient"
+	"github.com/trueforge-org/dexafix/pkg/shared/netguard"
 	"github.com/trueforge-org/dexafix/pkg/shared/tlsutil"
 	"github.com/trueforge-org/dexafix/pkg/store"
 )
@@ -27,6 +28,7 @@ const (
 	settingBaseURL         = "server.base_url"
 	settingTrustedProxies  = "server.trusted_proxies"
 	settingProxyProtocol   = "server.proxy_protocol"
+	settingAllowPrivate    = "server.allow_private_outbound"
 	settingAuditRetention  = "audit.retention_days"
 	settingKeyReminder     = "crypto.key_reminder_days"
 	settingScarfPixel      = "analytics.scarf_pixel_id"
@@ -49,6 +51,7 @@ type liveSettings struct {
 	baseURL        *url.URL
 	trusted        []netip.Prefix
 	proxyProtocol  bool
+	allowPrivate   bool          // sign-in providers and the mail server may be on private network addresses
 	auditRetention time.Duration // zero keeps the audit log for good
 	keyReminder    time.Duration // zero never reminds
 	mailer         mailer.Sender // nil without an SMTP server
@@ -115,6 +118,7 @@ func (s *Backend) loadSMTP(ctx context.Context) (cfg mailer.Config, shown smtpSe
 	if err != nil {
 		return cfg, shown, err
 	}
+	cfg.DialControl = netguard.Control(s.allowPrivate)
 	cfg.Port = defaultSMTPPort
 	if n, perr := strconv.Atoi(port); perr == nil && n > 0 && n < 65536 {
 		cfg.Port = n
@@ -162,6 +166,11 @@ func (s *Backend) reload(ctx context.Context, generate bool) error {
 		return err
 	} else {
 		l.proxyProtocol = v == valueEnabled
+	}
+	if v, err := s.settingValue(ctx, settingAllowPrivate); err != nil {
+		return err
+	} else {
+		l.allowPrivate = v == valueEnabled
 	}
 	days, err := s.settingDays(ctx, settingAuditRetention, defaultAuditDays)
 	if err != nil {

@@ -425,7 +425,7 @@
   <dt>Display name</dt>
   <dd>The text of the button: <em>Continue with Google</em>.</dd>
   <dt id="provider-issuer">Issuer URL</dt>
-  <dd>OpenID Connect only. The base URL of the provider, which serves <code>/.well-known/openid-configuration</code>. Example: <code>https://accounts.google.com</code>. For Apple it is fixed.</dd>
+  <dd>OpenID Connect only. The base URL of the provider, which serves <code>/.well-known/openid-configuration</code>. Example: <code>https://accounts.google.com</code>. For Apple it is fixed. A provider on a private network address needs <a href="#admin-network">the private network setting</a>.</dd>
   <dt id="provider-client-id">Client ID</dt>
   <dd>The id of the application you registered at the provider. For Apple, the <em>Services ID</em>.</dd>
   <dt id="provider-client-secret">Client secret</dt>
@@ -452,6 +452,7 @@
   <li><strong>Base URL:</strong> the public address, scheme and host only, such as <code>https://dexa.example.com</code>. Saving it is accepted only while you use that address.</li>
   <li><strong>Trusted proxies:</strong> addresses or ranges of your reverse proxies, as in <a href="#reverse-proxy">Running behind a reverse proxy</a>. Empty trusts nobody.</li>
   <li><strong>Accept the PROXY protocol from the trusted proxies:</strong> off by default; needs trusted proxies. See <a href="#proxy-protocol">PROXY protocol</a>.</li>
+  <li><strong>Allow sign-in providers and the mail server on private network addresses:</strong> off by default. The server then refuses to connect to <code>10.x</code>, <code>172.16.x</code>–<code>172.31.x</code>, <code>192.168.x</code>, <code>100.64.x</code> and <code>fc00::/7</code> addresses, so that a provider or mail setting cannot be used to reach other machines on your network. Turn it on when your sign-in provider or mail server runs on your own network. Cloud metadata and other link-local addresses are always refused, and a server on this machine (<code>localhost</code>) is always allowed. After an upgrade, a provider or mail server on a private address stops working until you turn this on; password sign-in keeps working.</li>
   <li><strong>Keep the audit log for (days):</strong> 365 by default; <code>0</code> keeps it forever.</li>
   <li><strong>Remind me to rotate the encryption key after (days):</strong> empty by default, which never reminds. See <a href="#key-rotation">Rotating the key</a>.</li>
 </ul>
@@ -459,7 +460,7 @@
 <h3 id="admin-analytics">Analytics and ads</h3>
 <p>Off by default. A Scarf pixel ID (a UUID), a Google Analytics measurement ID (<code>G-…</code>) and a Google AdSense publisher ID (<code>ca-pub-…</code>). When one is set, a visitor who is <strong>not signed in</strong> is asked, on the sign-in page, the documentation, the status page and the terms and privacy pages, whether to accept it. Nothing is loaded from Scarf or Google before they press Accept, signed-in people never get it, and the footer's <strong>Privacy choices</strong> reopens the question. On those pages the content security policy allows the hosts of the services that are on; AdSense also needs inline scripts and images from any HTTPS address, so turn it on only if you accept that. The <a href="/privacy">privacy policy</a> describes it to visitors. The ad wiring follows Google's published requirements and has not been tried against a live AdSense account.</p>
 <h3 id="admin-email">E-mail</h3>
-<p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links.</p>
+<p>SMTP server, port (587 by default), encryption (<code>starttls</code> by default, <code>tls</code>, or <code>none</code> only for a server on localhost), user name, password (stored encrypted, never shown again) and sender address. <em>Send a test e-mail to me</em> checks the settings. The e-mail is used for <a href="#password-reset">password reset</a> links. A mail server on a private network address needs the setting under <a href="#admin-network">Network and retention</a>; when the test e-mail fails, the page says so without what the server answered, and the details are in the server log.</p>
 <h3 id="admin-tls">HTTPS, HTTP/2 and HTTP/3</h3>
 <p>An optional HTTPS listener on its own port, with an uploaded certificate or a generated self-signed one. The page shows the certificate names, expiry, SHA-256 fingerprint and any bind error. See <a href="#https">HTTPS, HTTP/2 and HTTP/3</a>.</p>
 <h3 id="admin-workers">Workers</h3>
