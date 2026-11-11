@@ -71,7 +71,7 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		secondStepRedirect(w, "/")
 		return
 	}
-	if s.secondFactorBlocked(r, st.UID) {
+	if s.secondFactorRefused(r, st.UID) {
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
 		secondStepPage(w, apiclient.SecondStep{Mode: "verify", Error: "Too many wrong codes. Please wait a few minutes and sign in again."}, http.StatusTooManyRequests)
 		return
@@ -82,7 +82,6 @@ func (s *Backend) internalLoginTwoFactor(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(st.UID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "")
 		secondStepPage(w, apiclient.SecondStep{Mode: "verify", Error: secondFactorMessage}, http.StatusUnauthorized)
@@ -151,7 +150,7 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 		secondStepRedirect(w, "/")
 		return
 	}
-	if s.secondFactorBlocked(r, st.UID) {
+	if s.secondFactorRefused(r, st.UID) {
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorThrottled, "")
 		s.internalLoginSetupView(w, r, st, "Too many wrong codes. Please wait a few minutes and sign in again.", http.StatusTooManyRequests)
 		return
@@ -163,7 +162,6 @@ func (s *Backend) internalLoginSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	step, good := checkTOTP(t.Secret, in.Code, time.Now())
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(st.UID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, st.UID, st.UID, auditSecondFactorFailed, "setup")
 		s.internalLoginSetupView(w, r, st, "That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
@@ -309,7 +307,7 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if has {
-		if s.secondFactorBlocked(r, u.ID) {
+		if s.secondFactorRefused(r, u.ID) {
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "reset")
 			form("Too many wrong codes. Please wait a few minutes.", http.StatusTooManyRequests)
 			return
@@ -320,7 +318,6 @@ func (s *Backend) internalReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !good {
-			s.limiter.Fail(r.Context(), mfaKey(u.ID))
 			s.limiter.Fail(r.Context(), ipKey(r))
 			s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "reset")
 			form(secondFactorMessage, http.StatusUnauthorized)

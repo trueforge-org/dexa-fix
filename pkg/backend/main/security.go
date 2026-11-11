@@ -107,10 +107,13 @@ func (s *Backend) checkReauth(r *http.Request, u models.User, recent bool) (ok b
 	if !got {
 		return false, http.StatusTooManyRequests, "The server is busy. Try again in a moment.", nil
 	}
-	wrong := bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil
-	release()
-	if wrong {
-		s.limiter.Fail(r.Context(), key)
+	defer release()
+	// Counted before the password is checked, like a sign-in: parallel guesses cannot all pass the
+	// check above before the first failure is on record.
+	if !s.limiter.Attempt(ctx, key, maxLoginFail) {
+		return false, http.StatusTooManyRequests, "Too many wrong passwords. Try again later.", nil
+	}
+	if bcrypt.CompareHashAndPassword([]byte(id.Secret), []byte(r.PostFormValue("current"))) != nil {
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.audit(r, u.ID, auditPasswordWrong, "")
 		return false, http.StatusUnprocessableEntity, "Enter your current password to make this change.", nil

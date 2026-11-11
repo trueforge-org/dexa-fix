@@ -242,26 +242,33 @@ func (s *Backend) bcryptSlot(ctx context.Context) (release func(), ok bool) {
 // throttledVerify checks a password after the failure limiter let the attempt through. A blocked
 // client does not even cost a bcrypt run.
 func (s *Backend) throttledVerify(r *http.Request, login, password string) (models.User, bool, error) {
-	if s.throttled(r, login) {
+	ctx := r.Context()
+	if s.throttled(r, login) { // only reads: a client that is blocked costs no slot and no attempt
 		return models.User{}, false, errThrottled
 	}
-	u, ok, err := s.verifyPassword(r.Context(), login, password)
+	release, ok := s.bcryptSlot(ctx)
+	if !ok {
+		return models.User{}, false, errBusy // nothing was counted: the check did not happen
+	}
+	defer release()
+	// The attempt is counted before the password is checked, so that a burst of parallel guesses
+	// cannot all pass the check above before the first failure is on record.
+	if login != "" && !s.limiter.Attempt(ctx, loginKey(login), maxLoginFail) {
+		return models.User{}, false, errThrottled
+	}
+	u, ok, err := s.verifyPassword(ctx, login, password)
 	switch {
 	case err != nil:
 	case ok:
-		s.limiter.Reset(r.Context(), loginKey(login))
+		s.limiter.Reset(ctx, loginKey(login))
 	default:
-		s.recordFailure(r, login)
+		s.recordFailure(r)
 	}
 	return u, ok, err
 }
 
+// verifyPassword runs inside a password check slot (throttledVerify takes it).
 func (s *Backend) verifyPassword(ctx context.Context, login, password string) (models.User, bool, error) {
-	release, ok := s.bcryptSlot(ctx)
-	if !ok {
-		return models.User{}, false, errBusy
-	}
-	defer release()
 	fail := func() (models.User, bool, error) {
 		bcrypt.CompareHashAndPassword(dummyHash(), []byte(password))
 		return models.User{}, false, nil

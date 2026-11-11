@@ -59,10 +59,12 @@ func (s *Backend) hasTwoFactor(ctx context.Context, userID int64) (bool, error) 
 	return err == nil && t.Confirmed, err
 }
 
-// secondFactorBlocked reports whether too many wrong codes were tried for the account or from the
-// client address.
-func (s *Backend) secondFactorBlocked(r *http.Request, userID int64) bool {
-	return s.limiter.Blocked(r.Context(), mfaKey(userID), maxMFAFail) || s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail)
+// secondFactorRefused reports whether too many wrong codes were tried from the client address or
+// for the account. When it reports false it has counted this try against the account, before the
+// code is checked, so a burst of parallel guesses cannot all pass; the caller resets the count when
+// the code is right and counts the address when it is wrong.
+func (s *Backend) secondFactorRefused(r *http.Request, userID int64) bool {
+	return s.limiter.Blocked(r.Context(), ipKey(r), maxIPFail) || !s.limiter.Attempt(r.Context(), mfaKey(userID), maxMFAFail)
 }
 
 func mfaKey(userID int64) string { return "mfa:" + strconv.FormatInt(userID, 10) }
@@ -305,7 +307,7 @@ func (s *Backend) internalAdminVerify(w http.ResponseWriter, r *http.Request, u 
 	if !internalDecode(w, r, &in) {
 		return
 	}
-	if s.secondFactorBlocked(r, u.ID) {
+	if s.secondFactorRefused(r, u.ID) {
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "admin")
 		secondStepPage(w, apiclient.SecondStep{Mode: "admin", Error: "Too many wrong codes. Please wait a few minutes."}, http.StatusTooManyRequests)
 		return
@@ -316,7 +318,6 @@ func (s *Backend) internalAdminVerify(w http.ResponseWriter, r *http.Request, u 
 		return
 	}
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(u.ID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "admin")
 		secondStepPage(w, apiclient.SecondStep{Mode: "admin", Error: secondFactorMessage}, http.StatusUnauthorized)
@@ -333,7 +334,7 @@ func (s *Backend) internalAdminVerify(w http.ResponseWriter, r *http.Request, u 
 // internalCheckSecondFactor verifies the code for a change on the settings page. It reports whether
 // to go on; if not, the answer has been written.
 func (s *Backend) internalCheckSecondFactor(w http.ResponseWriter, r *http.Request, u models.User, code string) bool {
-	if s.secondFactorBlocked(r, u.ID) {
+	if s.secondFactorRefused(r, u.ID) {
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorThrottled, "")
 		internalFail(w, http.StatusTooManyRequests, apiclient.CodeThrottled, "Too many wrong codes. Try again later.")
 		return false
@@ -344,7 +345,6 @@ func (s *Backend) internalCheckSecondFactor(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(u.ID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "settings")
 		internalFail(w, http.StatusUnprocessableEntity, apiclient.CodeInvalid, secondFactorMessage)
@@ -405,13 +405,12 @@ func (s *Backend) internalTwoFactorConfirm(w http.ResponseWriter, r *http.Reques
 	refuse := func(msg string, status int) {
 		internalJSON(w, http.StatusOK, apiclient.TwoFactorChange{Error: msg, Status: status, Setup: s.twoFactorSetupFor(u, t.Secret)})
 	}
-	if s.secondFactorBlocked(r, u.ID) {
+	if s.secondFactorRefused(r, u.ID) {
 		refuse("Too many wrong codes. Try again later.", http.StatusTooManyRequests)
 		return
 	}
 	step, good := checkTOTP(t.Secret, in.Code, time.Now())
 	if !good {
-		s.limiter.Fail(r.Context(), mfaKey(u.ID))
 		s.limiter.Fail(r.Context(), ipKey(r))
 		s.auditAs(r, u.ID, u.ID, auditSecondFactorFailed, "setup")
 		refuse("That code is not right. Check that the app shows the entry for this site and try the next code.", http.StatusUnprocessableEntity)
