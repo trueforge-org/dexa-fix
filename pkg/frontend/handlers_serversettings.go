@@ -19,7 +19,7 @@ func (s *Frontend) adminSettingRoutes(mux *http.ServeMux) {
 func (s *Frontend) adminSaveServerSettings(w http.ResponseWriter, r *http.Request, _ models.User) {
 	res, err := s.api.AdminSaveServer(r.Context(), apiclient.ServerForm{
 		BaseURL: r.PostFormValue("base_url"), TrustedProxies: r.PostFormValue("trusted_proxies"),
-		ProxyProtocol: r.PostFormValue("proxy_protocol") != "", AllowPrivate: r.PostFormValue("allow_private") != "",
+		ProxyProtocol: r.PostFormValue("proxy_protocol") != "", AllowPrivateProviders: r.PostFormValue("allow_private_providers") != "", AllowPrivateMail: r.PostFormValue("allow_private_mail") != "",
 		AuditDays: r.PostFormValue("audit_retention_days"), KeyReminderDays: r.PostFormValue("key_reminder_days"),
 	})
 	s.adminDone(w, r, res, err)

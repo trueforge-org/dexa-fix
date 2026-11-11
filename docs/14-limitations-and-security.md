@@ -63,9 +63,11 @@
   link-local addresses (`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`,
   `100.100.100.200`) are always refused, and so are redirects to them. Private
   networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`,
-  `fc00::/7`) are refused unless an administrator turns on **Allow sign-in
-  providers and the mail server on private network addresses**. A server on the
-  same machine (`localhost`) is always allowed. A failed connection is reported to
+  `fc00::/7`) are refused unless an administrator turns on the setting for that
+  kind of connection: **Allow sign-in providers on private network addresses** or
+  **Allow the mail server on a private network address**. The two are separate,
+  and turning one on does not open the other. A server on the same machine
+  (`localhost`) is always allowed. A failed connection is reported to
   the administrator without what the other end answered; the details are in the
   server log. If the api process uses an HTTP proxy from `HTTPS_PROXY`, the check
   applies to the proxy, not to the address behind it. Everything else that talks

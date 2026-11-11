@@ -98,12 +98,13 @@ type AdminWithings struct {
 
 // ServerSettingsView is the stored text of the network and retention settings.
 type ServerSettingsView struct {
-	BaseURL         string
-	TrustedProxies  string
-	ProxyProtocol   bool
-	AllowPrivate    bool // sign-in providers and the mail server may be on private network addresses
-	AuditDays       string
-	KeyReminderDays string
+	BaseURL               string
+	TrustedProxies        string
+	ProxyProtocol         bool
+	AllowPrivateProviders bool // sign-in providers may be on private network addresses
+	AllowPrivateMail      bool // the mail server may be on a private network address
+	AuditDays             string
+	KeyReminderDays       string
 }
 
 // SMTPView is what the Admin page shows and saves for e-mail.
@@ -243,7 +244,7 @@ func (c *Client) AdminSaveWithings(ctx context.Context, f WithingsForm) (AdminRe
 type ServerForm struct {
 	BaseURL, TrustedProxies, AuditDays, KeyReminderDays string
 	ProxyProtocol                                       bool
-	AllowPrivate                                        bool
+	AllowPrivateProviders, AllowPrivateMail             bool
 }
 
 func (c *Client) AdminSaveServer(ctx context.Context, f ServerForm) (AdminResult, error) {

@@ -71,7 +71,7 @@ func TestTheAdministratorIsToldWhyAProviderOrMailServerCannotBeReachedWithoutThe
 		e := newAdminEnv(t)
 		code, out := e.do(t, "POST", "/admin/providers", provider("https://10.255.255.1"))
 		got := adminFlash(t, out)
-		if code != 303 || !strings.HasPrefix(got, "Could not read the OpenID configuration from that issuer: ") || !strings.Contains(got, "private or link-local") || !strings.Contains(got, "Allow sign-in providers") {
+		if code != 303 || !strings.HasPrefix(got, "Could not read the OpenID configuration from that issuer: ") || !strings.Contains(got, "private or link-local") || !strings.Contains(got, settingLabelProviders) || strings.Contains(got, settingLabelMail) {
 			t.Fatalf("%d %q", code, got)
 		}
 	})
@@ -96,7 +96,7 @@ func TestTheAdministratorIsToldWhyAProviderOrMailServerCannotBeReachedWithoutThe
 		}
 		code, out = e.do(t, "POST", "/admin/smtp/test", url.Values{})
 		got := adminFlash(t, out)
-		if code != 303 || !strings.HasPrefix(got, "Could not send the test e-mail: ") || !strings.Contains(got, "private or link-local") {
+		if code != 303 || !strings.HasPrefix(got, "Could not send the test e-mail: ") || !strings.Contains(got, "private or link-local") || !strings.Contains(got, settingLabelMail) || strings.Contains(got, settingLabelProviders) {
 			t.Fatalf("test e-mail: %d %q", code, got)
 		}
 	})
@@ -114,43 +114,87 @@ func TestTheAdministratorIsToldWhyAProviderOrMailServerCannotBeReachedWithoutThe
 	})
 }
 
-func TestThePrivateNetworkSettingIsSavedViewedAndAppliedAtOnce(t *testing.T) {
+func TestThePrivateNetworkSettingsAreSeparateSavedViewedAndAppliedAtOnce(t *testing.T) {
 	ts, root, _ := newAuthServer(t)
 	srv := serverOf(ts)
 	signup(t, ts, root, "root")
-	if srv.allowPrivate() {
+	checked := func(name string) bool {
+		return strings.Contains(string(mustGet(t, root, ts.URL+"/admin")), `name="`+name+`" value="1" checked`)
+	}
+	save := func(form url.Values) {
+		t.Helper()
+		if msg := flashOf(t, post(t, root, ts.URL+"/admin/server", form)); !strings.Contains(msg, "saved") {
+			t.Fatalf("saving %v: flash %q", form, msg)
+		}
+	}
+	if srv.allowPrivateProviders() || srv.allowPrivateMail() {
 		t.Fatal("private addresses are allowed before anybody asked for it")
 	}
 
-	resp := post(t, root, ts.URL+"/admin/server", url.Values{"allow_private": {"1"}})
-	if msg := flashOf(t, resp); !strings.Contains(msg, "saved") {
-		t.Fatalf("saving: flash %q", msg)
+	save(url.Values{"allow_private_providers": {"1"}})
+	if !srv.allowPrivateProviders() || srv.allowPrivateMail() {
+		t.Fatalf("providers on: providers %v, mail %v", srv.allowPrivateProviders(), srv.allowPrivateMail())
 	}
-	if !srv.allowPrivate() || storedSetting(t, srv, settingAllowPrivate) != valueEnabled {
-		t.Fatalf("after turning it on: allowed %v, stored %q", srv.allowPrivate(), storedSetting(t, srv, settingAllowPrivate))
+	if storedSetting(t, srv, settingAllowPrivateProviders) != valueEnabled || storedSetting(t, srv, settingAllowPrivateMail) != valueDisabled {
+		t.Fatalf("stored %q and %q", storedSetting(t, srv, settingAllowPrivateProviders), storedSetting(t, srv, settingAllowPrivateMail))
 	}
-	if body := string(mustGet(t, root, ts.URL+"/admin")); !strings.Contains(body, `name="allow_private" value="1" checked`) {
-		t.Fatal("the Admin page does not show the setting as on")
-	}
-	// the guard asks the setting at each connection: a refused address is allowed from now on
-	if err := netguard.Check(mustAddr(t, "10.0.0.5"), srv.allowPrivate()); err != nil {
-		t.Fatalf("a private address after turning it on: %v", err)
-	}
-	if err := netguard.Check(mustAddr(t, "169.254.169.254"), srv.allowPrivate()); !errors.Is(err, netguard.ErrBlocked) {
-		t.Fatalf("the metadata address after turning it on: %v, want it refused still", err)
+	if !checked("allow_private_providers") || checked("allow_private_mail") {
+		t.Fatal("the Admin page does not show only the providers setting as on")
 	}
 
-	// an unchecked box turns it off again
-	resp = post(t, root, ts.URL+"/admin/server", url.Values{})
-	if msg := flashOf(t, resp); !strings.Contains(msg, "saved") {
-		t.Fatalf("saving: flash %q", msg)
+	save(url.Values{"allow_private_mail": {"1"}})
+	if srv.allowPrivateProviders() || !srv.allowPrivateMail() {
+		t.Fatalf("mail on: providers %v, mail %v", srv.allowPrivateProviders(), srv.allowPrivateMail())
 	}
-	if srv.allowPrivate() || storedSetting(t, srv, settingAllowPrivate) != valueDisabled {
-		t.Fatalf("after turning it off: allowed %v, stored %q", srv.allowPrivate(), storedSetting(t, srv, settingAllowPrivate))
+	if checked("allow_private_providers") || !checked("allow_private_mail") {
+		t.Fatal("the Admin page does not show only the mail setting as on")
 	}
-	if body := string(mustGet(t, root, ts.URL+"/admin")); strings.Contains(body, `name="allow_private" value="1" checked`) {
-		t.Fatal("the Admin page still shows the setting as on")
+
+	save(url.Values{"allow_private_providers": {"1"}, "allow_private_mail": {"1"}})
+	if !srv.allowPrivateProviders() || !srv.allowPrivateMail() || !checked("allow_private_providers") || !checked("allow_private_mail") {
+		t.Fatal("both on: not both applied and shown")
 	}
+	// each guard asks its own setting, and metadata stays refused whatever is chosen
+	if err := netguard.Check(mustAddr(t, "10.0.0.5"), srv.allowPrivateMail()); err != nil {
+		t.Fatalf("a private address with mail allowed: %v", err)
+	}
+	if err := netguard.Check(mustAddr(t, "169.254.169.254"), srv.allowPrivateProviders()); !errors.Is(err, netguard.ErrBlocked) {
+		t.Fatalf("the metadata address with providers allowed: %v, want it refused still", err)
+	}
+
+	save(url.Values{})
+	if srv.allowPrivateProviders() || srv.allowPrivateMail() || checked("allow_private_providers") || checked("allow_private_mail") {
+		t.Fatal("unchecked boxes did not turn both off")
+	}
+}
+
+// One setting must not open the other door: with the mail server allowed a provider on a private
+// address is still refused, and the other way round. Both refuse before connecting, so nothing is
+// contacted.
+func TestAllowingPrivateAddressesForOneKindOfConnectionDoesNotAllowTheOther(t *testing.T) {
+	t.Run("a private mail server does not open private providers", func(t *testing.T) {
+		e := newAdminEnv(t)
+		if code, out := e.do(t, "POST", "/admin/server", url.Values{"allow_private_mail": {"1"}}); code != 303 || !strings.Contains(adminFlash(t, out), "saved") {
+			t.Fatalf("saving: %d %q", code, out)
+		}
+		code, out := e.do(t, "POST", "/admin/providers", url.Values{"kind": {"oidc"}, "slug": {"g"}, "label": {"G"}, "client_id": {"c"}, "client_secret": {"s"}, "issuer": {"https://10.255.255.1"}})
+		if got := adminFlash(t, out); code != 303 || !strings.Contains(got, settingLabelProviders) {
+			t.Fatalf("%d %q, want the provider refused and the providers setting named", code, got)
+		}
+	})
+	t.Run("a private provider does not open a private mail server", func(t *testing.T) {
+		e := newAdminEnv(t)
+		if code, out := e.do(t, "POST", "/admin/server", url.Values{"allow_private_providers": {"1"}}); code != 303 || !strings.Contains(adminFlash(t, out), "saved") {
+			t.Fatalf("saving: %d %q", code, out)
+		}
+		if code, out := e.do(t, "POST", "/admin/smtp", url.Values{"host": {"10.255.255.1"}, "port": {"587"}, "from": {"DexaFix <noreply@example.com>"}}); code != 303 || !strings.Contains(adminFlash(t, out), "saved") {
+			t.Fatalf("saving the mail server: %d %q", code, out)
+		}
+		code, out := e.do(t, "POST", "/admin/smtp/test", url.Values{})
+		if got := adminFlash(t, out); code != 303 || !strings.Contains(got, settingLabelMail) {
+			t.Fatalf("%d %q, want the mail server refused and the mail setting named", code, got)
+		}
+	})
 }
 
 func mustAddr(t *testing.T, s string) netip.Addr {

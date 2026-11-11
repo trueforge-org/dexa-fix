@@ -49,7 +49,7 @@ you have not set one) in the header, which also has **Sign out**.
   - **Withings application**: the client ID, client secret and redirect URL.
   - **Network and retention**: the base URL, trusted proxies, the PROXY protocol,
     whether sign-in providers and the mail server may be on private network
-    addresses, how long the audit log is kept and the encryption key reminder. See
+    addresses (one setting for each), how long the audit log is kept and the encryption key reminder. See
     [Settings on the Admin page](02-configuration.md#settings-on-the-admin-page).
   - **E-mail**: the SMTP server for password reset e-mails, and a test e-mail.
   - **HTTPS, HTTP/2 and HTTP/3**: an optional HTTPS listener with a certificate.
