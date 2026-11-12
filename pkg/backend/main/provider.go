@@ -77,13 +77,31 @@ func (s *Backend) oidcContext(ctx context.Context) context.Context {
 func (s *Backend) oidcProvider(ctx context.Context, p models.AuthProvider) (*oidc.Provider, error) {
 	s.oidcMu.Lock()
 	defer s.oidcMu.Unlock()
+
 	if prov, ok := s.oidcCache[p.Issuer]; ok {
 		return prov, nil
 	}
-	prov, err := oidc.NewProvider(s.oidcContext(ctx), p.Issuer)
+
+	oidcCtx := s.oidcContext(ctx)
+	prov, err := oidc.NewProvider(oidcCtx, p.Issuer)
+
 	if err != nil {
-		return nil, err
+		var mismatch *oidc.IssuerMismatchError
+
+		// Retry only when the difference is a trailing slash.
+		if errors.As(err, &mismatch) &&
+			strings.TrimSuffix(mismatch.Provided, "/") ==
+				strings.TrimSuffix(mismatch.Discovered, "/") {
+
+			// Use the exact issuer advertised by the provider.
+			prov, err = oidc.NewProvider(oidcCtx, mismatch.Discovered)
+		}
+
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	s.oidcCache[p.Issuer] = prov
 	return prov, nil
 }
